@@ -30,5 +30,9 @@ class RemoteStaticFilesTests(unittest.TestCase):
         self.assertIn('ARGS+=(--ollama-model qwen2.5:1.5b',yaml)
         html=(ROOT/'remote/index.html').read_text(encoding='utf-8')
         self.assertIn('id="script_mode"',html)
+        self.assertIn('id="voice"',html)
+        self.assertIn('piper-tts==1.8.0',yaml)
+        self.assertIn('sha256sum --check',yaml)
+        self.assertIn('ARGS+=(--tts piper --piper-model',yaml)
 
 if __name__=='__main__':unittest.main()

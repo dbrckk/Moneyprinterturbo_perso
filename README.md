@@ -154,4 +154,15 @@ L'utilisateur peut également lancer manuellement le workflow dans GitHub Action
 
 Voir [l'audit du code réellement incorporé et des meilleurs dépôts de star-list](docs/STAR_LIST_PROVENANCE.md).
 
-Nouvelle version Android (scénario IA gratuit via Ollama) : https://phased-stream-788heth.shipstatic.com
+
+## Option voix neurale française (Piper SIWIS)
+
+Le studio distant et `free-video.yml` proposent désormais `voice=piper-fr-siwis`
+(français uniquement). Sur GitHub Actions, Piper 1.8.0 et le modèle français
+SIWIS medium sont téléchargés, la somme SHA-256 du modèle est vérifiée avant
+synthèse, puis le moteur MP4 existant réalise le montage. La voix utilise un
+jeu de données sous CC BY 4.0 : les crédits sont joints au MP4. En cas d'échec
+de téléchargement ou de modèle, la tâche échoue explicitement (pas de substitution
+silencieuse). eSpeak reste le choix par défaut.
+
+Voir [conditions, provenance, utilisation et limites](docs/PIPER_VOICE.md).

@@ -95,3 +95,27 @@ class PiperAudioTests(unittest.TestCase):
             self.assertEqual(info["speech_engine"], "piper")
             self.assertGreater(target.stat().st_size, 1000)
             self.assertEqual(target.with_suffix(".srt").read_text().count(" --> "), 1)
+
+
+class PiperAttributionTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires FFmpeg")
+    def test_unknown_piper_model_never_claims_cc_by_license(self):
+        import os
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            fake_model = work / "fr_FR-siwis-medium.onnx"
+            fake_model.write_bytes(b"not the verified model")
+            fake_model.with_suffix(".onnx.json").write_text("{}")
+            fake_bin = work / "piper"
+            fake_bin.write_text('#!/usr/bin/env python3\n'
+              'import sys, wave\n'
+              'with wave.open(sys.argv[4], "wb") as w:\n'
+              ' w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(b"\\0\\0"*16000)\n')
+            fake_bin.chmod(0o755)
+            video=work / "test.mp4"
+            with patch.dict(os.environ, {"PATH": str(work)+os.pathsep+os.environ.get("PATH","")}):
+                info=studio.render("Voice", "Bonjour le monde.", video, lang="fr", tts="piper", piper_model=fake_model, resolution=360, fps=12)
+            self.assertFalse(info["voice_model"]["license_verified"])
+            self.assertIn("not automatically verified", video.with_suffix(".credits.txt").read_text())
+            self.assertNotIn("License: https://creativecommons", video.with_suffix(".credits.txt").read_text())
+            self.assertEqual(info["speech_engine"], "piper")

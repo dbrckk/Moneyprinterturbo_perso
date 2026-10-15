@@ -1,0 +1,70 @@
+name: Real French Neural Voice Smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/neural-voice-smoke.yml
+      - free_studio.py
+      - .github/workflows/free-video.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  neural-french-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install free video and Piper runtime
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+          python -m pip install --disable-pip-version-check 'piper-tts==1.8.0'
+      - name: Download pinned voice and verify its identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          BASE='https://huggingface.co/rhasspy/piper-voices/resolve/d5de91c972ba5a13cea0e77a63fda1623faac2c1/fr/fr_FR/siwis/medium'
+          curl --fail --show-error --silent --location --retry 3 --max-time 300 \
+            "$BASE/fr_FR-siwis-medium.onnx" -o models/fr_FR-siwis-medium.onnx
+          curl --fail --show-error --silent --location --retry 3 --max-time 90 \
+            "$BASE/fr_FR-siwis-medium.onnx.json" -o models/fr_FR-siwis-medium.onnx.json
+          echo '641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99  models/fr_FR-siwis-medium.onnx' | sha256sum --check --status
+          python -c "import json; from pathlib import Path; d=json.loads(Path('models/fr_FR-siwis-medium.onnx.json').read_text()); assert d['language']['code']=='fr_FR'"
+          command -v piper
+      - name: Generate actual French narrated video on CPU
+        run: |
+          python free_studio.py --topic 'Paysages français' \
+            --script 'Une forêt tranquille s étend devant nous. Le soleil éclaire la montagne.' \
+            --lang fr --tts piper --piper-model models/fr_FR-siwis-medium.onnx \
+            --resolution 360 --fps 12 --output outputs/neural-preview.mp4
+      - name: Check streams, provenance and credits
+        run: |
+          test -s outputs/neural-preview.mp4
+          test -s outputs/neural-preview.srt
+          test -s outputs/neural-preview.credits.txt
+          ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/neural-preview.mp4 | grep -q '^h264$'
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/neural-preview.mp4 | grep -q '^aac$'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path('outputs/neural-preview.json').read_text(encoding='utf-8'))
+          assert d['speech_engine'] == 'piper'
+          assert d['voice_model']['license_verified'] is True
+          assert d['duration_seconds'] > 1
+          assert 'CC BY 4.0' in Path('outputs/neural-preview.credits.txt').read_text(encoding='utf-8')
+          PY
+      - name: Upload reviewable French neural preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: french-piper-neural-voice-preview
+          path: |
+            outputs/neural-preview.mp4
+            outputs/neural-preview.srt
+            outputs/neural-preview.json
+            outputs/neural-preview.credits.txt
+          retention-days: 7
+          if-no-files-found: error

@@ -7,6 +7,7 @@ identified deterministic outline is used so video rendering still works offline.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -24,6 +25,10 @@ PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
 ASPECTS = {"9:16": (9, 16), "16:9": (16, 9), "1:1": (1, 1)}
 LANG_VOICES = {"fr": "fr", "en": "en", "es": "es", "de": "de", "it": "it", "pt": "pt"}
+# Voice provenance is only claimed when model bytes match the reviewed upstream file.
+SIWIS_MEDIUM_SHA256 = "641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99"
+SIWIS_MEDIUM_CARD = ("https://huggingface.co/rhasspy/piper-voices/blob/"
+    "d5de91c972ba5a13cea0e77a63fda1623faac2c1/fr/fr_FR/siwis/medium/MODEL_CARD")
 
 
 def check_program(program: str) -> None:
@@ -348,17 +353,36 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "author": asset.author,
                                "search_query": queries[index] if queries else None})
         credits_path = output.with_suffix(".credits.txt")
+        voice_info = None
+        credits = ["ASSET & VOICE CREDITS — MoneyPrinterTurbo Perso", ""]
+        if audio is not None and tts == "piper" and piper_model is not None:
+            # Never assign a known CC BY license to an unverified, user-supplied model.
+            model = piper_model.expanduser().resolve()
+            with model.open("rb") as model_file:
+                digest = hashlib.file_digest(model_file, "sha256").hexdigest()
+            known = model.name == "fr_FR-siwis-medium.onnx" and digest == SIWIS_MEDIUM_SHA256
+            voice_info = {"model": model.name, "sha256": digest, "license_verified": known}
+            if known:
+                credits.append("Voice: Piper / SIWIS French medium (model and dataset SIWIS, CC BY 4.0).")
+                credits.append("Attribution: SIWIS speech dataset (University of Edinburgh).")
+                credits.append("License: https://creativecommons.org/licenses/by/4.0/")
+                credits.append("Source and provenance: " + SIWIS_MEDIUM_CARD)
+            else:
+                credits.append("Voice: Piper / " + model.name + " (model rights not automatically verified).")
+                credits.append("Verify and credit your own voice model before publication.")
+            credits.append("")
         if media_used:
-            credits = ["MEDIA SOURCES — MoneyPrinterTurbo Perso", "Local media: users must hold appropriate rights.", ""]
+            credits.append("MEDIA SOURCES: User-provided media must have appropriate rights.")
             credits.extend(f"Scene {item['segment']}: {item['title']} | Author: {item['author']} | "
                            f"License: {item['license']} | {item['source']}" for item in media_used)
+        if voice_info or media_used:
             credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
         else:
             credits_path.unlink(missing_ok=True)
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
-            "speech_engine": tts if not mute else "muted",
+            "speech_engine": tts if not mute else "muted", "voice_model": voice_info,
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used, "warnings": warnings,
         }

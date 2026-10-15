@@ -4,6 +4,7 @@ on:
     paths:
       - free_studio.py
       - media_assets.py
+      - .github/workflows/free-video.yml
       - studio_server.py
       - web/**
       - tests/**

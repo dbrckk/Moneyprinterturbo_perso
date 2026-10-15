@@ -29,8 +29,14 @@ on:
         required: false
         type: string
         default: ''
+      voice:
+        description: Voix gratuite (Piper neuronal actuellement en français uniquement)
+        required: true
+        type: choice
+        options: [espeak, piper-fr-siwis]
+        default: espeak
       speech_rate:
-        description: Vitesse de la voix eSpeak (mots/minute)
+        description: Vitesse de la voix eSpeak uniquement (mots/minute)
         required: true
         type: choice
         options: ['120', '145', '170']
@@ -89,6 +95,24 @@ jobs:
             sleep 2
           done
           ollama pull qwen2.5:1.5b
+      - name: Install and validate neural French voice (only when selected)
+        if: ${{ inputs.voice == 'piper-fr-siwis' }}
+        shell: bash
+        env:
+          LANG_SELECTION: ${{ inputs.lang }}
+        run: |
+          set -euo pipefail
+          if [[ "$LANG_SELECTION" != "fr" ]]; then echo 'Piper SIWIS supports French only.' >&2; exit 1; fi
+          python -m pip install --disable-pip-version-check 'piper-tts==1.8.0'
+          mkdir -p models
+          BASE='https://huggingface.co/rhasspy/piper-voices/resolve/d5de91c972ba5a13cea0e77a63fda1623faac2c1/fr/fr_FR/siwis/medium'
+          curl --fail --show-error --silent --location --retry 3 --max-time 300 \
+            "$BASE/fr_FR-siwis-medium.onnx" -o models/fr_FR-siwis-medium.onnx
+          curl --fail --show-error --silent --location --retry 3 --max-time 90 \
+            "$BASE/fr_FR-siwis-medium.onnx.json" -o models/fr_FR-siwis-medium.onnx.json
+          echo '641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99  models/fr_FR-siwis-medium.onnx' | sha256sum --check --status
+          python -c "import json; from pathlib import Path; d=json.loads(Path('models/fr_FR-siwis-medium.onnx.json').read_text()); assert d['language']['code']=='fr_FR'"
+          command -v piper
       - name: Generate actual narrated MP4
         env:
           TOPIC: ${{ inputs.topic }}
@@ -100,6 +124,7 @@ jobs:
           VISUAL_MODE: ${{ inputs.visuals }}
           SCENE_QUERIES: ${{ inputs.scene_queries }}
           SPEECH_RATE: ${{ inputs.speech_rate }}
+          VOICE: ${{ inputs.voice }}
         run: |
           ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
           if [[ -n "$SCRIPT_TEXT" ]]; then
@@ -109,6 +134,12 @@ jobs:
             ARGS+=(--script "$SCRIPT_TEXT")
           elif [[ "$SCRIPT_MODE" == "local-ai" ]]; then
             ARGS+=(--ollama-model qwen2.5:1.5b --ollama-url http://127.0.0.1:11434)
+          fi
+          if [[ "$VOICE" == "piper-fr-siwis" ]]; then
+            if [[ "$LANG" != "fr" ]]; then echo 'Piper SIWIS only supports fr.' >&2; exit 1; fi
+            ARGS+=(--tts piper --piper-model models/fr_FR-siwis-medium.onnx)
+          elif [[ "$VOICE" != "espeak" ]]; then
+            echo 'Unknown speech engine' >&2; exit 1
           fi
           if [[ "$VISUAL_MODE" == "commons" ]]; then ARGS+=(--commons); fi
           if [[ -n "$SCENE_QUERIES" ]]; then ARGS+=(--scene-queries "$SCENE_QUERIES"); fi
