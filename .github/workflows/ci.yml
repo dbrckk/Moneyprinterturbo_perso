@@ -24,3 +24,18 @@ jobs:
         run: python -m compileall -q free_studio.py tests
       - name: Real audio and video smoke tests
         run: python -m unittest discover -s tests -v
+      - name: Render reviewable French sample
+        run: |
+          python free_studio.py \
+            --topic "Réduire la consommation d'énergie" \
+            --script "Débranchez les appareils que vous n'utilisez pas. Ajustez le chauffage à vos besoins. Comparez les consommations avant de remplacer un équipement." \
+            --lang fr --resolution 360 --fps 12 --output outputs/ci-preview.mp4
+      - name: Attach real preview video for visual review
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-studio-ci-preview
+          path: |
+            outputs/ci-preview.mp4
+            outputs/ci-preview.json
+          retention-days: 7
+          if-no-files-found: error
