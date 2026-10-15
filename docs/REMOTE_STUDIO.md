@@ -1,6 +1,6 @@
 # Remote Studio — Android sans serveur payant
 
-Le site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.
+**URL du site : https://obscured-flow-79hb6mw.shipstatic.com** (publication vérifiée par le service d'hébergement le 15 octobre 2026).\n\nLe site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.
 
 ## Mode d'emploi Android
 
