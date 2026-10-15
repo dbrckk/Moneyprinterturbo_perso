@@ -1,0 +1,62 @@
+name: Générer une vidéo gratuite
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: Sujet de la vidéo
+        required: true
+        type: string
+        default: Les économies d'énergie
+      lang:
+        description: Langue et voix
+        required: true
+        type: choice
+        options: [fr, en, es, de, it, pt]
+        default: fr
+      aspect:
+        description: Format vidéo
+        required: true
+        type: choice
+        options: ['9:16', '16:9', '1:1']
+        default: '9:16'
+      resolution:
+        description: Résolution du petit côté en pixels
+        required: true
+        type: choice
+        options: ['360', '720', '1080']
+        default: '720'
+permissions:
+  contents: read
+jobs:
+  create-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install free render dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Generate actual narrated MP4
+        env:
+          TOPIC: ${{ inputs.topic }}
+          LANG: ${{ inputs.lang }}
+          ASPECT: ${{ inputs.aspect }}
+          RESOLUTION: ${{ inputs.resolution }}
+        run: |
+          python free_studio.py --topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --output outputs/video.mp4
+      - name: Verify output contains video and audio streams
+        run: |
+          test -s outputs/video.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^h264$'
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^aac$'
+      - name: Downloadable MP4
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-studio-video
+          path: |
+            outputs/video.mp4
+            outputs/video.json
+          retention-days: 7
+          if-no-files-found: error

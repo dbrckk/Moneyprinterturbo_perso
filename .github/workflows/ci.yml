@@ -1,0 +1,26 @@
+name: Free Studio CI
+on:
+  push:
+    paths:
+      - free_studio.py
+      - tests/**
+      - .github/workflows/ci.yml
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install free render dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Static compilation
+        run: python -m compileall -q free_studio.py tests
+      - name: Real audio and video smoke tests
+        run: python -m unittest discover -s tests -v

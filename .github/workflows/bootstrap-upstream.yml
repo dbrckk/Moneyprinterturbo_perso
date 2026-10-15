@@ -1,0 +1,38 @@
+name: Import MoneyPrinterTurbo upstream (MIT)
+on:
+  push:
+    paths:
+      - .github/workflows/bootstrap-upstream.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Snapshot upstream source and preserve licensing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f upstream/.upstream-commit; then
+            echo 'Upstream snapshot already imported; skip to avoid accidental overwrite.'
+            exit 0
+          fi
+          git clone --depth 1 --single-branch https://github.com/harry0703/MoneyPrinterTurbo.git /tmp/mpt-upstream
+          SRC_SHA="$(git -C /tmp/mpt-upstream rev-parse HEAD)"
+          mkdir -p upstream
+          # Ignore the original repository's automated workflows and ambiguous
+          # non-free third-party bundled songs/fonts, retaining the source tree.
+          tar -C /tmp/mpt-upstream -cf - \
+            --exclude=.git --exclude=.github/workflows \
+            --exclude=resource/songs --exclude=resource/fonts . | tar -C upstream -xf -
+          printf '%s\n' "$SRC_SHA" > upstream/.upstream-commit
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add upstream
+          git commit -m "vendor: import pinned upstream MIT sources ($SRC_SHA)"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

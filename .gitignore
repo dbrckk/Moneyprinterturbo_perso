@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+config.toml
+outputs/
+*.partial.mp4
+.DS_Store
+.pytest_cache/
