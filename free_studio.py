@@ -296,6 +296,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         (work / "brand.txt").write_text("MONEYPRINTER  /  FREE STUDIO", encoding="utf-8")
         filters.append(f"drawtext=textfile=brand.txt:fontcolor=0x97cfcf:fontsize={max(10,width//45)}:x=(w-text_w)/2:y=h*0.12")
         for i, segment in enumerate(segments):
+            if slots[i] is not None:
+                # Full narration is already in the lower-third subtitles.
+                # Do not duplicate it as a giant title over a real photo/video.
+                continue
             start, end = segment["start"], segment["end"]
             heading = " ".join(str(segment["text"]).rstrip(".!?…").split()[:8])
             heading_size = max(17, width // 20)
