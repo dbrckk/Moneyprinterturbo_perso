@@ -1,7 +1,13 @@
 name: Générer une vidéo gratuite
+run-name: "Free Studio · ${{ inputs.request_id }}"
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: Identifiant du studio web (laisser vide depuis GitHub)
+        required: false
+        type: string
+        default: ""
       topic:
         description: Sujet de la vidéo
         required: true

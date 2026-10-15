@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080c17">
+  <meta name="description" content="MoneyPrinterTurbo Perso — studio vidéo gratuit, sans serveur de rendu payant, piloté depuis Android.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.github.com; font-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./style.css">
+  <title>MoneyPrinterTurbo · Remote Studio</title>
+  <script type="module" src="./main.mjs"></script>
+</head>
+<body>
+  <div class="ambient ambient-a" aria-hidden="true"></div><div class="ambient ambient-b" aria-hidden="true"></div>
+  <header class="topbar shell">
+    <div class="brand"><div class="brand-icon" aria-hidden="true">M</div><div><strong>MoneyPrinter<span>Turbo</span></strong><small>REMOTE STUDIO <span class="free-pill">100% logiciel gratuit</span></small></div></div>
+    <a id="repo-link" class="top-action" href="https://github.com/dbrckk/Moneyprinterturbo_perso" target="_blank" rel="noopener noreferrer">Voir GitHub ↗</a>
+  </header>
+  <main class="shell">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> STUDIO CONNECTÉ À GITHUB ACTIONS</div>
+        <h1 id="hero-title">Une idée. <em>Une vidéo.</em><br>Sans abonnement.</h1>
+        <p>Écris ton scénario, configure le rendu et lance la création d'un vrai MP4 depuis ton téléphone. Le calcul s'effectue dans GitHub Actions, pas sur ton Android.</p>
+        <div class="hero-facts"><span>◈ Formats Shorts / Reels</span><span>◈ Voix française incluse</span><span>◈ Export MP4 + SRT</span></div>
+      </div>
+      <div class="preview-mock" aria-label="Présentation des étapes de fabrication"><div class="preview-top"><span class="preview-tag">APERÇU DU PROCESSUS</span><span>9:16</span></div>
+        <div class="mock-film"><span class="mock-star">✦</span><span class="mock-title">YOUR NEXT<br><i>STORY</i></span><span class="mock-caption">SCÉNARIO → VOIX → IMAGES → VIDÉO</span></div>
+        <div class="preview-progress"><span></span><span></span><span></span><span></span></div>
+        <div class="preview-bottom"><span>01 Scénario</span><span>02 Narration</span><span>03 Export</span></div>
+      </div>
+    </section>
+    <div class="columns">
+      <section class="panel editor-panel" aria-labelledby="editor-title">
+        <div class="section-head"><div><span class="number">01 / CRÉATION</span><h2 id="editor-title">Nouveau projet</h2></div><span class="panel-kicker">Création guidée</span></div>
+        <form id="video-form" novalidate>
+          <div class="field"><label for="topic">Sujet de la vidéo <span class="required">*</span></label>
+            <input id="topic" name="topic" type="text" minlength="2" maxlength="140" value="Les secrets des paysages français" placeholder="Ex. Les inventions qui ont changé le monde" required>
+            <small>L'idée centrale, en 2 à 140 caractères.</small></div>
+          <div class="field"><div class="field-heading"><label for="script">Narration personnalisée</label><button id="make-outline" class="subtle-button" type="button">Utiliser un canevas</button></div>
+            <textarea id="script" name="script" rows="6" maxlength="5000" placeholder="Rédige chaque phrase à prononcer. Chaque phrase devient une scène..." spellcheck="true"></textarea>
+            <div class="count-line"><small>Vide = scénario générique automatique (ce n'est pas une IA).</small><span id="script-count">0 / 5000</span></div></div>
+          <div class="section-mini">PARAMÈTRES DE SORTIE</div>
+          <div class="form-grid">
+            <div class="field"><label for="aspect">Format</label><select id="aspect" name="aspect"><option value="9:16">Vertical · 9:16</option><option value="16:9">Horizontal · 16:9</option><option value="1:1">Carré · 1:1</option></select></div>
+            <div class="field"><label for="resolution">Qualité</label><select id="resolution" name="resolution"><option value="360">Aperçu · 360p</option><option value="720" selected>HD · 720p</option><option value="1080">Full HD · 1080p</option></select></div>
+            <div class="field"><label for="lang">Langue</label><select id="lang" name="lang"><option value="fr">Français</option><option value="en">English</option><option value="es">Español</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="pt">Português</option></select></div>
+            <div class="field"><label for="speech_rate">Débit vocal</label><select id="speech_rate" name="speech_rate"><option value="120">Lent · 120 mots/min</option><option value="145" selected>Normal · 145</option><option value="170">Rapide · 170</option></select></div>
+          </div>
+          <fieldset class="visuals"><legend>Habillage visuel</legend>
+            <label class="radio-card"><input type="radio" name="visuals" value="commons" checked><span class="radio-symbol">▧</span><span><strong>Images libres</strong><small>Wikimedia Commons · Domaine public/CC0 · avec crédits</small></span></label>
+            <label class="radio-card"><input type="radio" name="visuals" value="abstract"><span class="radio-symbol">◉</span><span><strong>Graphisme original</strong><small>Sans accès externe · Fonds animés et typographie</small></span></label>
+          </fieldset>
+          <details class="advanced" id="advanced"><summary>Mots-clés visuels par scène <span>OPTIONNEL</span></summary>
+            <div class="field"><label for="scene_queries">Une recherche par scène, séparée par |</label><textarea id="scene_queries" name="scene_queries" rows="2" placeholder="montagne | forêt | océan"></textarea><small>Renseigne d'abord la narration : chaque phrase donne une scène. Disponible avec Wikimedia Commons.</small></div>
+          </details>
+          <div class="scene-preview"><div class="scene-title"><strong>Découpage des scènes</strong><span id="scene-count">Scénario automatique</span></div><ol id="scenes" class="scenes"><li>Ajoute une narration pour prévisualiser tes scènes.</li></ol></div>
+          <div id="form-feedback" role="alert" class="feedback" hidden></div>
+          <button id="launch" class="primary-button" type="submit"><span>Générer ma vidéo</span><span aria-hidden="true">↗</span></button>
+          <p class="footnote">GitHub Actions : quotas et règles d'utilisation applicables. Le rendu est différé ; garde le lien de l'exécution.</p>
+        </form>
+      </section>
+      <aside class="side-column">
+        <section class="panel connect-panel" aria-labelledby="connect-title">
+          <div class="section-head"><div><span class="number">02 / CONNEXION</span><h2 id="connect-title">Connexion GitHub</h2></div><div class="secure-icon" aria-hidden="true">⌁</div></div>
+          <p class="side-intro">Un jeton GitHub limité aux Actions du dépôt permet de démarrer les rendus depuis cette page. Il ne sera jamais enregistré.</p>
+          <div class="field"><label for="token">Jeton GitHub à permissions minimales</label><input type="password" id="token" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></div>
+          <div class="token-actions"><button type="button" id="forget-token" class="subtle-button">Effacer le jeton</button><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">Créer un jeton ↗</a></div>
+          <div class="security-note"><strong>Configuration conseillée</strong><span>Fine-grained token → dépôt <code>Moneyprinterturbo_perso</code> uniquement → permission <code>Actions: Read and write</code>. Expiration courte.</span></div>
+        </section>
+        <section class="panel status-panel" aria-labelledby="status-title">
+          <div class="section-head"><div><span class="number">03 / SUIVI</span><h2 id="status-title">Production</h2></div><span id="status-indicator" class="status-chip">Prêt</span></div>
+          <p id="status-copy" class="status-copy" role="status" aria-live="polite">Configure un projet et lance ton premier rendu.</p>
+          <div id="run-actions" class="run-actions" hidden><a id="run-link" href="https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml" target="_blank" rel="noopener noreferrer" class="outline-button">Ouvrir le rendu sur GitHub ↗</a><button id="refresh" type="button" class="subtle-button">Actualiser</button></div>
+          <div class="history-header"><strong>Dernières demandes sur cet appareil</strong><button type="button" id="clear-history" class="subtle-button">Effacer</button></div>
+          <ul id="history" class="history"><li class="empty-history">Aucune demande mémorisée.</li></ul>
+          <a id="all-runs" class="all-runs" href="https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml" target="_blank" rel="noopener noreferrer">Toutes les exécutions GitHub ↗</a>
+        </section>
+        <div class="clarity"><span aria-hidden="true">◎</span><p><strong>À quoi sert ce site ?</strong> L'interface est hébergée gratuitement ; les MP4 sont calculés par GitHub Actions. Pas de serveur vidéo permanent ni d'API d'IA payante. Un compte GitHub reste nécessaire pour lancer les rendus.</p></div>
+      </aside>
+    </div>
+  </main>
+  <footer class="footer shell"><span>© MoneyPrinterTurbo Perso · Studio communautaire</span><span>Projet open source · <a href="https://github.com/harry0703/MoneyPrinterTurbo" target="_blank" rel="noopener noreferrer">Projet original MIT ↗</a></span></footer>
+</body>
+</html>

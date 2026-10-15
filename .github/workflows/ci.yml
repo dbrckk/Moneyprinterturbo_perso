@@ -8,6 +8,9 @@ on:
       - web/**
       - tests/**
       - .github/workflows/ci.yml
+      - remote/**
+      - tests/test_remote_core.mjs
+      - tests/test_remote_files.py
   pull_request:
   workflow_dispatch:
 permissions:
@@ -23,6 +26,15 @@ jobs:
           python-version: '3.11'
       - name: Install free render dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate browser JavaScript and remote API contracts
+        run: |
+          node --check remote/core.mjs
+          node --check remote/main.mjs
+          node --test tests/test_remote_core.mjs
       - name: Static compilation
         run: python -m compileall -q free_studio.py media_assets.py studio_server.py tests
       - name: Validate browser JavaScript syntax
