@@ -10,6 +10,7 @@ export const RESOLUTIONS = Object.freeze(['360', '720', '1080']);
 export const SPEECH_RATES = Object.freeze(['120', '145', '170']);
 export const SCRIPT_MODES = Object.freeze(['template', 'local-ai']);
 export const VOICES = Object.freeze(['espeak', 'piper-fr-siwis']);
+export const VISUAL_STYLES = Object.freeze(['cinematic', 'classic']);
 
 export function segmentsOf(script) {
   if (typeof script !== 'string') return [];
@@ -42,10 +43,12 @@ export function validateDraft(values) {
   const sceneQueries = String(values.scene_queries ?? '').trim();
   const scriptMode = String(values.script_mode ?? 'template');
   const voice = String(values.voice ?? 'espeak');
+  const visualStyle = String(values.visual_style ?? 'cinematic');
   if (topic.length < 2 || topic.length > 140 || /[\r\n]/.test(topic)) throw new Error('Le sujet doit contenir 2 à 140 caractères sur une seule ligne.');
   if (script.length > 5000) throw new Error('La narration ne peut pas dépasser 5 000 caractères.');
   if (!SCRIPT_MODES.includes(scriptMode)) throw new Error('Mode de scénario invalide.');
   if (!VOICES.includes(voice)) throw new Error('Moteur vocal invalide.');
+  if (!VISUAL_STYLES.includes(visualStyle)) throw new Error('Habillage visuel invalide.');
   if (voice === 'piper-fr-siwis' && values.lang !== 'fr') throw new Error('La voix Piper SIWIS est disponible uniquement en français.');
   if (script && scriptMode === 'local-ai') throw new Error('Vide la narration pour activer la véritable IA locale, ou sélectionne le mode canevas.');
   const parts = script ? segmentsOf(script) : [];
@@ -62,7 +65,7 @@ export function validateDraft(values) {
       || !SPEECH_RATES.includes(values.speech_rate) || !['commons', 'abstract'].includes(values.visuals)) {
     throw new Error('Configuration vidéo invalide.');
   }
-  return { topic, script, script_mode: scriptMode, voice, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
+  return { topic, script, script_mode: scriptMode, voice, visual_style: visualStyle, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
     resolution: values.resolution, speech_rate: values.speech_rate, visuals: values.visuals };
 }
 

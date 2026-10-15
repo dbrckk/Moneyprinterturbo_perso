@@ -20,6 +20,7 @@ import textwrap
 from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
+from cinematic import build_filters, gradient_source
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -195,7 +196,7 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     frames = max(1, round(duration * fps))
     if asset is None:
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-               "-i", f"color=c={PALETTE[index % len(PALETTE)]}:s={width}x{height}:r={fps}"]
+               "-i", gradient_source(index, width, height, fps)]
         effect = "format=yuv420p"
     elif asset.kind == "image":
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1",
@@ -237,11 +238,14 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            resolution: int = 720, mute: bool = False, fps: int = 24,
            media_dir: Path | None = None, commons: bool = False,
            scene_queries: list[str] | None = None, tts: str = "espeak",
-           piper_model: Path | None = None, speech_rate: int = 145) -> dict[str, object]:
+           piper_model: Path | None = None, speech_rate: int = 145,
+           visual_style: str = "cinematic") -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
         raise ValueError("Frame rate must be 1–60")
+    if visual_style not in ("cinematic", "classic"):
+        raise ValueError("Unsupported visual style")
     if aspect not in ASPECTS or resolution not in (360, 720, 1080) or lang not in LANG_VOICES:
         raise ValueError("Unsupported aspect, resolution or voice language")
     sentences = split_script(script)
@@ -280,49 +284,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         using_media = any(item is not None for item in slots)
         # Composite images and abstract fallbacks in timeline order to prevent
         # a single lost Commons result from failing or mislabelling a scene.
-        video_background = (prepare_media_background(slots, durations, work, width=width,
-                            height=height, fps=fps) if using_media else None)
-        filters = ["format=yuv420p"]
-        if using_media:
-            # Preserve the photo's details while improving caption legibility.
-            filters.append("drawbox=x=0:y=0:w=iw:h=ih:color=0x06101e@0.30:t=fill")
-        else:
-            # Deterministic fallback if no stock or user media can be used.
-            for i, segment in enumerate(segments):
-                start, end = segment["start"], segment["end"]
-                color = PALETTE[i % len(PALETTE)]
-                filters.append(f"drawbox=x=0:y=0:w=iw:h=ih:color={color}:t=fill:enable='between(t,{start},{end})'")
-        filters += [
-            "drawgrid=w=110:h=110:t=1:color=white@0.025",
-            "drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.23:color=0x040915@0.20:t=fill",
-            f"drawbox=x=0:y=0:w=iw:h={max(5,height//115)}:color=0x42e8d6:t=fill",
-            f"drawbox=x={int(width*.09)}:y={int(height*.285)}:w={max(5,width//70)}:h={int(height*.19)}:color=0x42e8d6:t=fill",
-        ]
-        (work / "brand.txt").write_text("MONEYPRINTER  /  FREE STUDIO", encoding="utf-8")
-        filters.append(f"drawtext=textfile=brand.txt:fontcolor=0x97cfcf:fontsize={max(10,width//45)}:x=(w-text_w)/2:y=h*0.12")
-        for i, segment in enumerate(segments):
-            if slots[i] is not None:
-                # Full narration is already in the lower-third subtitles.
-                # Do not duplicate it as a giant title over a real photo/video.
-                continue
-            start, end = segment["start"], segment["end"]
-            heading = " ".join(str(segment["text"]).rstrip(".!?…").split()[:8])
-            heading_size = max(17, width // 20)
-            max_chars = max(11, int(width * 0.74 / (heading_size * 0.60)))
-            lines = textwrap.wrap(heading, width=max_chars, break_long_words=True, break_on_hyphens=False)[:4]
-            (work / f"heading_{i}.txt").write_text("\n".join(lines), encoding="utf-8")
-            filters.append(
-                f"drawtext=textfile=heading_{i}.txt:fontcolor=white:fontsize={heading_size}:line_spacing={max(5,heading_size//3)}:"
-                f"x=(w-text_w)/2:y=h*0.38:enable='between(t,{start},{end})'"
-            )
+        # Animated gradient for each absent media scene; even offline renders move.
+        video_background = prepare_media_background(slots, durations, work,
+            width=width, height=height, fps=fps)
+        filters = build_filters(segments, slots, work, width=width,
+                                height=height, total=total, style=visual_style)
         subtitle_size = max(13, int(width / 34))
         filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
-        if using_media:
-            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
-        else:
-            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                   f"color=c=0x0b1025:s={width}x{height}:r={fps}:d={total:.3f}"]
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
         if audio:
             cmd += ["-i", str(audio)]
         cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
@@ -382,7 +352,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
-            "speech_engine": tts if not mute else "muted", "voice_model": voice_info,
+            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "voice_model": voice_info,
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used, "warnings": warnings,
         }
@@ -402,6 +372,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--aspect", choices=sorted(ASPECTS), default="9:16")
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
+    parser.add_argument("--visual-style", choices=["cinematic", "classic"],
+                        default="cinematic", help="Animated cinematic look or classic titles")
     parser.add_argument("--mute", action="store_true", help="Render without synthetic voice")
     parser.add_argument("--media-dir", type=Path, help="Directory of licensed local images or videos")
     parser.add_argument("--commons", action="store_true", help="Search Wikimedia Commons per scene for CC0/public-domain photos")
@@ -432,7 +404,8 @@ def main(argv: list[str] | None = None) -> int:
                       resolution=args.resolution, fps=args.fps, mute=args.mute,
                       media_dir=args.media_dir, commons=args.commons,
                       scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
-                      tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate)
+                      tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
+                      visual_style=args.visual_style)
         info["script_mode"] = mode
         Path(info["output"]).with_suffix(".json").write_text(
             json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

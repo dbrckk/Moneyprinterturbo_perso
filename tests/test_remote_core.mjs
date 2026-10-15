@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, safeError} from '../remote/core.mjs';
-const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons'};
+const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_style:'cinematic'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
   assert.deepEqual(segmentsOf('Bonjour. Salut !\nNouveau paragraphe.'),['Bonjour.','Salut !','Nouveau paragraphe.']);
@@ -49,4 +49,12 @@ test('neural voice is limited to French and carried to workflow input',()=>{
   assert.throws(()=>validateDraft({...voiced,lang:'en'}),/uniquement en français/);
   assert.throws(()=>validateDraft({...voiced,voice:'cloud-premium'}),/Moteur vocal invalide/);
   assert.equal(validateDraft({...valid,voice:undefined}).voice,'espeak');
+});
+
+
+test('visual style is validated and dispatched',()=>{
+  assert.equal(validateDraft({...valid,visual_style:'cinematic'}).visual_style,'cinematic');
+  assert.equal(dispatchBody({...valid,visual_style:'classic'},uid).inputs.visual_style,'classic');
+  assert.throws(()=>validateDraft({...valid,visual_style:'unknown'}),/Habillage visuel invalide/);
+  assert.equal(validateDraft({...valid,visual_style:undefined}).visual_style,'cinematic');
 });

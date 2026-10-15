@@ -2,7 +2,7 @@ import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
 
 const $ = id => document.getElementById(id);
-const controls = ['topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
+const controls = ['visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
 const DRAFT_KEY = 'mpt-remote-draft-v1';
 const HISTORY_KEY = 'mpt-remote-jobs-v1';
 const statusLabels = {queued:'En attente', in_progress:'Rendu en cours', completed:'Terminé', waiting:'En attente', requested:'Demande envoyée'};

@@ -168,3 +168,23 @@ de téléchargement ou de modèle, la tâche échoue explicitement (pas de subst
 silencieuse). eSpeak reste le choix par défaut.
 
 Voir [conditions, provenance, utilisation et limites](docs/PIPER_VOICE.md).
+
+
+## Animations cinématiques — édition Android et CLI
+
+Le moteur FFmpeg dessine des fonds en dégradé lentement animés, une barre de progression
+scène par scène, des titres temporisés avec fondu et des compteurs discrets.
+La photographie reste lisible : pas de titre central redondant si un média est présent.
+La vidéo est rendue sans API payante, sans GPU et sans modèle supplémentaire.
+
+Choisir **Style graphique : Cinématique** sur Android, ou utiliser :
+
+```bash
+python3 free_studio.py --topic 'Voyage' --script 'La lumière arrive. La forêt se réveille.' --visual-style cinematic --output outputs/voyage.mp4
+python3 free_studio.py --topic 'Voyage' --visual-style classic --output outputs/basique.mp4
+```
+
+Le fichier JSON de sortie documente `visual_style`. La source FFmpeg `gradients`
+est nécessaire ; elle est incluse dans FFmpeg sur Ubuntu GitHub Actions.
+`motion-canvas/motion-canvas` (dans star-list) reste une **référence de conception**,
+son code n'a pas été incorporé.
