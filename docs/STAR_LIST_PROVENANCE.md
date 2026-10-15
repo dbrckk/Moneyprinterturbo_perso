@@ -19,9 +19,9 @@
 
 | Priorité | Dépôt | Note `star-list` | Utilité / décision |
 | --- | --- | ---: | --- |
-| 1 | [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) | 9,4 | Explorer TTS plus naturel. Extension optionnelle tant qu'exécution CPU, langues, licence des poids et qualité ne sont pas démontrées. |
+| 1 | [OpenBMB/VoxCPM](https://github.com/OpenBMB/VoxCPM) | 9,4 | Explorer une TTS française plus naturelle. VoxCPM2 annonce le français parmi 30 langues et des poids/code Apache-2.0 ; la vitesse CPU et la qualité réelle restent à mesurer sur nos runners. |
 | 2 | [motion-canvas/motion-canvas](https://github.com/motion-canvas/motion-canvas) | 9,5 | Graphismes animés modernes, titres et transitions programmatiques ; exporter des éléments compatibles avec le pipeline FFmpeg, sans réécrire le moteur. MIT. |
-| 3 | [OpenCut-app/OpenCut](https://github.com/OpenCut-app/OpenCut) | 8,2 | Édition multi-piste et timeline web ; inspecter code, architecture et sécurité avant réutilisation. MIT recensée dans star-list. |
+| 3 | [OpenCut-app/OpenCut](https://github.com/OpenCut-app/OpenCut) | 8,2 | La branche principale d'OpenCut est en réécriture : ne pas l'intégrer comme éditeur prêt à l'emploi. Comparer avec opencut-classic (version précédente) avant une intégration ; vérifier compatibilité et licences. |
 | 4 | [RayVentura/ShortGPT](https://github.com/RayVentura/ShortGPT) | 8,0 | Inspirations de séquençage et sélection des médias ; comparaison fonctionnelle avant adaptation. MIT. |
 | 5 | [microsoft/playwright](https://github.com/microsoft/playwright) | 9,8 | Tests automatiques d'interface sur Android/desktop en CI ; ne nécessite aucune intégration en production. Apache-2.0. |
 | 6 | [huggingface/transformers](https://github.com/huggingface/transformers) | 9,9 | Exécution locale d'autres petits modèles si Ollama devient bloquant ; actuellement inutile de doubler les dépendances. Apache-2.0. |
