@@ -99,3 +99,41 @@ le mode local ne prétend pas en vérifier automatiquement les droits.
 En présence d’une vraie photo/vidéo, la narration n’est plus dupliquée en un
 grand titre au milieu de l’image : seuls les sous-titres et les éléments
 d’habillage restent affichés. Les scènes sans médias conservent le titre.
+
+
+## Interface web mobile — studio local
+
+Le **studio web** partage le même moteur de rendu gratuit (`free_studio.py`). Il ne dépend ni de Node, ni de FastAPI, ni d’un fournisseur cloud. Il permet : édition de scénario, brouillon explicite non-IA (ou Ollama local si configuré), recherche Wikimedia par scène, voix eSpeak ou Piper installé, format, résolution, suivi des rendus, annulation, aperçu et téléchargement MP4/SRT/JSON/crédits. Les rendus sont traités **un par un** et les fichiers sont conservés dans `outputs/web/`.
+
+Sur un ordinateur Linux (Python 3.11+), depuis la racine du dépôt :
+
+```bash
+sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+python3 studio_server.py
+```
+
+Ouvrir ensuite **http://127.0.0.1:8765** depuis cet ordinateur. Pour écrire les brouillons avec une vraie IA **locale**, installer Ollama et un modèle, puis démarrer avec `python3 studio_server.py --ollama-model llama3.2:1b`. Sans ce paramètre, le brouillon est déterministe (non-IA). La présence d'un modèle Piper local peut être signalée avec `--piper-model /chemin/voix.onnx` (fichier `.onnx.json` adjacent obligatoire).
+
+### Depuis Android sur le même réseau Wi-Fi
+
+L'ordinateur doit rester **allumé et accessible sur le même réseau local** : une page web statique ne peut pas rendre un MP4 sans moteur actif. Pour activer l'accès LAN, générer un jeton aléatoire de 32 caractères minimum et lancer :
+
+```bash
+export MPT_STUDIO_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+printf 'Jeton de cette session : %s\n' "$MPT_STUDIO_TOKEN"
+python3 studio_server.py --host 0.0.0.0 --port 8765
+```
+
+Depuis Android, ouvrir `http://IP_LOCALE_DU_PC:8765`, puis coller le jeton dans l'interface. Vérifier au besoin l'adresse IP du PC avec `hostname -I` (Linux). **N'ouvrez pas le port 8765 sur Internet** : le mode LAN utilise HTTP sans chiffrement ; il est réservé à un Wi-Fi de confiance. Le jeton est conservé uniquement dans le stockage de session du navigateur, jamais dans les URLs. Par défaut, l'interface écoute seulement sur la boucle locale.
+
+Pour utiliser vos images et clips autorisés, ajouter `--media-dir /chemin/vers/medias` au lancement et choisir « Médias locaux » dans l'interface. Les fichiers ne sont jamais envoyés vers un fournisseur externe. Pour exécuter le rendu **uniquement depuis Android, sans ordinateur ni serveur**, le workflow GitHub Actions « Générer une vidéo gratuite » reste disponible, mais le studio web local n'est pas hébergé en permanence sur GitHub Pages.
+
+### Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q free_studio.py media_assets.py studio_server.py tests
+node --check web/app.js   # si Node.js est installé
+```
+
+Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des paramètres, l'authentification, le contrôle d'origine, les protections contre la traversée de chemins et la création d'un MP4 téléchargeable. Il n'y a pas de service cloud caché.

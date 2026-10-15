@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101420">
+  <meta name="description" content="Studio local et gratuit de génération vidéo.">
+  <title>MoneyPrinter Turbo · Studio</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="MoneyPrinter Turbo Studio">
+        <span class="mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span><strong>MONEYPRINTER</strong><small>TURBO / FREE STUDIO</small></span>
+      </a>
+      <div class="top-right"><span class="dot" aria-hidden="true"></span><span id="connection">Vérification…</span><span class="tag">LOCAL · 0 €</span></div>
+    </header>
+    <main>
+      <div class="intro"><div><span class="eyebrow">STUDIO DE CRÉATION VIDÉO</span><h1>Vos idées.<br><em>En mouvement.</em></h1><p>Scénario, voix, visuels et montage. Un flux de production complet, sans API payante.</p></div>
+        <div class="highlights" aria-label="Capacités"><div><strong>03</strong><span>FORMATS</span></div><div><strong>100%</strong><span>LOCAL</span></div><div><strong>MP4</strong><span>EXPORT</span></div></div>
+      </div>
+      <div id="auth" class="notice auth hidden"><div><strong>Serveur protégé</strong><span>Entrez le jeton défini lors du lancement pour accéder aux projets.</span></div><form id="auth-form"><input id="token" type="password" autocomplete="off" placeholder="Jeton du serveur" required><button type="submit" class="small-button">Valider</button></form></div>
+      <div class="workspace">
+        <section class="panel editor" aria-labelledby="editor-title">
+          <div class="section-heading"><div><span class="step">01</span><h2 id="editor-title">Créer votre vidéo</h2></div><span class="soft-label">CONFIGURATION</span></div>
+          <form id="create-form">
+            <label for="topic">Sujet de la vidéo <span class="required">*</span></label>
+            <input id="topic" name="topic" type="text" value="Les paysages extraordinaires de France" minlength="2" maxlength="140" required placeholder="Ex. Les animaux des profondeurs">
+            <div class="double">
+              <div><label for="lang">Langue</label><select id="lang" name="lang"><option value="fr">Français</option><option value="en">English</option><option value="es">Español</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="pt">Português</option></select></div>
+              <div><label for="aspect">Format</label><select id="aspect" name="aspect"><option value="9:16">Vertical · 9:16</option><option value="16:9">Paysage · 16:9</option><option value="1:1">Carré · 1:1</option></select></div>
+            </div>
+            <div class="script-head"><label for="script">Scénario & narration</label><button id="draft" class="text-button" type="button"><span aria-hidden="true">✦</span> Générer un brouillon</button></div>
+            <textarea id="script" rows="7" maxlength="5000" placeholder="Rédigez les phrases qui seront lues. Chaque phrase forme une scène. Cliquez sur « Générer un brouillon » pour commencer."></textarea>
+            <div class="helper-row"><span id="script-note">Le modèle automatique n'est pas une IA.</span><span id="scene-count">0 scène</span></div>
+            <div id="scenes" class="scenes" aria-live="polite"></div>
+            <div class="separator"></div>
+            <div class="double">
+              <div><label for="visuals">Visuels</label><select id="visuals"><option value="commons">Wikimedia Commons · gratuit</option><option value="abstract">Graphismes automatiques</option><option value="local" disabled>Médias locaux · non configuré</option></select></div>
+              <div><label for="resolution">Résolution</label><select id="resolution"><option value="360">360p · rapide</option><option value="720" selected>720p · HD</option><option value="1080">1080p · Full HD</option></select></div>
+            </div>
+            <div class="double">
+              <div><label for="tts">Narration</label><select id="tts"><option value="espeak">eSpeak · libre</option><option value="piper" disabled>Piper · modèle absent</option></select></div>
+              <div><label for="speech-rate">Vitesse de la voix</label><select id="speech-rate"><option value="120">Calme · 120</option><option value="145" selected>Normale · 145</option><option value="170">Dynamique · 170</option></select></div>
+            </div>
+            <label class="checkrow"><input type="checkbox" id="mute"><span>Rendu sans narration audio</span></label>
+            <label for="queries">Recherche Wikimedia personnalisée <span class="optional">(facultatif)</span></label>
+            <textarea id="queries" class="queries" rows="3" placeholder="Une expression par scène, une ligne par phrase. Laisser vide pour une recherche automatique."></textarea>
+            <p class="microcopy">Les images sont filtrées CC0 / domaine public et leurs crédits sont exportés. Certaines scènes peuvent utiliser un fond graphique si aucun média autorisé n'est trouvé.</p>
+            <button id="render" type="submit" class="primary"><span aria-hidden="true">▶</span> Générer la vidéo <span class="button-suffix">MP4 →</span></button>
+            <p id="error" class="form-error" role="alert" aria-live="polite"></p>
+          </form>
+        </section>
+        <section class="panel preview" aria-labelledby="preview-title">
+          <div class="section-heading"><div><span class="step">02</span><h2 id="preview-title">Prévisualisation</h2></div><span id="status-badge" class="status">EN ATTENTE</span></div>
+          <div class="stage"><div id="player-frame" class="player-frame"><video id="video" controls playsinline preload="metadata" class="hidden" aria-label="Prévisualisation du MP4"></video><div id="placeholder" class="placeholder"><div class="orb"><span class="play-icon">▶</span></div><h3>Votre prochaine création</h3><p>Votre vidéo apparaîtra ici une fois le montage terminé.</p><span class="format-guide">APERÇU 9:16</span></div></div></div>
+          <div id="job-notice" class="job-notice" aria-live="polite">Configurez votre projet pour lancer un rendu.</div>
+          <div id="downloads" class="download-list hidden"><button type="button" class="dl primary-outline" data-file="video.mp4">Télécharger MP4 <span>↓</span></button><div class="download-row"><button type="button" class="dl secondary" data-file="video.srt">Sous-titres SRT ↓</button><button type="button" class="dl secondary" data-file="video.json">Métadonnées ↓</button></div><button id="credits" type="button" class="dl secondary hidden" data-file="video.credits.txt">Crédits & licences ↓</button></div>
+          <div id="cancel-row" class="hidden"><button type="button" id="cancel" class="danger-link">Annuler ce rendu</button></div>
+          <div class="history-head"><h3>Derniers projets</h3><button id="refresh" type="button" class="text-button">Actualiser ↻</button></div>
+          <div id="history" class="history"><p class="empty">Aucun rendu pour le moment.</p></div>
+        </section>
+      </div>
+      <footer><span>FREE STUDIO <span class="footer-dot">•</span> SELF-HOSTED</span><span>Vos vidéos restent sur votre machine. Pas d'abonnement, pas de compte cloud.</span></footer>
+    </main>
+  </div>
+</body>
+</html>
