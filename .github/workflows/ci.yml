@@ -28,9 +28,16 @@ jobs:
       - name: Render reviewable French sample
         run: |
           python free_studio.py \
+            --speech-rate 145 \
             --topic "Réduire la consommation d'énergie" \
             --script "Débranchez les appareils que vous n'utilisez pas. Ajustez le chauffage à vos besoins. Comparez les consommations avant de remplacer un équipement." \
             --lang fr --resolution 360 --fps 12 --output outputs/ci-preview.mp4
+      - name: Check editable subtitles and metadata
+        run: |
+          test -s outputs/ci-preview.srt
+          test -s outputs/ci-preview.json
+          ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^h264$'
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^aac$'
       - name: Attach real preview video for visual review
         uses: actions/upload-artifact@v4
         with:
@@ -38,5 +45,6 @@ jobs:
           path: |
             outputs/ci-preview.mp4
             outputs/ci-preview.json
+            outputs/ci-preview.srt
           retention-days: 7
           if-no-files-found: error

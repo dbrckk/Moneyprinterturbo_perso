@@ -95,3 +95,53 @@ n'active pas une vraie IA : le scénario reste le modèle déterministe.**
 
 Les images/vidéos locales doivent être autorisées par leur propriétaire :
 le mode local ne prétend pas en vérifier automatiquement les droits.
+
+## Recherche visuelle par scène et sous-titres éditables
+
+Par défaut, Free Studio extrait jusqu'à trois mots clés de **chaque phrase** afin
+que les différentes scènes ne recherchent plus exactement la même photo. Cette
+recherche lexicale n'est **pas** une analyse sémantique par IA : elle peut échouer.
+Pour contrôler précisément les recherches, fournir un terme par segment,
+séparé par une barre verticale `|` :
+
+```bash
+python3 free_studio.py --topic 'Nature' \
+  --script 'Voici une forêt. Regardons maintenant la rivière.' \
+  --commons --scene-queries 'forest|river' \
+  --lang fr --output outputs/nature.mp4
+```
+
+Une recherche Wikimedia est réalisée par scène, dans une limite de 8 recherches
+uniques par vidéo, afin d'éviter les dépenses de trafic et des délais excessifs.
+Un média absent est **remplacé par un fond graphique pour sa scène uniquement**,
+sans réutiliser arbitrairement la photo d'un autre sujet. Chaque scène conserve
+son texte de recherche, les crédits et les éventuels avertissements dans le JSON.
+Un fichier **`.srt`** éditable est produit avec chaque MP4, indépendamment du
+choix de médias. Dans GitHub Actions, les champs `scene_queries` et
+`speech_rate` permettent de personnaliser les recherches et la voix depuis
+Android. Pour remplir `scene_queries`, il faut fournir exactement un terme par
+segment de narration ; laisser ce champ vide active la recherche automatique.
+
+## Voix neuronale Piper (facultative, sans API cloud)
+
+Pour une synthèse plus naturelle sur une machine locale, Free Studio accepte
+**Piper** sans compte ni abonnement. L'installation de l'exécutable et d'un
+modèle vocal sont à la charge de l'utilisateur ; la licence de **chaque modèle**
+utilisé doit être vérifiée. Le code n'effectue aucun téléchargement implicite.
+
+1. Installer [Piper TTS](https://github.com/rhasspy/piper) de façon à disposer de la commande `piper`.
+2. Télécharger localement une voix dans la langue voulue et conserver les deux
+   fichiers `voix.onnx` et `voix.onnx.json` au même emplacement.
+3. Exécuter :
+
+```bash
+python3 free_studio.py --topic 'Nature' \
+  --script 'Voici une forêt. Regardons maintenant la rivière.' \
+  --lang fr --tts piper --piper-model /chemin/vers/voix.onnx \
+  --output outputs/nature-voix.mp4
+```
+
+Le moteur `espeak` reste le choix par défaut, particulièrement pour le rendu
+via GitHub Actions sur Android. L'intégration Piper est couverte par des tests
+d'interface et de pipeline audio, mais **la qualité réelle de chaque voix
+neuronale reste à vérifier avec son modèle `.onnx`**.

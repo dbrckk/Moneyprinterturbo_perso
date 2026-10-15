@@ -104,7 +104,7 @@ class MediaAssetsTests(unittest.TestCase):
     def test_commons_network_failure_gracefully_renders_graphic(self):
         with tempfile.TemporaryDirectory() as name:
             target = Path(name) / "fallback.mp4"
-            with patch.object(studio, "commons_assets", return_value=([], ["Network unavailable"])):
+            with patch.object(studio, "commons_scene_assets", return_value=({}, ["Network unavailable"])):
                 result = studio.render("Forest", "Bonjour depuis la forêt.", target,
                                        resolution=360, fps=12, mute=True, commons=True)
             self.assertEqual(result["visual_mode"], "abstract-fallback")
@@ -114,3 +114,45 @@ class MediaAssetsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SceneSearchTests(unittest.TestCase):
+    def test_one_query_per_scene_and_overrides(self):
+        segments = ["Watch the forest.", "Travel beside the river."]
+        self.assertEqual(media.scene_search_queries("nature", segments), ["forest", "travel beside river"])
+        self.assertEqual(media.scene_search_queries("nature", segments, ["red fox", "blue river"]), ["red fox", "blue river"])
+        with self.assertRaises(ValueError):
+            media.scene_search_queries("nature", segments, ["only one"])
+        with self.assertRaises(ValueError):
+            media.scene_search_queries("nature", segments, ["red fox", "  "])
+
+    def test_commons_per_scene_cache_and_search_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            result = media.MediaAsset(work / "picture.jpg", "image", "https://commons.wikimedia.org/wiki/File:picture.jpg", "CC0", "Artist", "picture.jpg")
+            with patch.object(media, "commons_assets", return_value=([result], [])) as search:
+                found, warnings = media.commons_scene_assets(["forest", "forest", "river", "sea"], work, max_searches=2)
+            self.assertEqual(sorted(found), [0, 1, 2])
+            self.assertEqual(search.call_count, 2)
+            self.assertTrue(any("budget" in warning for warning in warnings))
+            self.assertEqual(search.call_args_list[0].args[0], "forest")
+
+    @unittest.skipUnless(FFMPEG, "FFmpeg required")
+    def test_mixed_scenes_keep_correct_attribution_and_srt(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            photo = work / "forest.png"
+            make_image(photo)
+            asset = media.MediaAsset(photo, "image", "https://commons.wikimedia.org/wiki/File:forest.png", "CC0", "Artist", "Forest")
+            target = work / "mix.mp4"
+            with patch.object(studio, "commons_scene_assets", return_value=({1: asset}, ["Scene 1: unavailable"])) as search:
+                info = studio.render("landscape", "Trees in the forest. Rivers in the valley.", target,
+                                     lang="en", resolution=360, fps=12, mute=True, commons=True,
+                                     scene_queries=["forest trees", "river valley"])
+            self.assertEqual(info["visual_mode"], "mixed-media")
+            self.assertEqual([item["segment"] for item in info["media"]], [2])
+            self.assertEqual(info["media"][0]["search_query"], "river valley")
+            self.assertTrue(target.with_suffix(".srt").exists())
+            self.assertEqual(target.with_suffix(".srt").read_text(encoding="utf-8").count(" --> "), 2)
+            self.assertIn("Scene 2:", target.with_suffix(".credits.txt").read_text())
+            self.assertEqual(search.call_args.kwargs["indices"], [0, 1])
+            self.assertAlmostEqual(studio.duration_seconds(target), info["duration_seconds"], delta=0.3)

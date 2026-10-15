@@ -165,3 +165,82 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5) -> tuple[list[Medi
     if not assets:
         warnings.append("No verified public-domain/CC0 images found; using graphic backgrounds")
     return assets, warnings
+
+
+# Deliberately conservative stop words: these generate search terms, not a
+# translation or semantic understanding of a scene. Users can override them.
+_SEARCH_STOPWORDS = set("""
+    le la les un une des de du et ou mais dans sur sous pour avec sans que qui
+    vous nous ils elles sont était être avoir leurs notre votre comme plus moins
+    voici voilà découvrir découvrons regardons regardez comprendre exemple exemples
+    idées idées utiles faire faites voici tout toute tous très cette ces ceci cela
+    pas ne n en à au aux est a ont du et il elle des the a an and of or with
+    without in on to for from this that there here these those are is was be
+    look watch see explore discover lets useful examples understand learn more
+    your their its about because also how why what when where do does did
+    vamos las los una unos por para con sobre como que del desde ver estas estos
+""".split())
+
+
+def normalize_scene_query(text: str) -> str:
+    """Extract a few searchable keywords without emitting search operators."""
+    if not isinstance(text, str):
+        raise ValueError("Scene query must be text")
+    terms = re.findall(r"[^\W_][\wÀ-ÿ'-]*", text.lower(), flags=re.UNICODE)
+    cleaned: list[str] = []
+    for term in terms:
+        term = term.strip("'-_")
+        if len(term) >= 3 and term not in _SEARCH_STOPWORDS and term not in cleaned:
+            cleaned.append(term)
+        if len(cleaned) >= 3:
+            break
+    return " ".join(cleaned)[:110]
+
+
+def scene_search_queries(topic: str, segments: list[str], overrides: list[str] | None = None) -> list[str]:
+    """One transparent query per narration scene; never imply AI semantics."""
+    if overrides is not None and len(overrides) != len(segments):
+        raise ValueError(f"Expected {len(segments)} scene queries, received {len(overrides)}")
+    topic_query = normalize_scene_query(topic)
+    if not topic_query:
+        raise ValueError("Topic does not contain searchable words")
+    queries: list[str] = []
+    for idx, segment in enumerate(segments):
+        supplied = overrides[idx] if overrides is not None else segment
+        query = normalize_scene_query(supplied)
+        if overrides is not None and not query:
+            raise ValueError(f"Scene query {idx + 1} has no valid words")
+        queries.append(query or topic_query)
+    return queries
+
+
+def commons_scene_assets(queries: list[str], work: Path, *,
+                         indices: list[int] | None = None, max_searches: int = 8
+                         ) -> tuple[dict[int, MediaAsset], list[str]]:
+    """Search each scene independently with hard limits and reusable results.
+
+    Failed searches leave a scene unfilled so it can render a safe graphic
+    background instead of silently displaying an unrelated photograph.
+    """
+    if len(queries) > 18 or max_searches < 1 or max_searches > 18:
+        raise ValueError("Commons scene search limit out of range")
+    wanted = list(range(len(queries))) if indices is None else list(indices)
+    if any(not isinstance(i, int) or i < 0 or i >= len(queries) for i in wanted):
+        raise ValueError("Invalid requested scene index")
+    fetched: dict[str, MediaAsset | None] = {}
+    selected: dict[int, MediaAsset] = {}
+    warnings: list[str] = []
+    for i in wanted:
+        query = queries[i]
+        if query not in fetched:
+            if len(fetched) >= max_searches:
+                warnings.append(f"Scene {i+1}: search budget reached; graphic fallback")
+                continue
+            directory = work / f"commons_scene_{i:02}"
+            directory.mkdir(parents=True, exist_ok=True)
+            found, notices = commons_assets(query, directory, limit=1)
+            fetched[query] = found[0] if found else None
+            warnings.extend(f"Scene {i+1}: {notice}" for notice in notices)
+        if fetched[query] is not None:
+            selected[i] = fetched[query]
+    return selected, warnings

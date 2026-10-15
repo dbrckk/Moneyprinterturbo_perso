@@ -53,3 +53,45 @@ class FreeStudioTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class PiperAudioTests(unittest.TestCase):
+    def test_rejects_missing_voice_and_wrong_configuration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError, "requires a local model"):
+                studio.render("QA", "Hi there.", Path(folder) / "a.mp4", lang="en", tts="piper", resolution=360, fps=12)
+            with self.assertRaisesRegex(ValueError, "Invalid voice engine"):
+                studio.render("QA", "Hi there.", Path(folder) / "a.mp4", lang="en", tts="espeak", piper_model=Path("a.onnx"), resolution=360, fps=12)
+            with self.assertRaisesRegex(ValueError, "Scene search queries require"):
+                studio.render("QA", "Hi there.", Path(folder) / "a.mp4", lang="en", scene_queries=["planet"], resolution=360, fps=12)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_piper_stdin_integration_using_test_executable(self):
+        """Shim checks transport, args and audio validation; not model quality."""
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            fake_model = work / "voice.onnx"
+            fake_model.write_bytes(b"fake")
+            fake_model.with_suffix(".onnx.json").write_text("{}")
+            fake_bin = work / "piper"
+            fake_bin.write_text(
+                '#!/usr/bin/env python3\n'
+                'import sys, wave, math, struct\n'
+                'from pathlib import Path\n'
+                'args=sys.argv\n'
+                'assert args[1]=="--model" and args[3]=="--output_file"\n'
+                'text=sys.stdin.read()\n'
+                'assert text.strip()\n'
+                'with wave.open(args[4], "wb") as w:\n'
+                '    w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)\n'
+                '    w.writeframes(b"\\0\\0"*16000)\n', encoding="utf-8"
+            )
+            fake_bin.chmod(0o755)
+            target = work / "voice-demo.mp4"
+            with patch.dict(os.environ, {"PATH": str(work) + os.pathsep + os.environ.get("PATH", "")}):
+                info = studio.render("Speech", "A sentence for Piper.", target, lang="en", resolution=360,
+                                     fps=12, tts="piper", piper_model=fake_model)
+            self.assertEqual(info["speech_engine"], "piper")
+            self.assertGreater(target.stat().st_size, 1000)
+            self.assertEqual(target.with_suffix(".srt").read_text().count(" --> "), 1)

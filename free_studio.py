@@ -18,7 +18,7 @@ import tempfile
 import textwrap
 from urllib import request
 
-from media_assets import MediaAsset, commons_assets, local_assets
+from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -126,15 +126,41 @@ def size_for(aspect: str, resolution: int) -> tuple[int, int]:
     return width, height
 
 
-def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool) -> tuple[list[float], Path | None]:
+def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
+               tts: str = "espeak", piper_model: Path | None = None,
+               speech_rate: int = 145) -> tuple[list[float], Path | None]:
     if mute:
         return [max(2.6, min(9.0, len(s) / 16.0)) for s in segments], None
-    check_program("espeak")
+    if tts not in ("espeak", "piper"):
+        raise ValueError("Unsupported speech engine")
+    if tts == "piper":
+        check_program("piper")
+        if piper_model is None:
+            raise ValueError("Piper requires --piper-model pointing to a local ONNX voice")
+        piper_model = piper_model.expanduser().resolve()
+        if (piper_model.suffix.lower() != ".onnx" or not piper_model.is_file()
+                or not piper_model.with_suffix(".onnx.json").is_file()):
+            raise ValueError("Piper requires local .onnx and .onnx.json model files")
+    else:
+        if not 80 <= speech_rate <= 220:
+            raise ValueError("eSpeak speech rate must be between 80 and 220 words/minute")
+        check_program("espeak")
     filenames: list[Path] = []
     durations: list[float] = []
     for idx, sentence in enumerate(segments):
         audio_path = work / f"voice_{idx:02}.wav"
-        execute(["espeak", "-v", LANG_VOICES.get(lang, "en"), "-s", "145", "-w", str(audio_path), sentence], timeout=35)
+        if tts == "piper":
+            # Piper runs locally using a voice already installed by the user.
+            # No implicit model download or API request is permitted here.
+            process = subprocess.run(
+                ["piper", "--model", str(piper_model), "--output_file", str(audio_path)],
+                input=sentence + "\n", text=True, capture_output=True, timeout=150,
+            )
+            if process.returncode:
+                raise RuntimeError(f"Piper failed: {process.stderr[-1200:]}")
+        else:
+            execute(["espeak", "-v", LANG_VOICES[lang], "-s", str(speech_rate),
+                     "-w", str(audio_path), sentence], timeout=35)
         durations.append(duration_seconds(audio_path))
         filenames.append(audio_path)
     manifest = work / "audio_list.txt"
@@ -157,12 +183,16 @@ def make_captions(segments: list[str], durations: list[float], work: Path) -> li
     return timings
 
 
-def render_scene(asset: MediaAsset, duration: float, index: int, work: Path,
+def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Path,
                  *, width: int, height: int, fps: int) -> Path:
     """Normalize one photo/video to a silent CFR clip with a gentle camera move."""
     target = work / f"scene_{index:02}.mp4"
-    frames = max(1, math.ceil(duration * fps))
-    if asset.kind == "image":
+    frames = max(1, round(duration * fps))
+    if asset is None:
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+               "-i", f"color=c={PALETTE[index % len(PALETTE)]}:s={width}x{height}:r={fps}"]
+        effect = "format=yuv420p"
+    elif asset.kind == "image":
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1",
                "-framerate", str(fps), "-i", str(asset.file)]
         effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -184,10 +214,12 @@ def render_scene(asset: MediaAsset, duration: float, index: int, work: Path,
     return target
 
 
-def prepare_media_background(assets: list[MediaAsset], durations: list[float], work: Path,
+def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
                              *, width: int, height: int, fps: int) -> Path:
-    scenes = [render_scene(assets[i % len(assets)], duration, i, work, width=width,
-                           height=height, fps=fps) for i, duration in enumerate(durations)]
+    if len(assets) != len(durations):
+        raise ValueError("Each scene must have exactly one media slot")
+    scenes = [render_scene(asset, duration, i, work, width=width,
+                           height=height, fps=fps) for i, (asset, duration) in enumerate(zip(assets, durations))]
     manifest = work / "scenes.txt"
     manifest.write_text("".join(f"file '{scene.name}'\n" for scene in scenes), encoding="utf-8")
     output = work / "background.mp4"
@@ -198,7 +230,9 @@ def prepare_media_background(assets: list[MediaAsset], durations: list[float], w
 
 def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: str = "9:16",
            resolution: int = 720, mute: bool = False, fps: int = 24,
-           media_dir: Path | None = None, commons: bool = False) -> dict[str, object]:
+           media_dir: Path | None = None, commons: bool = False,
+           scene_queries: list[str] | None = None, tts: str = "espeak",
+           piper_model: Path | None = None, speech_rate: int = 145) -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -206,27 +240,43 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     if aspect not in ASPECTS or resolution not in (360, 720, 1080) or lang not in LANG_VOICES:
         raise ValueError("Unsupported aspect, resolution or voice language")
     sentences = split_script(script)
+    if scene_queries is not None and not commons:
+        raise ValueError("Scene search queries require --commons")
+    if tts not in ("espeak", "piper") or (tts == "espeak" and piper_model is not None):
+        raise ValueError("Invalid voice engine or model combination")
+    if tts == "piper" and piper_model is None and not mute:
+        raise ValueError("Piper voice requires a local model")
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = size_for(aspect, resolution)
     with tempfile.TemporaryDirectory(prefix="mpt-free-") as tmp:
         work = Path(tmp)
-        durations, audio = make_audio(sentences, lang, work, mute=mute)
+        durations, audio = make_audio(sentences, lang, work, mute=mute,
+                                      tts=tts, piper_model=piper_model,
+                                      speech_rate=speech_rate)
         segments = make_captions(sentences, durations, work)
         total = sum(durations)
         warnings: list[str] = []
-        assets: list[MediaAsset] = []
+        slots: list[MediaAsset | None] = [None] * len(sentences)
+        queries: list[str] | None = None
         if media_dir is not None:
             local, notices = local_assets(media_dir.expanduser().resolve())
-            assets.extend(local)
             warnings.extend(notices)
-        if commons and len(assets) < len(sentences):
-            remote, notices = commons_assets(topic, work, limit=min(8, len(sentences) - len(assets)))
-            assets.extend(remote)
+            for i in range(len(sentences)):
+                if local and (not commons or i < len(local)):
+                    slots[i] = local[i % len(local)]
+        if commons:
+            queries = scene_search_queries(topic, sentences, scene_queries)
+            missing = [i for i, item in enumerate(slots) if item is None]
+            remote, notices = commons_scene_assets(queries, work, indices=missing)
+            for i, item in remote.items():
+                slots[i] = item
             warnings.extend(notices)
-        using_media = bool(assets)
-        video_background = (prepare_media_background(assets, durations, work, width=width,
-                                                    height=height, fps=fps) if using_media else None)
+        using_media = any(item is not None for item in slots)
+        # Composite images and abstract fallbacks in timeline order to prevent
+        # a single lost Commons result from failing or mislabelling a scene.
+        video_background = (prepare_media_background(slots, durations, work, width=width,
+                            height=height, fps=fps) if using_media else None)
         filters = ["format=yuv420p"]
         if using_media:
             # Preserve the photo's details while improving caption legibility.
@@ -283,23 +333,30 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             os.replace(temp_out, output)
         finally:
             temp_out.unlink(missing_ok=True)
+        # Deliver editable captions next to the actual video output.
+        shutil.copyfile(work / "captions.srt", output.with_suffix(".srt"))
         media_used: list[dict[str, object]] = []
-        for index in range(len(sentences)):
-            if not using_media:
-                break
-            asset = assets[index % len(assets)]
+        for index, asset in enumerate(slots):
+            if asset is None:
+                continue
             media_used.append({"segment": index + 1, "title": asset.title, "kind": asset.kind,
-                               "source": asset.source_url, "license": asset.license, "author": asset.author})
+                               "source": asset.source_url, "license": asset.license,
+                               "author": asset.author,
+                               "search_query": queries[index] if queries else None})
+        credits_path = output.with_suffix(".credits.txt")
         if media_used:
             credits = ["MEDIA SOURCES — MoneyPrinterTurbo Perso", "Local media: users must hold appropriate rights.", ""]
             credits.extend(f"Scene {item['segment']}: {item['title']} | Author: {item['author']} | "
                            f"License: {item['license']} | {item['source']}" for item in media_used)
-            output.with_suffix(".credits.txt").write_text("\n".join(credits) + "\n", encoding="utf-8")
+            credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
+        else:
+            credits_path.unlink(missing_ok=True)
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
-            "visual_mode": ("media" if using_media else "abstract-fallback"),
-            "media": media_used, "warnings": warnings,
+            "speech_engine": tts if not mute else "muted",
+            "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
+            "scene_search_queries": queries, "media": media_used, "warnings": warnings,
         }
         output.with_suffix(".json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return info
@@ -319,7 +376,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--mute", action="store_true", help="Render without synthetic voice")
     parser.add_argument("--media-dir", type=Path, help="Directory of licensed local images or videos")
-    parser.add_argument("--commons", action="store_true", help="Search Wikimedia Commons for CC0/public-domain photos (optional internet)")
+    parser.add_argument("--commons", action="store_true", help="Search Wikimedia Commons per scene for CC0/public-domain photos")
+    parser.add_argument("--scene-queries", help="Optional pipe-separated search words, one per narration segment")
+    parser.add_argument("--tts", choices=["espeak", "piper"], default="espeak", help="Speech engine; Piper requires a preinstalled local voice")
+    parser.add_argument("--piper-model", type=Path, help="Offline Piper voice .onnx path (matching .onnx.json required)")
+    parser.add_argument("--speech-rate", type=int, default=145, help="eSpeak speaking speed in words per minute (80–220)")
     args = parser.parse_args(argv)
     if args.script and args.script_file:
         parser.error("Use either --script or --script-file")
@@ -339,7 +400,11 @@ def main(argv: list[str] | None = None) -> int:
             text = template_script(args.topic, args.lang)
             mode = "deterministic-template-not-ai"
         print(f"Script mode: {mode}", flush=True)
-        info = render(args.topic, text, args.output, lang=args.lang, aspect=args.aspect, resolution=args.resolution, fps=args.fps, mute=args.mute, media_dir=args.media_dir, commons=args.commons)
+        info = render(args.topic, text, args.output, lang=args.lang, aspect=args.aspect,
+                      resolution=args.resolution, fps=args.fps, mute=args.mute,
+                      media_dir=args.media_dir, commons=args.commons,
+                      scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
+                      tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate)
         info["script_mode"] = mode
         Path(info["output"]).with_suffix(".json").write_text(
             json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

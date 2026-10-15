@@ -12,6 +12,17 @@ on:
         required: false
         type: string
         default: ''
+      scene_queries:
+        description: Recherche par scène, facultative (ex. foret|riviere) ; une entrée par phrase
+        required: false
+        type: string
+        default: ''
+      speech_rate:
+        description: Vitesse de la voix eSpeak (mots/minute)
+        required: true
+        type: choice
+        options: ['120', '145', '170']
+        default: '145'
       visuals:
         description: Visuels gratuits (Commons = domaine public/CC0, repli garanti)
         required: true
@@ -57,14 +68,18 @@ jobs:
           RESOLUTION: ${{ inputs.resolution }}
           SCRIPT_TEXT: ${{ inputs.script }}
           VISUAL_MODE: ${{ inputs.visuals }}
+          SCENE_QUERIES: ${{ inputs.scene_queries }}
+          SPEECH_RATE: ${{ inputs.speech_rate }}
         run: |
-          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --output outputs/video.mp4)
+          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
           if [[ -n "$SCRIPT_TEXT" ]]; then ARGS+=(--script "$SCRIPT_TEXT"); fi
           if [[ "$VISUAL_MODE" == "commons" ]]; then ARGS+=(--commons); fi
+          if [[ -n "$SCENE_QUERIES" ]]; then ARGS+=(--scene-queries "$SCENE_QUERIES"); fi
           python free_studio.py "${ARGS[@]}"
       - name: Verify output contains video and audio streams
         run: |
           test -s outputs/video.mp4
+          test -s outputs/video.srt
           ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^h264$'
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^aac$'
       - name: Downloadable MP4
@@ -74,6 +89,7 @@ jobs:
           path: |
             outputs/video.mp4
             outputs/video.json
+            outputs/video.srt
             outputs/video.credits.txt
           retention-days: 7
           if-no-files-found: error
