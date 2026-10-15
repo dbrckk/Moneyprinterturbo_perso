@@ -140,6 +140,8 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://inverted-lens-8g97nus.shipstatic.com**
+
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
 **Le site distant ne peut pas monter une vidéo sans connexion GitHub** : il pilote le workflow gratuit du dépôt public. Le scénario et les paramètres sont conservés sur le navigateur, mais **le jeton GitHub ne l'est jamais**. Un jeton fine-grained avec la seule permission de dépôt `Actions: Read and write` est requis pour démarrer un rendu, sauf si tu préfères lancer directement les workflows depuis le site GitHub. Les MP4 sont à récupérer dans les artefacts de l'exécution. Voir [instructions Android, sécurité et hébergement](docs/REMOTE_STUDIO.md).

@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://phased-stream-788heth.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://inverted-lens-8g97nus.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 
@@ -20,7 +20,7 @@ Seuls le brouillon (sujet, narration, paramètres) et les identifiants des runs 
 ## Fonctionnement et limites
 
 - `workflow_dispatch` permet d'envoyer la demande. Le champ `request_id` et le `run-name` assurent le suivi distinct des exécutions ; la recherche automatique est limitée à une consultation toutes les 20 secondes pendant au maximum 20 minutes.
-- Par défaut, une narration vide produit un **canevas déterministe**, et non une IA. Sélectionner **« Vraie IA locale »** avec narration vide pour déclencher Ollama/Qwen2.5 sur le runner GitHub, sans PC personnel ni API payante. Cette nouvelle option reste à valider avec un vrai téléchargement modèle et une exécution bout en bout en production ; un modèle indisponible entraîne un échec explicite, pas un faux résultat IA.
+- Par défaut, une narration vide produit un **canevas déterministe**, et non une IA. Sélectionner **« Vraie IA locale »** avec narration vide pour déclencher Ollama/Qwen2.5 sur le runner GitHub, sans PC personnel ni API payante. Le scénario IA a été validé avec un vrai modèle sur GitHub Actions (run 38788999318). Un modèle indisponible entraîne un échec explicite, pas un faux résultat IA.
 - Les images Wikimedia sont sélectionnées avec restrictions domaine public/CC0. Absence d'image : scène graphique de repli. Respecter aussi droit à l'image et marques.
 - Les artefacts vidéo sont conservés **7 jours**, selon les paramètres actuels du workflow.
 - Selon la documentation GitHub, les runners standards des dépôts publics sont gratuits, mais les contraintes techniques, règles d'utilisation, politiques de facturation et de stockage restent applicables. Cela ne représente pas une promesse de capacité illimitée.
@@ -39,3 +39,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests des API fondés sur la documentation officielle : [GitHub REST CORS](https://docs.github.com/en/rest/using-the-rest-api/using-cors-and-jsonp-to-make-cross-origin-requests) et [workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
+
+## Voix française neuronale vérifiée
+
+Choisir « Neurale · Piper SIWIS (français) » dans le studio. GitHub Actions télécharge une voix ONNX épinglée et vérifie son SHA-256. Le test réel 38791826584 a généré un MP4 H.264/AAC, un SRT et un fichier de crédits. Le modèle SIWIS requiert attribution CC BY 4.0, dont les détails figurent dans `docs/PIPER_VOICE.md`. Les autres langues utilisent eSpeak.

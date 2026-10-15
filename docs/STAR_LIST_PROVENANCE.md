@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | [harry0703/MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) | **Importé** dans `upstream/` : code source, WebUI, API, scripts ; Free Studio n'utilise pas automatiquement tous ses composants | `upstream/`, `upstream/LICENSE` | MIT ; chansons et polices de droits incertains exclues |
 | [ollama/ollama](https://github.com/ollama/ollama) (star-list : 9,8) | **Intégré par API** : scénario IA locale en CLI, serveur local et maintenant workflow GitHub Actions CPU, modèle Qwen2.5 1.5B téléchargé au lancement | `free_studio.py:ollama_script`, `studio_server.py`, `free-video.yml` | Logiciel MIT ; droits du modèle à vérifier séparément ; aucun code Ollama copié |
-| Piper (outil externe ; non identifié dans la version consultée de star-list) | **Intégré par commande** : fonctionnement contrôlé avec un exécutable factice ; qualité vocale réelle pas encore vérifiée | `free_studio.py:make_audio` | Requiert modèle ONNX local et droits du modèle ; aucun code Piper copié |
+| Piper (outil externe ; non identifié dans la version consultée de star-list) | **Intégré par commande** : vidéo et voix françaises réellement générées sur un runner GitHub (run 38791826584), contrôle SHA-256 et attribution SIWIS CC BY 4.0 ; qualité subjective encore à évaluer | `free_studio.py:make_audio` | Requiert modèle ONNX local et droits du modèle ; aucun code Piper copié |
 | FFmpeg, eSpeak (outils système) | **Dépendances de production** : assemblage MP4, voix TTS de secours, sous-titres | `free_studio.py`, CI | Logiciels système, non importés comme sources GitHub |
 | Wikimedia Commons (service, pas un dépôt incorporé) | **Source média conditionnelle** | `media_assets.py` | Seules licences reconnues domaine public/CC0 retenues ; droits tiers et pertinence à contrôler |
 | GitHub Actions + ShipStatic | **Infrastructure** : calcul gratuit sur runner standard de dépôt public et publication HTTPS statique | `free-video.yml`, `remote/` | Limites d'utilisation et de stockage ; ShipStatic ne fait pas le rendu |
@@ -40,8 +40,8 @@
 
 ## Prochaines étapes hiérarchisées
 
-1. Valider dans un vrai workflow `script_mode=local-ai` : téléchargement du modèle, temps CPU, scénario réellement généré, sortie H.264 + SRT. **L'intégration est testée statiquement et en interface, mais pas encore exécutée avec un vrai modèle GitHub Actions.**
-2. Ajouter une voix neuronale réellement testée en français sur un runner gratuit, avec repli eSpeak.
+1. **Validé** : scénario Qwen2.5/Ollama avec modèle réel, MP4 H.264 et SRT dans le workflow GitHub Actions (run 38788999318).
+2. **Validé techniquement** : voix française neuronale Piper SIWIS, fichier de crédits et MP4 réel sur runner GitHub (run 38791826584). eSpeak reste le mode par défaut ; améliorer la qualité subjective ensuite.
 3. Raffiner sélection visuelle et animation des scènes avant d'ajouter une timeline complète.
 4. Ajouter Playwright dans la CI pour valider le site HTTPS après publication.
 
