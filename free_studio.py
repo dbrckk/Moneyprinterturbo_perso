@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 from urllib import request
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
@@ -65,10 +66,14 @@ def template_script(topic: str, language: str) -> str:
                 f"Voici les idées essentielles pour comprendre {subject}. "
                 "Regardons les exemples et les usages les plus utiles. "
                 "Pour aller plus loin, confrontez ces informations à des sources fiables.")
-    return (f"Let's explore {subject}. "
-            f"Here are the key ideas behind {subject}. "
-            "Consider the most useful examples and real-world applications. "
-            "To learn more, verify these ideas using reliable sources.")
+    translated = {
+        "es": (f"Descubramos {subject}.", f"Estas son las ideas principales para entender {subject}.", "Veamos algunos ejemplos y aplicaciones útiles.", "Consulta fuentes fiables para obtener más información."),
+        "de": (f"Entdecken wir {subject}.", f"Das sind die wichtigsten Ideen zu {subject}.", "Betrachten wir praktische Beispiele und Anwendungen.", "Prüfe diese Informationen anhand zuverlässiger Quellen."),
+        "it": (f"Scopriamo {subject}.", f"Ecco le idee principali per capire {subject}.", "Vediamo alcuni esempi e applicazioni utili.", "Verifica queste informazioni con fonti affidabili."),
+        "pt": (f"Vamos explorar {subject}.", f"Estas são as ideias principais sobre {subject}.", "Vejamos exemplos e aplicações úteis.", "Verifique estas informações em fontes confiáveis."),
+        "en": (f"Let's explore {subject}.", f"Here are the key ideas behind {subject}.", "Consider the most useful examples and real-world applications.", "To learn more, verify these ideas using reliable sources."),
+    }
+    return " ".join(translated[language])
 
 
 def ollama_script(topic: str, language: str, model: str, url: str) -> str:
@@ -184,9 +189,13 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             # Segment headings are distinct from lower-third captions.
             heading = str(segment["text"]).rstrip(".!?…")
             heading = " ".join(heading.split()[:8])
-            (work / f"heading_{i}.txt").write_text(heading, encoding="utf-8")
+            heading_size = max(17, width // 20)
+            # FFmpeg drawtext does not auto-wrap: avoid cropped titles on phones.
+            max_chars = max(11, int(width * 0.74 / (heading_size * 0.60)))
+            lines = textwrap.wrap(heading, width=max_chars, break_long_words=True, break_on_hyphens=False)[:4]
+            (work / f"heading_{i}.txt").write_text("\n".join(lines), encoding="utf-8")
             filters.append(
-                f"drawtext=textfile=heading_{i}.txt:fontcolor=white:fontsize={max(17,width//20)}:"
+                f"drawtext=textfile=heading_{i}.txt:fontcolor=white:fontsize={heading_size}:line_spacing={max(5,heading_size//3)}:"
                 f"x=(w-text_w)/2:y=h*0.38:enable='between(t,{start},{end})'"
             )
         subtitle_size = max(13, int(width / 34))
