@@ -140,7 +140,7 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://inverted-lens-8g97nus.shipstatic.com**
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://precise-rune-vm33994.shipstatic.com**
 
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 

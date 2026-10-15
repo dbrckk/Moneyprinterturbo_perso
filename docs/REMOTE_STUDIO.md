@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://inverted-lens-8g97nus.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://precise-rune-vm33994.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 
@@ -43,3 +43,13 @@ Tests des API fondés sur la documentation officielle : [GitHub REST CORS](https
 ## Voix française neuronale vérifiée
 
 Choisir « Neurale · Piper SIWIS (français) » dans le studio. GitHub Actions télécharge une voix ONNX épinglée et vérifie son SHA-256. Le test réel 38791826584 a généré un MP4 H.264/AAC, un SRT et un fichier de crédits. Le modèle SIWIS requiert attribution CC BY 4.0, dont les détails figurent dans `docs/PIPER_VOICE.md`. Les autres langues utilisent eSpeak.
+
+
+## Habillage cinématique vérifié
+
+Depuis le studio Android, choisir `cinematic` (dégradés animés, scènes indexées,
+titres à apparition progressive) ou `classic` (habillage simple). Le moteur se trouve
+dans `cinematic.py` ; il fonctionne sans GPU ni API payante.
+
+Le commit `bdab80a` a passé la CI générale GitHub ainsi que le smoke test réel
+avec voix française Piper. Le jeton GitHub reste uniquement en mémoire du navigateur.

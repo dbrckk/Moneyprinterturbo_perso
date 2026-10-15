@@ -46,3 +46,12 @@
 4. Ajouter Playwright dans la CI pour valider le site HTTPS après publication.
 
 **Pas de garantie “100 % gratuit illimité”** : les runners standards des dépôts publics sont gratuits selon GitHub, mais soumis à politiques d'utilisation, stockage, réseau, limites et restrictions ; les GPU et services tiers peuvent avoir un coût.
+
+
+## Habillage cinématique intégré, octobre 2026
+
+- **Code interne** : `cinematic.py`, filtres FFmpeg de dégradés animés, titres,
+  barre de progression et format vertical, carré ou horizontal.
+- **Motion Canvas** : présent dans `star-list`, a servi de référence conceptuelle.
+  Aucune dépendance ni code de Motion Canvas n'a été incorporé.
+- Validation réelle du code : CI Free Studio et workflow Piper, commit `bdab80a`.
