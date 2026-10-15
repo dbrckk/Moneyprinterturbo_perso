@@ -14,6 +14,8 @@ class FreeStudioTests(unittest.TestCase):
         self.assertRaises(ValueError, studio.split_script, ' ')
         self.assertRaises(ValueError, studio.split_script, 'word. ' * 20)
         self.assertIn('exemples', studio.template_script('énergie solaire', 'fr'))
+        self.assertIn('ejemplos', studio.template_script('energía solar', 'es'))
+        self.assertIn('Beispiele', studio.template_script('Solarenergie', 'de'))
 
     def test_ollama_rejects_external_url(self):
         for url in ('https://api.openai.com', 'http://8.8.8.8', 'file:///tmp/secret', 'http://user:pass@localhost:11434'):
