@@ -1,3 +1,5 @@
+**Accès HTTPS dernière version : https://phased-stream-788heth.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+
 # Remote Studio — Android sans serveur payant
 
 Le site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.

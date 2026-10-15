@@ -153,3 +153,5 @@ Le studio distant propose **« Vraie IA locale · Ollama sur GitHub Actions »**
 L'utilisateur peut également lancer manuellement le workflow dans GitHub Actions en sélectionnant `script_mode=local-ai`. Un texte de narration personnalisé exige `script_mode=template`. Les paramètres sont volontairement explicites pour éviter toute fausse revendication de génération IA.
 
 Voir [l'audit du code réellement incorporé et des meilleurs dépôts de star-list](docs/STAR_LIST_PROVENANCE.md).
+
+Nouvelle version Android (scénario IA gratuit via Ollama) : https://phased-stream-788heth.shipstatic.com

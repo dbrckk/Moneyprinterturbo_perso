@@ -1,0 +1,57 @@
+name: Local AI Real Model Smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/local-ai-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-local-ai-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg and eSpeak
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak zstd
+      - name: Install official Ollama Linux package
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location --retry 3 \
+            https://ollama.com/download/ollama-linux-amd64.tar.zst -o /tmp/ollama.tar.zst
+          sudo tar --use-compress-program=zstd -xf /tmp/ollama.tar.zst -C /usr
+          OLLAMA_HOST=127.0.0.1:11434 ollama serve > /tmp/mpt-ollama.log 2>&1 &
+          for attempt in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags > /dev/null; then break; fi
+            if [[ "$attempt" -eq 45 ]]; then tail -60 /tmp/mpt-ollama.log; exit 1; fi
+            sleep 2
+          done
+          ollama pull qwen2.5:1.5b
+      - name: Generate actual local-AI narrated MP4
+        run: |
+          python free_studio.py \
+            --topic 'Les parcs naturels français' \
+            --ollama-model qwen2.5:1.5b --ollama-url http://127.0.0.1:11434 \
+            --lang fr --resolution 360 --fps 12 --output outputs/real-ai-smoke.mp4
+      - name: Verify streams and artifact
+        run: |
+          test -s outputs/real-ai-smoke.mp4
+          test -s outputs/real-ai-smoke.srt
+          test -s outputs/real-ai-smoke.json
+          ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/real-ai-smoke.mp4 | grep -q '^h264$'
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/real-ai-smoke.mp4 | grep -q '^aac$'
+      - name: Save evidence for quality review
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-local-ai-narrated-video
+          path: |
+            outputs/real-ai-smoke.mp4
+            outputs/real-ai-smoke.srt
+            outputs/real-ai-smoke.json
+          if-no-files-found: error
+          retention-days: 7
