@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, safeError} from '../remote/core.mjs';
-const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',visuals:'commons'};
+const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',visuals:'commons'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
   assert.deepEqual(segmentsOf('Bonjour. Salut !\nNouveau paragraphe.'),['Bonjour.','Salut !','Nouveau paragraphe.']);
@@ -30,4 +30,13 @@ test('request correlation uses exact run title and default branch',()=>{
 test('human-friendly API errors',()=>{
   assert.match(safeError(403,{}),/Actions/);
   assert.match(safeError(401,{}),/Jeton/);
+});
+
+test('real local AI is explicitly selected and rejects mixing with custom scripts',()=>{
+  const ai = {...valid,script:'',scene_queries:'',script_mode:'local-ai'};
+  assert.equal(validateDraft(ai).script_mode,'local-ai');
+  assert.equal(dispatchBody(ai,uid).inputs.script_mode,'local-ai');
+  assert.throws(()=>validateDraft({...valid,script_mode:'local-ai'}),/Vide la narration/);
+  assert.throws(()=>validateDraft({...ai,script_mode:'paid-cloud'}),/Mode de scénario invalide/);
+  assert.equal(validateDraft({...valid,script_mode:'template'}).script_mode,'template');
 });

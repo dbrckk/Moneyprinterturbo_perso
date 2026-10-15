@@ -25,5 +25,10 @@ class RemoteStaticFilesTests(unittest.TestCase):
         self.assertIn('run-name:',yaml)
         self.assertIn('request_id:',yaml)
         self.assertIn('inputs.request_id',yaml)
+        self.assertIn('script_mode:',yaml)
+        self.assertIn('ollama pull qwen2.5:1.5b',yaml)
+        self.assertIn('ARGS+=(--ollama-model qwen2.5:1.5b',yaml)
+        html=(ROOT/'remote/index.html').read_text(encoding='utf-8')
+        self.assertIn('id="script_mode"',html)
 
 if __name__=='__main__':unittest.main()

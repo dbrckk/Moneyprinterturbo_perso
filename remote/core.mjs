@@ -8,6 +8,7 @@ export const LANGS = Object.freeze(['fr', 'en', 'es', 'de', 'it', 'pt']);
 export const ASPECTS = Object.freeze(['9:16', '16:9', '1:1']);
 export const RESOLUTIONS = Object.freeze(['360', '720', '1080']);
 export const SPEECH_RATES = Object.freeze(['120', '145', '170']);
+export const SCRIPT_MODES = Object.freeze(['template', 'local-ai']);
 
 export function segmentsOf(script) {
   if (typeof script !== 'string') return [];
@@ -38,8 +39,11 @@ export function validateDraft(values) {
   const topic = String(values.topic ?? '').trim();
   const script = String(values.script ?? '').trim();
   const sceneQueries = String(values.scene_queries ?? '').trim();
+  const scriptMode = String(values.script_mode ?? 'template');
   if (topic.length < 2 || topic.length > 140 || /[\r\n]/.test(topic)) throw new Error('Le sujet doit contenir 2 à 140 caractères sur une seule ligne.');
   if (script.length > 5000) throw new Error('La narration ne peut pas dépasser 5 000 caractères.');
+  if (!SCRIPT_MODES.includes(scriptMode)) throw new Error('Mode de scénario invalide.');
+  if (script && scriptMode === 'local-ai') throw new Error('Vide la narration pour activer la véritable IA locale, ou sélectionne le mode canevas.');
   const parts = script ? segmentsOf(script) : [];
   if (script && (!parts.length || parts.length > 18)) throw new Error('La narration doit contenir 1 à 18 scènes maximum.');
   if (sceneQueries) {
@@ -54,7 +58,7 @@ export function validateDraft(values) {
       || !SPEECH_RATES.includes(values.speech_rate) || !['commons', 'abstract'].includes(values.visuals)) {
     throw new Error('Configuration vidéo invalide.');
   }
-  return { topic, script, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
+  return { topic, script, script_mode: scriptMode, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
     resolution: values.resolution, speech_rate: values.speech_rate, visuals: values.visuals };
 }
 

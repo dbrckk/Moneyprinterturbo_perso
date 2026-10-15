@@ -1,6 +1,6 @@
 # Remote Studio — Android sans serveur payant
 
-**URL du site : https://obscured-flow-79hb6mw.shipstatic.com** (publication vérifiée par le service d'hébergement le 15 octobre 2026).\n\nLe site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.
+Le site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.
 
 ## Mode d'emploi Android
 
@@ -18,7 +18,7 @@ Seuls le brouillon (sujet, narration, paramètres) et les identifiants des runs 
 ## Fonctionnement et limites
 
 - `workflow_dispatch` permet d'envoyer la demande. Le champ `request_id` et le `run-name` assurent le suivi distinct des exécutions ; la recherche automatique est limitée à une consultation toutes les 20 secondes pendant au maximum 20 minutes.
-- Sans narration personnalisée, un **canevas déterministe**, et non une IA, est utilisé. Pour une vraie génération IA locale, utiliser `free_studio.py` avec Ollama sur un PC adapté.
+- Par défaut, une narration vide produit un **canevas déterministe**, et non une IA. Sélectionner **« Vraie IA locale »** avec narration vide pour déclencher Ollama/Qwen2.5 sur le runner GitHub, sans PC personnel ni API payante. Cette nouvelle option reste à valider avec un vrai téléchargement modèle et une exécution bout en bout en production ; un modèle indisponible entraîne un échec explicite, pas un faux résultat IA.
 - Les images Wikimedia sont sélectionnées avec restrictions domaine public/CC0. Absence d'image : scène graphique de repli. Respecter aussi droit à l'image et marques.
 - Les artefacts vidéo sont conservés **7 jours**, selon les paramètres actuels du workflow.
 - Selon la documentation GitHub, les runners standards des dépôts publics sont gratuits, mais les contraintes techniques, règles d'utilisation, politiques de facturation et de stockage restent applicables. Cela ne représente pas une promesse de capacité illimitée.

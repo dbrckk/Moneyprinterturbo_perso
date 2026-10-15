@@ -13,6 +13,12 @@ on:
         required: true
         type: string
         default: Les économies d'énergie
+      script_mode:
+        description: "Mode scénario : modèle fixe ou IA locale Ollama (CPU sur GitHub)"
+        required: true
+        type: choice
+        options: [template, local-ai]
+        default: template
       script:
         description: Narration personnalisée facultative (sans IA si vide)
         required: false
@@ -58,7 +64,7 @@ permissions:
 jobs:
   create-video:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -66,6 +72,23 @@ jobs:
           python-version: '3.11'
       - name: Install free render dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Install Ollama only for local AI scripts
+        if: ${{ inputs.script_mode == 'local-ai' && inputs.script == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Official Linux package; avoids executing a remotely fetched shell installer.
+          curl --fail --show-error --silent --location --retry 3 \
+            'https://ollama.com/download/ollama-linux-amd64.tar.zst' -o /tmp/ollama.tar.zst
+          sudo apt-get install -y zstd
+          sudo tar --use-compress-program=zstd -xf /tmp/ollama.tar.zst -C /usr
+          OLLAMA_HOST=127.0.0.1:11434 ollama serve > /tmp/mpt-ollama.log 2>&1 &
+          for attempt in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags > /dev/null; then break; fi
+            if [[ "$attempt" -eq 45 ]]; then tail -60 /tmp/mpt-ollama.log; exit 1; fi
+            sleep 2
+          done
+          ollama pull qwen2.5:1.5b
       - name: Generate actual narrated MP4
         env:
           TOPIC: ${{ inputs.topic }}
@@ -73,12 +96,20 @@ jobs:
           ASPECT: ${{ inputs.aspect }}
           RESOLUTION: ${{ inputs.resolution }}
           SCRIPT_TEXT: ${{ inputs.script }}
+          SCRIPT_MODE: ${{ inputs.script_mode }}
           VISUAL_MODE: ${{ inputs.visuals }}
           SCENE_QUERIES: ${{ inputs.scene_queries }}
           SPEECH_RATE: ${{ inputs.speech_rate }}
         run: |
           ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
-          if [[ -n "$SCRIPT_TEXT" ]]; then ARGS+=(--script "$SCRIPT_TEXT"); fi
+          if [[ -n "$SCRIPT_TEXT" ]]; then
+            if [[ "$SCRIPT_MODE" == "local-ai" ]]; then
+              echo 'A custom script and local AI mode cannot be combined' >&2; exit 1
+            fi
+            ARGS+=(--script "$SCRIPT_TEXT")
+          elif [[ "$SCRIPT_MODE" == "local-ai" ]]; then
+            ARGS+=(--ollama-model qwen2.5:1.5b --ollama-url http://127.0.0.1:11434)
+          fi
           if [[ "$VISUAL_MODE" == "commons" ]]; then ARGS+=(--commons); fi
           if [[ -n "$SCENE_QUERIES" ]]; then ARGS+=(--scene-queries "$SCENE_QUERIES"); fi
           python free_studio.py "${ARGS[@]}"

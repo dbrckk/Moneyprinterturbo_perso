@@ -23,7 +23,7 @@
       <div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> STUDIO CONNECTÉ À GITHUB ACTIONS</div>
         <h1 id="hero-title">Une idée. <em>Une vidéo.</em><br>Sans abonnement.</h1>
         <p>Écris ton scénario, configure le rendu et lance la création d'un vrai MP4 depuis ton téléphone. Le calcul s'effectue dans GitHub Actions, pas sur ton Android.</p>
-        <div class="hero-facts"><span>◈ Formats Shorts / Reels</span><span>◈ Voix française incluse</span><span>◈ Export MP4 + SRT</span></div>
+        <div class="hero-facts"><span>◈ Formats Shorts / Reels</span><span>◈ Scénario IA locale facultatif</span><span>◈ Voix française incluse</span><span>◈ Export MP4 + SRT</span></div>
       </div>
       <div class="preview-mock" aria-label="Présentation des étapes de fabrication"><div class="preview-top"><span class="preview-tag">APERÇU DU PROCESSUS</span><span>9:16</span></div>
         <div class="mock-film"><span class="mock-star">✦</span><span class="mock-title">YOUR NEXT<br><i>STORY</i></span><span class="mock-caption">SCÉNARIO → VOIX → IMAGES → VIDÉO</span></div>
@@ -38,9 +38,15 @@
           <div class="field"><label for="topic">Sujet de la vidéo <span class="required">*</span></label>
             <input id="topic" name="topic" type="text" minlength="2" maxlength="140" value="Les secrets des paysages français" placeholder="Ex. Les inventions qui ont changé le monde" required>
             <small>L'idée centrale, en 2 à 140 caractères.</small></div>
+          <div class="field"><label for="script_mode">Création du scénario</label>
+            <select id="script_mode" name="script_mode">
+              <option value="template">Canevas gratuit automatique (sans IA)</option>
+              <option value="local-ai">Vraie IA locale · Ollama sur GitHub Actions</option>
+            </select>
+            <small>Le mode IA télécharge le modèle Qwen2.5 1,5B sur un runner GitHub gratuit. Aucun jeton d'IA ni ordinateur personnel requis. Le premier rendu peut être plus long.</small></div>
           <div class="field"><div class="field-heading"><label for="script">Narration personnalisée</label><button id="make-outline" class="subtle-button" type="button">Utiliser un canevas</button></div>
             <textarea id="script" name="script" rows="6" maxlength="5000" placeholder="Rédige chaque phrase à prononcer. Chaque phrase devient une scène..." spellcheck="true"></textarea>
-            <div class="count-line"><small>Vide = scénario générique automatique (ce n'est pas une IA).</small><span id="script-count">0 / 5000</span></div></div>
+            <div class="count-line"><small>Vide = scénario issu du mode sélectionné ci-dessus. Remplir ce champ désactive le mode IA.</small><span id="script-count">0 / 5000</span></div></div>
           <div class="section-mini">PARAMÈTRES DE SORTIE</div>
           <div class="form-grid">
             <div class="field"><label for="aspect">Format</label><select id="aspect" name="aspect"><option value="9:16">Vertical · 9:16</option><option value="16:9">Horizontal · 16:9</option><option value="1:1">Carré · 1:1</option></select></div>

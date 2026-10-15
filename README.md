@@ -140,10 +140,16 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Ouvrir le studio depuis Android ou PC : https://obscured-flow-79hb6mw.shipstatic.com** (HTTPS ; hébergement statique gratuit, sans PC allumé). Le lien pointe vers une version figée du site ; le code de référence reste dans le dossier `remote/`.
-
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
 **Le site distant ne peut pas monter une vidéo sans connexion GitHub** : il pilote le workflow gratuit du dépôt public. Le scénario et les paramètres sont conservés sur le navigateur, mais **le jeton GitHub ne l'est jamais**. Un jeton fine-grained avec la seule permission de dépôt `Actions: Read and write` est requis pour démarrer un rendu, sauf si tu préfères lancer directement les workflows depuis le site GitHub. Les MP4 sont à récupérer dans les artefacts de l'exécution. Voir [instructions Android, sécurité et hébergement](docs/REMOTE_STUDIO.md).
 
 L'interface ne constitue pas encore un éditeur vidéo avec timeline et preview d'images en temps réel : elle est un **portail de production distant fonctionnel** raccordé au moteur existant. La voie locale `studio_server.py` reste disponible pour la prévisualisation vidéo interactive depuis un PC.
+
+## Nouveau : scénario généré par une vraie IA depuis Android
+
+Le studio distant propose **« Vraie IA locale · Ollama sur GitHub Actions »**. En laissant la narration vide, le workflow téléchargera `qwen2.5:1.5b` sur le runner Linux standard public, puis `free_studio.py` l'interrogera sur `127.0.0.1`. Aucun PC personnel, jeton d'API commerciale ni GPU payant n'est requis. Le téléchargement du modèle peut rallonger fortement le temps de génération et peut échouer en cas de limitation réseau/ressources ; **un échec de la vraie IA ne sera pas maquillé en génération IA réussie**.
+
+L'utilisateur peut également lancer manuellement le workflow dans GitHub Actions en sélectionnant `script_mode=local-ai`. Un texte de narration personnalisé exige `script_mode=template`. Les paramètres sont volontairement explicites pour éviter toute fausse revendication de génération IA.
+
+Voir [l'audit du code réellement incorporé et des meilleurs dépôts de star-list](docs/STAR_LIST_PROVENANCE.md).

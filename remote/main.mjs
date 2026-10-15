@@ -2,7 +2,7 @@ import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
 
 const $ = id => document.getElementById(id);
-const controls = ['topic', 'script', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate'];
+const controls = ['topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate'];
 const DRAFT_KEY = 'mpt-remote-draft-v1';
 const HISTORY_KEY = 'mpt-remote-jobs-v1';
 const statusLabels = {queued:'En attente', in_progress:'Rendu en cours', completed:'Terminé', waiting:'En attente', requested:'Demande envoyée'};
@@ -41,10 +41,10 @@ function showScenes() {
   const narration = $('script').value;
   $('script-count').textContent = `${narration.length} / 5000`;
   const entries = narration.trim() ? segmentsOf(narration) : [];
-  $('scene-count').textContent = entries.length ? `${entries.length} scène${entries.length>1?'s':''}` : 'Scénario automatique';
+  $('scene-count').textContent = entries.length ? `${entries.length} scène${entries.length>1?'s':''}` : ($('script_mode').value === 'local-ai' ? 'IA locale · scènes après génération' : 'Canevas automatique');
   const list = $('scenes');
   list.replaceChildren();
-  const displayed = entries.length ? entries : ['Ajoute une narration pour prévisualiser tes scènes.'];
+  const displayed = entries.length ? entries : [$('script_mode').value === 'local-ai' ? 'Le modèle IA générera les scènes pendant le rendu GitHub.' : 'Ajoute une narration pour prévisualiser tes scènes.'];
   for (const entry of displayed.slice(0,18)) {
     const li = document.createElement('li'); li.textContent = entry; list.append(li);
   }
@@ -154,7 +154,7 @@ function templateFor(topic,lang) {
 $('make-outline').addEventListener('click', () => {
   const topic=$('topic').value.trim();
   if(topic.length<2){notify('Renseigne un sujet avant de créer un canevas.');return;}
-  $('script').value=templateFor(topic,$('lang').value);saveDraft();showScenes();clearNotice();
+  $('script').value=templateFor(topic,$('lang').value);$('script_mode').value='template';saveDraft();showScenes();clearNotice();
 });
 $('video-form').addEventListener('input', () => { saveDraft();showScenes();clearNotice(); });
 $('video-form').addEventListener('change', saveDraft);
