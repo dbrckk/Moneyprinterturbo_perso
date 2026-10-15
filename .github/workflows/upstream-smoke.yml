@@ -1,0 +1,33 @@
+name: Upstream MoneyPrinterTurbo Smoke
+on:
+  push:
+    paths:
+      - .github/workflows/upstream-smoke.yml
+      - upstream/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upstream-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: upstream
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: upstream/uv.lock
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Locked dependency installation
+        run: uv sync --frozen --python 3.11
+      - name: Compile actual imported engine
+        run: uv run --no-sync python -m compileall -q app main.py cli.py webui
+      - name: Exercise genuine upstream smoke tests
+        run: uv run --no-sync python -m pytest -q test/services/test_config.py test/services/test_state.py test/services/test_controller_ping.py
