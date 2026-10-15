@@ -53,3 +53,45 @@ L'amont est [harry0703/MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrin
 - Tous les appels FFmpeg sont réalisés sans shell, avec entrée contrôlée.
 - Aucun actif musical tiers ou police d'auteur incertain n'est importé automatiquement.
 - Les sorties `outputs/` sont ignorées par Git, et les artefacts Actions expirent automatiquement.
+
+## Vraies images et vidéos — nouveauté
+
+Le moteur **Free Studio** sait désormais monter des images et vidéos locales réelles,
+avec un lent zoom sur les photos (effet Ken Burns) et recadrage aux formats Shorts.
+Sans média disponible, il utilise automatiquement les fonds graphiques précédents.
+
+**Sources locales (aucune connexion, aucune API) :**
+
+```bash
+mkdir -p mes-medias
+# Copiez vos photos JPEG/PNG/WebP et/ou vos clips MP4/MOV/WebM/MKV dans mes-medias
+python3 free_studio.py --topic 'Les paysages de France' \
+  --media-dir mes-medias --lang fr --output outputs/paysages.mp4
+```
+
+**Wikimedia Commons (connexion internet requise, aucune clé API) :**
+
+```bash
+python3 free_studio.py --topic 'architecture Paris' \
+  --commons --output outputs/architecture.mp4
+```
+
+L'option `--commons` sélectionne uniquement les images dont les métadonnées
+Wikimedia Commons annoncent une licence **CC0** ou **domaine public**. Les images
+CC BY/CC BY-SA/non commerciales ou dont la licence n'a pu être vérifiée ne sont
+**pas** reprises. Le résultat inclut `video.json` (scènes, avertissements, sources)
+et, pour chaque média utilisé, `video.credits.txt` (auteurs, licences, liens).
+Les résultats dépendent des fichiers disponibles : une recherche ne garantit pas
+une correspondance pertinente à chaque scène. Vérifiez les notices de droits
+avant toute publication commerciale, notamment les marques, personnes et droits
+de la personnalité même lorsqu'une photo est dans le domaine public.
+
+Le workflow **Actions → Générer une vidéo gratuite** recherche désormais ces
+images par défaut (choix `visuels: commons`), accepte un texte de narration
+personnalisé facultatif et joint le relevé de crédits aux artefacts. Si la
+recherche échoue, la vidéo reste générée avec des fonds abstraits et le JSON
+signale explicitement ce repli. **L'absence de texte personnalisé et d'Ollama
+n'active pas une vraie IA : le scénario reste le modèle déterministe.**
+
+Les images/vidéos locales doivent être autorisées par leur propriétaire :
+le mode local ne prétend pas en vérifier automatiquement les droits.

@@ -17,7 +17,7 @@ Source examinée : [catalogue star-list](https://github.com/dbrckk/star-list/blo
 
 1. **Terminé** : reproduire le workflow `script → narration → sous-titres → MP4` avec FFmpeg + eSpeak, en mode sans API, testable en CI.
 2. **Terminé** : importer l'amont MIT avec licence, séparément du moteur gratuit.
-3. **À réaliser** : ajouter des images et séquences libres sous contrôle de licence et une piste d'attribution.
+3. **Implémenté dans Free Studio** : photos et vidéos locales, recherche Wikimedia Commons (CC0/domaine public), journal de crédits, repli automatique. **À améliorer** : sélection sémantique, transitions et performance des rendus.
 4. **À réaliser** : brancher l'édition de projet et la prévisualisation web sur le moteur existant, plutôt que réimplémenter toute l'interface.
 5. **À réaliser** : voix locales plus naturelles, cache, traitement en lot, suivi d'erreurs et tests de rendu multi-plateforme.
 

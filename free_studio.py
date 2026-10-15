@@ -18,6 +18,8 @@ import tempfile
 import textwrap
 from urllib import request
 
+from media_assets import MediaAsset, commons_assets, local_assets
+
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
 ASPECTS = {"9:16": (9, 16), "16:9": (16, 9), "1:1": (1, 1)}
@@ -35,10 +37,10 @@ def execute(args: list[str], *, cwd: Path | None = None, timeout: int = 900) -> 
         raise RuntimeError(f"{args[0]} failed ({completed.returncode}): {completed.stderr[-2500:]}")
 
 
-def split_script(text: str, *, max_segments: int = 12) -> list[str]:
+def split_script(text: str, *, max_segments: int = 18) -> list[str]:
     if not isinstance(text, str) or not text.strip() or len(text) > 5000:
         raise ValueError("Script must be 1–5000 characters")
-    compact = re.sub(r"\s+", " ", text).strip()
+    compact = re.sub(r"[ \t\f\v]+", " ", text).strip()
     segments = [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+|\n+", compact) if part.strip()]
     result: list[str] = []
     for part in segments:
@@ -46,7 +48,7 @@ def split_script(text: str, *, max_segments: int = 12) -> list[str]:
         words = part.split()
         buffer: list[str] = []
         for word in words:
-            if buffer and len(" ".join(buffer + [word])) > 135:
+            if buffer and len(" ".join(buffer + [word])) > 105:
                 result.append(" ".join(buffer))
                 buffer = []
             buffer.append(word)
@@ -155,7 +157,48 @@ def make_captions(segments: list[str], durations: list[float], work: Path) -> li
     return timings
 
 
-def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: str = "9:16", resolution: int = 720, mute: bool = False, fps: int = 24) -> dict[str, object]:
+def render_scene(asset: MediaAsset, duration: float, index: int, work: Path,
+                 *, width: int, height: int, fps: int) -> Path:
+    """Normalize one photo/video to a silent CFR clip with a gentle camera move."""
+    target = work / f"scene_{index:02}.mp4"
+    frames = max(1, math.ceil(duration * fps))
+    if asset.kind == "image":
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1",
+               "-framerate", str(fps), "-i", str(asset.file)]
+        effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                  f"crop={width}:{height},setsar=1,"
+                  f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
+                  "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+    else:
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1",
+               "-i", str(asset.file)]
+        effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
+                  f"crop={width}:{height},setsar=1,"
+                  "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+    cmd += ["-an", "-vf", effect, "-frames:v", str(frames), "-r", str(fps),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+            str(target)]
+    execute(cmd, timeout=240)
+    if target.stat().st_size < 1000:
+        raise RuntimeError("Media scene output is empty")
+    return target
+
+
+def prepare_media_background(assets: list[MediaAsset], durations: list[float], work: Path,
+                             *, width: int, height: int, fps: int) -> Path:
+    scenes = [render_scene(assets[i % len(assets)], duration, i, work, width=width,
+                           height=height, fps=fps) for i, duration in enumerate(durations)]
+    manifest = work / "scenes.txt"
+    manifest.write_text("".join(f"file '{scene.name}'\n" for scene in scenes), encoding="utf-8")
+    output = work / "background.mp4"
+    execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat",
+             "-safe", "0", "-i", manifest.name, "-c", "copy", output.name], cwd=work)
+    return output
+
+
+def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: str = "9:16",
+           resolution: int = 720, mute: bool = False, fps: int = 24,
+           media_dir: Path | None = None, commons: bool = False) -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -171,14 +214,32 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         durations, audio = make_audio(sentences, lang, work, mute=mute)
         segments = make_captions(sentences, durations, work)
         total = sum(durations)
+        warnings: list[str] = []
+        assets: list[MediaAsset] = []
+        if media_dir is not None:
+            local, notices = local_assets(media_dir.expanduser().resolve())
+            assets.extend(local)
+            warnings.extend(notices)
+        if commons and len(assets) < len(sentences):
+            remote, notices = commons_assets(topic, work, limit=min(8, len(sentences) - len(assets)))
+            assets.extend(remote)
+            warnings.extend(notices)
+        using_media = bool(assets)
+        video_background = (prepare_media_background(assets, durations, work, width=width,
+                                                    height=height, fps=fps) if using_media else None)
         filters = ["format=yuv420p"]
-        # Modern, deterministic backgrounds with alternating scenes and subtle grid.
-        for i, segment in enumerate(segments):
-            start, end = segment["start"], segment["end"]
-            color = PALETTE[i % len(PALETTE)]
-            filters.append(f"drawbox=x=0:y=0:w=iw:h=ih:color={color}:t=fill:enable='between(t,{start},{end})'")
+        if using_media:
+            # Preserve the photo's details while improving caption legibility.
+            filters.append("drawbox=x=0:y=0:w=iw:h=ih:color=0x06101e@0.30:t=fill")
+        else:
+            # Deterministic fallback if no stock or user media can be used.
+            for i, segment in enumerate(segments):
+                start, end = segment["start"], segment["end"]
+                color = PALETTE[i % len(PALETTE)]
+                filters.append(f"drawbox=x=0:y=0:w=iw:h=ih:color={color}:t=fill:enable='between(t,{start},{end})'")
         filters += [
-            "drawgrid=w=110:h=110:t=1:color=white@0.045",
+            "drawgrid=w=110:h=110:t=1:color=white@0.025",
+            "drawbox=x=0:y=ih*0.68:w=iw:h=ih*0.23:color=0x040915@0.20:t=fill",
             f"drawbox=x=0:y=0:w=iw:h={max(5,height//115)}:color=0x42e8d6:t=fill",
             f"drawbox=x={int(width*.09)}:y={int(height*.285)}:w={max(5,width//70)}:h={int(height*.19)}:color=0x42e8d6:t=fill",
         ]
@@ -186,11 +247,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         filters.append(f"drawtext=textfile=brand.txt:fontcolor=0x97cfcf:fontsize={max(10,width//45)}:x=(w-text_w)/2:y=h*0.12")
         for i, segment in enumerate(segments):
             start, end = segment["start"], segment["end"]
-            # Segment headings are distinct from lower-third captions.
-            heading = str(segment["text"]).rstrip(".!?…")
-            heading = " ".join(heading.split()[:8])
+            heading = " ".join(str(segment["text"]).rstrip(".!?…").split()[:8])
             heading_size = max(17, width // 20)
-            # FFmpeg drawtext does not auto-wrap: avoid cropped titles on phones.
             max_chars = max(11, int(width * 0.74 / (heading_size * 0.60)))
             lines = textwrap.wrap(heading, width=max_chars, break_long_words=True, break_on_hyphens=False)[:4]
             (work / f"heading_{i}.txt").write_text("\n".join(lines), encoding="utf-8")
@@ -201,10 +259,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         subtitle_size = max(13, int(width / 34))
         filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"color=c=0x0b1025:s={width}x{height}:r={fps}:d={total:.3f}"]
+        if using_media:
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
+        else:
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                   f"color=c=0x0b1025:s={width}x{height}:r={fps}:d={total:.3f}"]
         if audio:
             cmd += ["-i", str(audio)]
-        cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
+        cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
+                "-crf", "23", "-pix_fmt", "yuv420p"]
         if audio:
             cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
         else:
@@ -215,11 +278,31 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             raise RuntimeError("Video output missing or truncated")
         # Only publish the finished result; preexisting output remains untouched on failure.
         temp_out = output.with_name(output.stem + ".partial.mp4")
-        shutil.copyfile(staged, temp_out)
-        os.replace(temp_out, output)
-    info: dict[str, object] = {"output": str(output), "duration_seconds": round(total, 3), "size": [width, height], "segments": segments, "speech": not mute, "source": "local-free-studio"}
-    output.with_suffix(".json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return info
+        try:
+            shutil.copyfile(staged, temp_out)
+            os.replace(temp_out, output)
+        finally:
+            temp_out.unlink(missing_ok=True)
+        media_used: list[dict[str, object]] = []
+        for index in range(len(sentences)):
+            if not using_media:
+                break
+            asset = assets[index % len(assets)]
+            media_used.append({"segment": index + 1, "title": asset.title, "kind": asset.kind,
+                               "source": asset.source_url, "license": asset.license, "author": asset.author})
+        if media_used:
+            credits = ["MEDIA SOURCES — MoneyPrinterTurbo Perso", "Local media: users must hold appropriate rights.", ""]
+            credits.extend(f"Scene {item['segment']}: {item['title']} | Author: {item['author']} | "
+                           f"License: {item['license']} | {item['source']}" for item in media_used)
+            output.with_suffix(".credits.txt").write_text("\n".join(credits) + "\n", encoding="utf-8")
+        info: dict[str, object] = {
+            "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
+            "segments": segments, "speech": not mute, "source": "local-free-studio",
+            "visual_mode": ("media" if using_media else "abstract-fallback"),
+            "media": media_used, "warnings": warnings,
+        }
+        output.with_suffix(".json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return info
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--mute", action="store_true", help="Render without synthetic voice")
+    parser.add_argument("--media-dir", type=Path, help="Directory of licensed local images or videos")
+    parser.add_argument("--commons", action="store_true", help="Search Wikimedia Commons for CC0/public-domain photos (optional internet)")
     args = parser.parse_args(argv)
     if args.script and args.script_file:
         parser.error("Use either --script or --script-file")
@@ -254,7 +339,11 @@ def main(argv: list[str] | None = None) -> int:
             text = template_script(args.topic, args.lang)
             mode = "deterministic-template-not-ai"
         print(f"Script mode: {mode}", flush=True)
-        info = render(args.topic, text, args.output, lang=args.lang, aspect=args.aspect, resolution=args.resolution, fps=args.fps, mute=args.mute)
+        info = render(args.topic, text, args.output, lang=args.lang, aspect=args.aspect, resolution=args.resolution, fps=args.fps, mute=args.mute, media_dir=args.media_dir, commons=args.commons)
+        info["script_mode"] = mode
+        Path(info["output"]).with_suffix(".json").write_text(
+            json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         print(json.dumps(info, ensure_ascii=False, indent=2))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"Generation failed: {exc}\n")

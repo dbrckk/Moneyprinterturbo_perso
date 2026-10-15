@@ -7,6 +7,17 @@ on:
         required: true
         type: string
         default: Les économies d'énergie
+      script:
+        description: Narration personnalisée facultative (sans IA si vide)
+        required: false
+        type: string
+        default: ''
+      visuals:
+        description: Visuels gratuits (Commons = domaine public/CC0, repli garanti)
+        required: true
+        type: choice
+        options: [commons, abstract]
+        default: commons
       lang:
         description: Langue et voix
         required: true
@@ -44,8 +55,13 @@ jobs:
           LANG: ${{ inputs.lang }}
           ASPECT: ${{ inputs.aspect }}
           RESOLUTION: ${{ inputs.resolution }}
+          SCRIPT_TEXT: ${{ inputs.script }}
+          VISUAL_MODE: ${{ inputs.visuals }}
         run: |
-          python free_studio.py --topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --output outputs/video.mp4
+          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --output outputs/video.mp4)
+          if [[ -n "$SCRIPT_TEXT" ]]; then ARGS+=(--script "$SCRIPT_TEXT"); fi
+          if [[ "$VISUAL_MODE" == "commons" ]]; then ARGS+=(--commons); fi
+          python free_studio.py "${ARGS[@]}"
       - name: Verify output contains video and audio streams
         run: |
           test -s outputs/video.mp4
@@ -58,5 +74,6 @@ jobs:
           path: |
             outputs/video.mp4
             outputs/video.json
+            outputs/video.credits.txt
           retention-days: 7
           if-no-files-found: error
