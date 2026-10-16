@@ -49,6 +49,43 @@ jobs:
               summary.write(f'Verified Commons scenes: **{found}/2**\n\n')
               summary.write(f'Commons elapsed: **{meta["commons_fetch"]["wall_seconds"]} seconds**\n')
           PY
+      - name: Test repeated scenery scenes with a single Commons search
+        shell: bash
+        run: |
+          python free_studio.py --topic 'Montagnes' --commons \
+            --scene-queries 'montagne|montagne|montagne' \
+            --script 'Voici une chaîne de montagnes. Le sommet domine la vallée. Un autre panorama se découvre.' \
+            --mute --lang fr --aspect '9:16' --resolution 360 --fps 12 \
+            --output outputs/commons-diverse.mp4
+          python video_qa.py outputs/commons-diverse.mp4
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          video=Path('outputs/commons-diverse.mp4')
+          report=json.loads(video.with_suffix('.json').read_text())
+          stats=report['commons_fetch']
+          quality=json.loads(video.with_suffix('.quality.json').read_text())
+          assert quality['ok'], quality['errors']
+          assert len(report['segments'])==3
+          assert stats['unique_queries']==1
+          assert stats['image_variants_budget']==3
+          assert 0<=stats['image_variants_fetched']<=3
+          assert stats['scenes_matched']==len(report['media'])
+          urls={entry['source'] for entry in report['media']}
+          assert len(urls)==stats['unique_images_selected']
+          assert stats['scenes_reusing_image']==len(report['media'])-len(urls)
+          assert 0<=stats['scenes_reusing_image']<=3
+          assert all(entry['license'].lower() in ('cc0','cc0 1.0','public domain','pd-old','pd-self','pd-us','pd-art') for entry in report['media'])
+          print('REPEATED COMMONS SCENES:',len(report['media']),'matched;',
+                len(urls),'distinct image files;',stats['image_variants_fetched'],'downloaded candidates')
+          print('Fallback scenes:',3-len(report['media']))
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+              summary.write('\\n## Repeated-topic visual diversity\\n\\n')
+              summary.write(f'Commons searches: **{stats["unique_queries"]}**\\n\\n')
+              summary.write(f'Actual distinct image sources: **{len(urls)}**\\n\\n')
+              summary.write(f'Graphic fallback scenes: **{3-len(report["media"])}**\\n\\n')
+          PY
       - name: Attach actual video, storyboard, subtitles and network timings
         uses: actions/upload-artifact@v4
         with:
@@ -61,5 +98,12 @@ jobs:
             outputs/commons-real.quality.json
             outputs/commons-real.storyboard.png
             outputs/commons-real.credits.txt
+            outputs/commons-diverse.mp4
+            outputs/commons-diverse.json
+            outputs/commons-diverse.srt
+            outputs/commons-diverse.ass
+            outputs/commons-diverse.quality.json
+            outputs/commons-diverse.storyboard.png
+            outputs/commons-diverse.credits.txt
           retention-days: 3
           if-no-files-found: error
