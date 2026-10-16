@@ -357,15 +357,20 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             for i in range(len(sentences)):
                 if local and (not commons or i < len(local)):
                     slots[i] = local[i % len(local)]
+        commons_stats: dict[str, float | int] = {}
         if commons:
             queries = scene_search_queries(topic, sentences, scene_queries)
             missing = [i for i, item in enumerate(slots) if item is None]
-            remote, notices = commons_scene_assets(queries, work, indices=missing)
+            remote, notices = commons_scene_assets(queries, work, indices=missing, stats=commons_stats)
             for i, item in remote.items():
                 slots[i] = item
             warnings.extend(notices)
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
+        if commons:
+            metrics["commons_wall_seconds"] = float(commons_stats.get("wall_seconds", 0))
+            metrics["commons_api_seconds_sum"] = float(commons_stats.get("api_seconds_sum", 0))
+            metrics["commons_download_seconds_sum"] = float(commons_stats.get("download_seconds_sum", 0))
         stage_started = time.perf_counter()
         # For small graphic-only storyboards, generate all moving backgrounds,
         # crossfades, text and subtitles in the FINAL FFmpeg graph. No temporary
@@ -520,6 +525,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
+            "commons_fetch": commons_stats if commons else None,
             "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (
                 "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else

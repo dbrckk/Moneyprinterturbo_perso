@@ -134,7 +134,7 @@ class SceneSearchTests(unittest.TestCase):
             self.assertEqual(sorted(found), [0, 1, 2])
             self.assertEqual(search.call_count, 2)
             self.assertTrue(any("budget" in warning for warning in warnings))
-            self.assertEqual(search.call_args_list[0].args[0], "forest")
+            self.assertEqual({call.args[0] for call in search.call_args_list}, {"forest", "river"})
 
     @unittest.skipUnless(FFMPEG, "FFmpeg required")
     def test_mixed_scenes_keep_correct_attribution_and_srt(self):

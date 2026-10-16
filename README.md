@@ -303,3 +303,7 @@ Les nouvelles exécutions exposent également `video.storyboard.png` sans ZIP. L
 ## Optimised JPEG and MP4 video montage
 
 For projects with up to 4 scenes at 720p or 2 scenes at 1080p, a single FFmpeg encode now combines stills, footage, fades, motion, animated captions and audio. This avoids intermediate lossy H.264 files. Full-range JPEG sources are converted to mobile-compatible yuv420p (including in the older pipeline). Unsupported inputs automatically fall back to the established renderer. See [media performance and benchmark](docs/MEDIA_PERFORMANCE.md).
+
+### Wikimedia Commons : téléchargement parallélisé et contrôle réseau
+
+Les nouvelles vidéos Commons recherchent les illustrations CC0/domaine public avec **trois tâches maximum en parallèle**, tout en réutilisant les résultats des requêtes répétées (huit recherches distinctes maximum). Le rapport `video.json` expose `commons_fetch` et les durées réseau, téléchargement et vérification. Les recherches infructueuses continuent de produire les fonds animés de secours et un avertissement plutôt que de bloquer la vidéo. Consulte [la documentation et les limites](docs/COMMONS_PERFORMANCE.md).
