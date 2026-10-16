@@ -1,0 +1,47 @@
+name: Wikimedia Commons Live Network Probe
+on:
+  push:
+    paths:
+      - media_assets.py
+      - bench/probe_commons_live.py
+      - .github/workflows/commons-network-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure FFprobe is available
+        shell: bash
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+      - name: Probe actual CC0/public-domain Commons image sources
+        run: python bench/probe_commons_live.py
+      - name: Report whether Wikimedia yielded licensed images
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          data=json.loads(Path('outputs/commons-network-probe/probe.json').read_text())
+          with Path(__import__('os').environ['GITHUB_STEP_SUMMARY']).open('a') as out:
+              out.write('## Wikimedia Commons network probe\n')
+              out.write('Status: **'+data['status']+'**\n\n')
+              out.write('Validated licensed images: **'+str(len(data['licensed_images']))+'**\n\n')
+              out.write('Wall-clock Commons seconds: '+str(data['network_stats']['wall_seconds'])+'\n\n')
+              if not data['licensed_images']:
+                  out.write('No verified image obtained: graphic fallback validated only, not Commons availability.\n')
+          PY
+      - name: Publish live results, provenance and images if available
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-network-observation
+          path: outputs/commons-network-probe/
+          retention-days: 3
+          if-no-files-found: error
