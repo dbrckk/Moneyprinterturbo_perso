@@ -1,6 +1,6 @@
 # MoneyPrinterTurbo Perso — Free Studio
 
-**Studio Android actuel : https://lucid-node-bq96jq9.shipstatic.com** — sous-titres progressifs et alignement acoustique Whisper facultatif.
+**Studio Android actuel : https://obscured-core-h7wqmj7.shipstatic.com** — MP4 sans ZIP, alignement Whisper et caches facultatifs.
 
 Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depuis GitHub Actions sur Android**. Le projet comporte deux chemins complémentaires :
 
@@ -142,7 +142,7 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://scaled-pixel-sxpg5r3.shipstatic.com**
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://obscured-core-h7wqmj7.shipstatic.com**
 
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
