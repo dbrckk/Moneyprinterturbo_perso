@@ -42,7 +42,7 @@ class TimelineTests(unittest.TestCase):
                         resolution=360,fps=12,mute=True,transition=transition)
                     self.assertEqual(info['scene_transition'],transition)
                     self.assertEqual(info['render_performance']['compositing_pipeline'],
-                                     'cut-concat' if transition == 'cut' else 'fused-xfade')
+                                     'direct-abstract-onepass')
                     self.assertEqual(len(info['segments']),3)
                     self.assertAlmostEqual(free_studio.duration_seconds(target),
                         info['duration_seconds'],delta=0.15)
@@ -82,7 +82,7 @@ class CompositionBenchmarkPathTests(unittest.TestCase):
             new_info = free_studio.render("Test", "La forêt est belle. La mer est calme.", new,
                                           use_fused_xfade=True, **opts)
             self.assertEqual(old_info["render_performance"]["compositing_pipeline"], "legacy-xfade")
-            self.assertEqual(new_info["render_performance"]["compositing_pipeline"], "fused-xfade")
+            self.assertEqual(new_info["render_performance"]["compositing_pipeline"], "direct-abstract-onepass")
             self.assertEqual(old_info["size"], new_info["size"])
             self.assertEqual(old_info["segments"], new_info["segments"])
             self.assertAlmostEqual(free_studio.duration_seconds(old),

@@ -3,6 +3,8 @@ on:
   push:
     paths:
       - .github/workflows/pipeline-benchmark.yml
+      - fast_abstract.py
+      - bench/compare_pipeline.py
   workflow_dispatch:
 permissions:
   contents: read

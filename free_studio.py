@@ -24,6 +24,7 @@ from urllib import request
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 from cinematic import build_filters, gradient_source, transition_plan
 from xfade_final import final_xfade_command
+from fast_abstract import build_onepass_abstract_command
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
@@ -364,16 +365,17 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
-        # Use the existing CFR scene normalization, but fuse xfade with the
-        # final overlays so cinematic transitions are encoded only once.
-        # Cut-only output keeps the verified stream-copy concat path.
+        # For small graphic-only storyboards, generate all moving backgrounds,
+        # crossfades, text and subtitles in the FINAL FFmpeg graph. No temporary
+        # H.264 scene clips are needed. More complex media retains tested paths.
         plan = transition_plan(durations, fps=fps, transition=applied_transition)
-        fused = plan.overlap_frames > 0 and use_fused_xfade
+        direct_abstract = bool(use_fused_xfade and not using_media and len(slots) <= 6)
+        fused = bool(not direct_abstract and plan.overlap_frames > 0 and use_fused_xfade)
         if fused:
             clips = [render_scene(asset, length, i, work, width=width,
                          height=height, fps=fps, extra_frames=plan.extra_frames[i])
                      for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
-        else:
+        elif not direct_abstract:
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps, transition=applied_transition)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
@@ -386,7 +388,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         else:
             filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
-        if fused:
+        if direct_abstract:
+            cmd = build_onepass_abstract_command(
+                durations, width=width, height=height, fps=fps,
+                transition=applied_transition, visual_filters=filters,
+                audio=audio, output=staged, total=total)
+        elif fused:
             cmd = final_xfade_command(clips, plan, fps=fps,
                 transition=applied_transition, overlays=filters, audio=audio,
                 duration=total, output=staged)
@@ -401,10 +408,36 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             else:
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
-        execute(cmd, cwd=work, timeout=360)
-        metrics["compositing_pipeline"] = ("fused-xfade" if fused else
-                                            "legacy-xfade" if plan.overlap_frames else
-                                            "cut-concat")
+        fallback = False
+        try:
+            execute(cmd, cwd=work, timeout=360)
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            if not direct_abstract:
+                raise
+            # Older FFmpeg builds can reject a multi-input gradient graph.
+            # Keep the validated intermediate renderer as a safe fallback.
+            fallback = True
+            warnings.append("Single-pass graphics unavailable on this runner; using legacy FFmpeg rendering")
+            retry_started = time.perf_counter()
+            video_background = prepare_media_background(slots, durations, work,
+                width=width, height=height, fps=fps, transition=applied_transition)
+            metrics["scene_encoding_seconds"] = round(time.perf_counter() - retry_started, 3)
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
+            if audio:
+                cmd += ["-i", str(audio)]
+            cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "23", "-pix_fmt", "yuv420p"]
+            if audio:
+                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
+            else:
+                cmd += ["-an"]
+            cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
+            execute(cmd, cwd=work, timeout=360)
+        metrics["compositing_pipeline"] = ("legacy-single-pass-fallback" if fallback else
+                                           "direct-abstract-onepass" if direct_abstract else
+                                           "fused-xfade" if fused else
+                                           "legacy-xfade" if plan.overlap_frames else
+                                           "cut-concat")
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")

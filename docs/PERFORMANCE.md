@@ -32,3 +32,38 @@ Mesure exploratoire locale le 16 octobre 2026, deux scènes **synthétiques** de
 ### Reproductible : comparaison interne des deux versions
 
 La fonction Python `render(..., use_fused_xfade=False)` active l'ancien montage double-encodage **uniquement pour établir une référence de test** ; l'interface Android reste optimisée par défaut. Le script `bench/compare_pipeline.py` produit à 720p et 1080p deux versions des **mêmes scènes** avec les **mêmes sous-titres**, puis exécute `video_qa.py` sur chaque MP4. Les deux variantes utilisent le même preset, CRF et nombre d'images ; seules les passes de transition changent. Le JSON de benchmark est publié en artefact par le workflow `Pipeline Speed Comparison` et inclut les temps `render_performance` de chaque variante. L'ancienne voie n'est pas proposée aux utilisateurs finaux.
+
+
+### Direct gradient compositor: one encode instead of three
+
+For **graphic-only** videos with up to six scenes, `fast_abstract.py` now assembles
+moving FFmpeg gradients, either `xfade`/wipe or exact cut-concat, original visual
+overlays, ASS/SRT subtitles and optional AAC narration in **one final H.264 graph**.
+No intermediate per-scene MP4 files are generated. This improves compression
+generation loss and removes process and disk overhead. The existing fused media
+path remains for real photographs, videos and longer storyboards.
+
+An unsupported gradient graph triggers a **logged return to the old renderer**;
+the output JSON identifies the actual strategy as `direct-abstract-onepass`,
+`legacy-single-pass-fallback`, `fused-xfade`, `legacy-xfade` or `cut-concat`
+under `render_performance.compositing_pipeline`.
+
+**Standalone local benchmark**, 16 October 2026: three 5.5-second synthetic
+gradient scenes with 12fps fade, same graphic overlay and H.264 veryfast CRF23,
+excluding audio and model downloads. The original method encodes each scene,
+their merged transition and the final overlay; the replacement encodes once.
+
+| Frame size | Multi-stage time | Single-pass time | Reduction |
+|---|---:|---:|---:|
+| 720×1280 | 1.481s | 0.891s | 39.8% |
+| 1080×1920 | 2.673s | 1.907s | 28.7% |
+
+These **microbenchmarks** are not a claim of equivalent end-to-end improvement.
+The `Pipeline Speed Comparison` workflow performs a reproducible actual-engine
+comparison and uploads both storyboard QA reports. The switch
+`use_fused_xfade=False` forces the original renderer for internal benchmark
+comparison; there is no user-facing downgrade option.
+
+A separate visual regression fixed the portrait karaoke caption grouping: groups
+now fit the available width based on font size/margins instead of a fixed
+34-character assumption (verified with a rendered 720p frame).

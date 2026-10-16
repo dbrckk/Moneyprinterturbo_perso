@@ -19,6 +19,14 @@ class CaptionMotionTests(unittest.TestCase):
         self.assertGreater(len(groups), 3)
         self.assertTrue(all(len(" ".join(group)) <= 34 or len(group) == 1 for group in groups))
 
+    def test_portrait_caption_groups_respect_safe_zone(self):
+        text = "Le soleil éclaire les montagnes et les forêts magnifiques."
+        for width, height in ((360, 640), (720, 1280), (1080, 1920)):
+            groups = _group_words(text, width, height)
+            self.assertGreater(len(groups), 1)
+            self.assertTrue(all(len(" ".join(group)) <= 21 or len(group) == 1 for group in groups),
+                            groups)
+
     def test_all_phrase_cues_cover_scene(self):
         with tempfile.TemporaryDirectory() as folder:
             scene = [{"start": 0, "end": 3.75,

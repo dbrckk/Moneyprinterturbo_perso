@@ -56,7 +56,7 @@ def main():
     output=root/"comparison.json"
     output.write_text(json.dumps({
        "description":"Real engine render, no voice/network, 12 fps, 2 animated scenes, 720p and 1080p",
-       "baseline":"same codec/preset and assets, legacy intermediate fade encoded before caption overlay",
+       "baseline":"same codec/preset and assets, old triple-encode vs direct one-pass animated gradients",
        "rows":rows},ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     print("Artifact",output)
 

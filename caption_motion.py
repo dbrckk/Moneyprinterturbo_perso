@@ -34,8 +34,12 @@ def _group_words(text: str, width: int, height: int) -> list[list[str]]:
     words = [_clean_word(word) for word in text.split()]
     if not words:
         raise ValueError("Empty spoken sentence")
-    # Horizontal videos are physically wider; still avoid huge captions.
-    limit = 34 if width <= height else 48
+    # A fixed 34-character phrase can overflow a portrait video because the
+    # ASS font size grows with width. Bound text to its actual safe zone.
+    font_size = max(22, int(min(width / 15, height / 18)))
+    margin_lr = max(18, int(width * 0.095))
+    usable = width - 2 * margin_lr
+    limit = min(48, max(12, int(usable / (font_size * 0.62))))
     max_words = 6 if width <= height else 8
     groups: list[list[str]] = []
     current: list[str] = []

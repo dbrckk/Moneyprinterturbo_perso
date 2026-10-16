@@ -280,3 +280,17 @@ Pour améliorer les rendus suivants, GitHub Actions réutilise si possible les c
 Lorsque Piper est installé via Python, sa voix ONNX est chargée **une seule fois par vidéo**, même avec plusieurs scènes. Le mode CLI précédent reste disponible sans le module Python. Les durées des WAV PCM sont calculées directement depuis leur en-tête ; le moteur évite également un FFmpeg concat superflu pour une scène unique.
 
 Chaque `video.json` expose désormais `tts_backend` et `render_performance` (durée audio, recherche de médias, scènes intermédiaires, encodage final et total). Ces mesures ne comprennent **pas** la préparation du runner ni le téléchargement des modèles. Détails, limites et méthode d'évaluation dans [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+
+## Montage graphique en une passe (720p / 1080p)
+
+Pour un storyboard composé de **six scènes graphiques maximum**, le moteur utilise
+automatiquement un encodage FFmpeg direct pour les fonds animés, transitions,
+habillage et sous-titres. Les photographies et vidéos suivent toujours le
+montage optimisé existant. Un FFmpeg incompatible entraîne un repli contrôlé sur
+l'ancien rendu ; le JSON indique le pipeline réellement utilisé. Les sous-titres
+progressifs ont aussi été raccourcis pour rester dans le cadre des formats
+verticaux 360p, 720p et 1080p.
+
+Le benchmark comparatif complet, les mesures et les limites se trouvent dans
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
