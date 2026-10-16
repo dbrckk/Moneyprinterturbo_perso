@@ -267,3 +267,10 @@ explicitement en mode estimé ; si aucune scène ne passe, le rendu s'arrête av
 
 Les fichiers `video.alignment.json` et `video.ass` conservent les minutages, la méthode utilisée et les
 avertissements. Le SRT reste éditable. Consulter [les limites, licences et tests](docs/WORD_ALIGNMENT.md).
+
+
+## Vidéo MP4 sans ZIP et caches de modèles (Android)
+
+Les nouveaux rendus déposent `video.mp4` séparément (GitHub Actions `upload-artifact@v7`, `archive: false`). Dans le portail HTTPS, après une production réussie, le bouton **Ouvrir le MP4 · sans ZIP** donne accès à l'artefact GitHub individuel. Le fichier peut être prévisualisé sur Android ; selon le navigateur, utiliser le menu pour l'enregistrer. GitHub peut demander une connexion. L'archive `free-studio-video` reste disponible pour les SRT/ASS, métadonnées, planche et rapport qualité.
+
+Pour améliorer les rendus suivants, GitHub Actions réutilise si possible les caches des modèles Ollama, Piper (SHA-256 revalidé) et Whisper. Ces caches sont opportunistes et soumis aux limites/évictions de GitHub ; la première exécution ne sera pas nécessairement plus rapide. Voir [le mode d'emploi Android](docs/REMOTE_STUDIO.md).

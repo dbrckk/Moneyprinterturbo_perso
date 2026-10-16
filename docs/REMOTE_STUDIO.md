@@ -11,7 +11,7 @@ Le site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workfl
 3. Choisir **Only select repositories → dbrckk/Moneyprinterturbo_perso**.
 4. Dans **Repository permissions**, attribuer **Actions: Read and write**, sans permissions supplémentaires au-delà de Metadata: Read (automatique).
 5. Coller le jeton dans le champ « Connexion GitHub », renseigner sujet, narration facultative, paramètres et éventuelles recherches séparées par `|` (une par scène), puis appuyer sur « Générer ma vidéo ».
-6. Une fois la production réussie, ouvrir le lien vers le run GitHub, puis télécharger `free-studio-video` dans **Artifacts**. Le ZIP contient la vidéo MP4, le SRT, le JSON et éventuellement les crédits médias.
+6. Une fois la production réussie, toucher **« Ouvrir le MP4 · sans ZIP »** dans le studio. Le lien ouvre directement l'artefact vidéo natif de GitHub (une connexion GitHub peut être requise). Sur certains navigateurs Android, la vidéo s'ouvre dans un lecteur et le menu du navigateur permet de l'enregistrer. Le bouton **« Fichiers et logs GitHub »** conserve l'archive `free-studio-video` contenant le MP4, les sous-titres et les rapports. Les anciens rendus sans artefact direct restent téléchargeables via le ZIP.
 
 **Ne pas partager le jeton.** Il reste dans le champ en mémoire du navigateur (ni `localStorage`, ni `sessionStorage`, ni cookie, ni requête vers l'hébergeur du site). Il est envoyé en HTTPS uniquement à `https://api.github.com`. Le jeton disparaît au rechargement de la page. Le code exécuté est auditable sous `remote/` ; contrôler l'URL avant de saisir un jeton.
 
@@ -61,3 +61,9 @@ Choisir « Sous-titres animés : Progressifs » puis « Précision : Alignement 
 Le workflow n'installe `stable-ts` que si cette option est sélectionnée. Un alignement correct
 exige un audio de narration et peut échouer sur des mots propres, des pauses et des noms ; les
 scènes en repli sont clairement signalées dans `video.alignment.json`. Voir `docs/WORD_ALIGNMENT.md`.
+
+## MP4 sans ZIP et réutilisation des modèles
+
+Depuis GitHub Actions `actions/upload-artifact@v7`, le MP4 est déposé comme artefact individuel `video.mp4` avec `archive: false`. Le studio interroge la liste d'artefacts de **l'exécution suivie** puis construit un lien HTTPS GitHub, sans jamais inclure le jeton dans l'adresse. Ce lien ouvre GitHub : le studio statique n'héberge ni ne télécharge le MP4 lui-même. Le clic peut afficher un lecteur intégré plutôt que déclencher le téléchargement selon le navigateur. L'archive ZIP des projets reste disponible en parallèle. Le lien direct expire avec l'artefact (7 jours).
+
+Le workflow met en cache `~/.ollama/models`, `models/` (Piper SIWIS) et `~/.cache/whisper` (modèle d'alignement) via `actions/cache@v4`, **uniquement lorsque l'option correspondante est utilisée**. Une première exécution doit toujours installer ou télécharger les composants. Les caches peuvent être évincés et ne constituent ni un hébergement permanent ni une garantie de rapidité. Chaque utilisation du modèle Piper vérifie toujours son empreinte SHA-256.

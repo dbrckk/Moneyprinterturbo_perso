@@ -1,5 +1,6 @@
 import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
+import { runArtifactsEndpoint, findDirectMp4, directMp4Url } from './downloads.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -75,7 +76,7 @@ function showHistory() {
     li.append(link, date);
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
-    button.addEventListener('click', () => { active = item; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
+    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
     li.append(' · ',button);
     list.append(li);
   }
@@ -83,6 +84,23 @@ function showHistory() {
 function replaceHistory(record) {
   const rows=loadHistory().filter(item => item.id !== record.id);
   rows.unshift(record); historySave(rows); showHistory();
+}
+async function resolveDirectVideo(run, requestId) {
+  try {
+    const response = await api(runArtifactsEndpoint(run.id));
+    if (!active || active.id !== requestId || active.runId !== run.id) return;
+    const mp4 = findDirectMp4(response?.artifacts);
+    if (!mp4) {
+      $('download-video').hidden = true;
+      setStatus('success', 'Vidéo prête', 'Ce rendu ne dispose pas encore d’un MP4 direct, ou son artefact a expiré. Utilise le lien du rendu GitHub pour télécharger l’archive.');
+      return;
+    }
+    $('download-video').href = directMp4Url(run.id, mp4.id);
+    $('download-video').hidden = false;
+    setStatus('success', 'Vidéo prête', 'Le MP4 est accessible sans ZIP avec le bouton ci-dessous. GitHub peut demander une connexion à ton compte. Les sous-titres, projets et contrôles restent dans l’archive du rendu.');
+  } catch (error) {
+    if (active?.id === requestId) setStatus('success', 'Vidéo prête', 'Lien MP4 direct indisponible : ' + error.message + ' Tu peux toujours ouvrir le rendu sur GitHub.');
+  }
 }
 function updateRun(run) {
   if (!active) return;
@@ -95,7 +113,8 @@ function updateRun(run) {
   }
   if (run.conclusion === 'success') {
     active.state = 'Réussi';replaceHistory(active);
-    setStatus('success', 'Vidéo prête', 'Le rendu est terminé. Ouvre la page GitHub de l’exécution et télécharge l’artefact « free-studio-video » (ZIP contenant MP4, SRT et JSON).');
+    setStatus('success', 'Vidéo prête', 'Le rendu est terminé. Recherche du MP4 sans ZIP…');
+    void resolveDirectVideo(run, active.id);
   } else {
     active.state = run.conclusion || 'Échec';replaceHistory(active);
     setStatus('failed', 'Échec du rendu', `Exécution terminée : ${run.conclusion || 'résultat inconnu'}. Consulte les journaux GitHub pour déterminer la cause.`);
@@ -171,6 +190,7 @@ $('video-form').addEventListener('submit', async event => {
   try {
     await api(`${API_ROOT}/actions/workflows/free-video.yml/dispatches`,{method:'POST',body:JSON.stringify(dispatchBody(values,id))});
     active={id,topic:values.topic,createdAt:new Date().toISOString(),state:'Demande envoyée'};
+    $('download-video').hidden = true;
     replaceHistory(active);
     $('run-actions').hidden=false;
     $('run-link').href=ACTIONS_URL;
@@ -183,4 +203,4 @@ $('video-form').addEventListener('submit', async event => {
 
 restoreDraft();showScenes();showHistory();
 const previous=loadHistory()[0];
-if(previous){active=previous;$('run-actions').hidden=false;$('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;setStatus('',previous.state||'Dernière demande','Clique sur « Actualiser » pour vérifier le statut de cette exécution.');}
+if(previous){active=previous;$('run-actions').hidden=false;$('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;setStatus('',previous.state||'Dernière demande','Clique sur « Actualiser » pour vérifier le statut de cette exécution.');if(previous.state==='Réussi'&&previous.runId)void resolveDirectVideo({id:previous.runId},previous.id);}

@@ -102,6 +102,12 @@ jobs:
           python-version: '3.11'
       - name: Install free render dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Restore Qwen model cache (subsequent renders)
+        if: ${{ inputs.script_mode == 'local-ai' && inputs.script == '' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: mpt-linux-ollama-qwen25-15b-v1
       - name: Install Ollama only for local AI scripts
         if: ${{ inputs.script_mode == 'local-ai' && inputs.script == '' }}
         shell: bash
@@ -119,6 +125,12 @@ jobs:
             sleep 2
           done
           ollama pull qwen2.5:1.5b
+      - name: Restore verified Piper SIWIS model cache
+        if: ${{ inputs.voice == 'piper-fr-siwis' }}
+        uses: actions/cache@v4
+        with:
+          path: models/
+          key: mpt-piper-siwis-medium-sha641d1ab-v1
       - name: Install and validate neural French voice (only when selected)
         if: ${{ inputs.voice == 'piper-fr-siwis' }}
         shell: bash
@@ -130,13 +142,23 @@ jobs:
           python -m pip install --disable-pip-version-check 'piper-tts==1.8.0'
           mkdir -p models
           BASE='https://huggingface.co/rhasspy/piper-voices/resolve/d5de91c972ba5a13cea0e77a63fda1623faac2c1/fr/fr_FR/siwis/medium'
-          curl --fail --show-error --silent --location --retry 3 --max-time 300 \
-            "$BASE/fr_FR-siwis-medium.onnx" -o models/fr_FR-siwis-medium.onnx
-          curl --fail --show-error --silent --location --retry 3 --max-time 90 \
-            "$BASE/fr_FR-siwis-medium.onnx.json" -o models/fr_FR-siwis-medium.onnx.json
+          if [[ ! -s models/fr_FR-siwis-medium.onnx ]]; then
+            curl --fail --show-error --silent --location --retry 3 --max-time 300 \
+              "$BASE/fr_FR-siwis-medium.onnx" -o models/fr_FR-siwis-medium.onnx
+          fi
+          if [[ ! -s models/fr_FR-siwis-medium.onnx.json ]]; then
+            curl --fail --show-error --silent --location --retry 3 --max-time 90 \
+              "$BASE/fr_FR-siwis-medium.onnx.json" -o models/fr_FR-siwis-medium.onnx.json
+          fi
           echo '641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99  models/fr_FR-siwis-medium.onnx' | sha256sum --check --status
           python -c "import json; from pathlib import Path; d=json.loads(Path('models/fr_FR-siwis-medium.onnx.json').read_text()); assert d['language']['code']=='fr_FR'"
           command -v piper
+      - name: Restore optional Whisper model cache
+        if: ${{ inputs.word_alignment == 'forced' && inputs.caption_style == 'kinetic' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/whisper
+          key: mpt-whisper-tiny-v1
       - name: Install optional acoustic word alignment on CPU
         if: ${{ inputs.word_alignment == 'forced' && inputs.caption_style == 'kinetic' }}
         run: python -m pip install --disable-pip-version-check 'stable-ts==2.19.1'
@@ -183,6 +205,13 @@ jobs:
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^aac$'
       - name: Audit synchronization and export visual storyboard
         run: python video_qa.py outputs/video.mp4
+      - name: Direct MP4 for Android (no ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.mp4
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Downloadable MP4
         uses: actions/upload-artifact@v4
         with:

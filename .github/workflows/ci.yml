@@ -39,7 +39,8 @@ jobs:
         run: |
           node --check remote/core.mjs
           node --check remote/main.mjs
-          node --test tests/test_remote_core.mjs
+          node --check remote/downloads.mjs
+          node --test tests/test_remote_core.mjs tests/test_downloads.mjs
       - name: Static compilation
         run: python -m compileall -q free_studio.py cinematic.py caption_motion.py forced_alignment.py media_assets.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
@@ -63,6 +64,13 @@ jobs:
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^aac$'
       - name: Verify delivery quality and export scene contact sheet
         run: python video_qa.py outputs/ci-preview.mp4
+      - name: Validate non-ZIP MP4 upload on GitHub Actions v7
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/ci-preview.mp4
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
       - name: Attach real preview video for visual review
         uses: actions/upload-artifact@v4
         with:
