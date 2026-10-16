@@ -34,3 +34,7 @@ Comparaison sur le même runner avec un JPEG et un MP4 de test, deux scènes mue
 L'exécution 38891936478 a vérifié H.264, yuv420p, durée, scènes et SRT sur chaque MP4. Les planches de contrôle avant/après présentent les mêmes scènes ; l'écart absolu moyen des pixels des planches (redimensionnées) était de 0,325/255 à 720p et 0,216/255 à 1080p. **Ces chiffres ne concernent que cet essai synthétique** et n'établissent ni gain universel ni qualité esthétique.
 
 Le benchmark mesure désormais aussi le SSIM sur la vidéo entière et échoue sous 0,95. Il joint les quatre vidéos d'essai, les planches de scènes et les JSON pour inspection indépendante. SSIM mesure la proximité visuelle entre les deux méthodes, pas la qualité éditoriale ou le réalisme du contenu.
+
+## More reliable timing protocol
+
+The current benchmark now runs **three complete renders per method at each resolution** and reports the **median** instead of one potentially noisy observation. It alternates method order between trials to limit systematic runner-order bias, checks the MP4 and subtitles after **every** render, and calculates whole-video SSIM between the final pair. `comparison.json` includes every raw trial in `trials_seconds`. The measured media remains a reproducible synthetic JPEG plus MP4; no claim is made about typical user-uploaded footage or external Commons download times.

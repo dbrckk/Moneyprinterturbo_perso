@@ -49,45 +49,60 @@ def main():
     lines=[]
     comparisons={}
     narration="Les paysages révèlent une belle lumière. Le mouvement raconte une nouvelle histoire."
+    # Alternate execution order to reduce bias from CPU temperature and runner load.
+    # Median of three independent end-to-end render() measurements per method.
+    import statistics
     for resolution in (720,1080):
-        rows=[]
-        for label,onepass in (("fused",False),("media-onepass",True)):
-            target=folder/f"{resolution}-{label}.mp4"
-            start=time.perf_counter()
-            info=render("Étalonnage montage",narration,target,media_dir=sources,
-                resolution=resolution,fps=12,mute=True,transition="fade",
-                caption_style="kinetic",use_media_onepass=onepass)
-            seconds=round(time.perf_counter()-start,3)
-            result=subprocess.run([sys.executable,str(ROOT/"video_qa.py"),str(target)],
-                                   capture_output=True,text=True,timeout=180)
-            if result.returncode:
-                raise RuntimeError(result.stdout[-1500:]+result.stderr[-1500:])
-            quality=json.loads(target.with_suffix(".quality.json").read_text())
-            if not quality["ok"] or quality["checks"]["pixel_format"]!="yuv420p":
-                raise RuntimeError(f"QA failed: {target} {quality['errors']}")
-            expected="direct-media-onepass" if onepass else "fused-xfade"
-            if info["render_performance"]["compositing_pipeline"]!=expected:
-                raise RuntimeError("Unexpected pipeline")
-            rows.append({"resolution":resolution,"method":label,
-                         "seconds":seconds,"codec":quality["checks"]["video_codec"],
-                         "format":quality["checks"]["pixel_format"],
-                         "duration":quality["checks"]["duration"],
-                         "bytes":target.stat().st_size,
-                         "metrics":info["render_performance"]})
-            print(f"{resolution}p {label} {seconds}s: QA OK",flush=True)
-        if abs(rows[0]["duration"]-rows[1]["duration"])>.15:
+        trials={"fused":[],"media-onepass":[]}
+        samples={}
+        for trial in range(3):
+            variants=(("fused",False),("media-onepass",True))
+            if trial % 2:
+                variants=tuple(reversed(variants))
+            for label,onepass in variants:
+                target=folder/f"{resolution}-{label}.mp4"
+                start=time.perf_counter()
+                info=render("Étalonnage montage",narration,target,media_dir=sources,
+                    resolution=resolution,fps=12,mute=True,transition="fade",
+                    caption_style="kinetic",use_media_onepass=onepass)
+                seconds=time.perf_counter()-start
+                trials[label].append(round(seconds,3))
+                # Check each produced file, not just the final sample.
+                result=subprocess.run([sys.executable,str(ROOT/"video_qa.py"),str(target)],
+                                       capture_output=True,text=True,timeout=180)
+                if result.returncode:
+                    raise RuntimeError(result.stdout[-1500:]+result.stderr[-1500:])
+                quality=json.loads(target.with_suffix(".quality.json").read_text())
+                if not quality["ok"] or quality["checks"]["pixel_format"]!="yuv420p":
+                    raise RuntimeError(f"QA failed: {target} {quality['errors']}")
+                expected="direct-media-onepass" if onepass else "fused-xfade"
+                if info["render_performance"]["compositing_pipeline"]!=expected:
+                    raise RuntimeError("Unexpected pipeline")
+                samples[label]={"resolution":resolution,"method":label,
+                                "codec":quality["checks"]["video_codec"],
+                                "format":quality["checks"]["pixel_format"],
+                                "duration":quality["checks"]["duration"],
+                                "bytes":target.stat().st_size,
+                                "metrics":info["render_performance"]}
+                print(f"{resolution}p {label} trial {trial+1}: {seconds:.3f}s, QA OK",flush=True)
+        before=samples["fused"]
+        after=samples["media-onepass"]
+        if abs(before["duration"]-after["duration"])>.15:
             raise RuntimeError("Videos have different durations")
-        before,after=rows
+        for label in trials:
+            samples[label]["seconds"]=round(statistics.median(trials[label]),3)
+            samples[label]["trials_seconds"]=trials[label]
+            lines.append(samples[label])
         change=round(100*(before["seconds"]-after["seconds"])/before["seconds"],1)
         reference=folder/f"{resolution}-fused.mp4"
         candidate=folder/f"{resolution}-media-onepass.mp4"
-        comparisons[str(resolution)]={"speedup_percent":change,
-                                      "full_video_ssim":visual_ssim(reference,candidate)}
-        print(f"{resolution}p: {change:+.1f}% faster, SSIM {comparisons[str(resolution)]['full_video_ssim']}",flush=True)
-        lines+=rows
+        comparisons[str(resolution)]={"median_speedup_percent":change,
+                                      "full_video_ssim":visual_ssim(reference,candidate),
+                                      "trials_per_method":3}
+        print(f"{resolution}p: median {change:+.1f}% faster, SSIM {comparisons[str(resolution)]['full_video_ssim']}",flush=True)
     (folder/"comparison.json").write_text(json.dumps({
         "source":"synthetic JPEG and moving MP4 files, not documentary photography",
-        "scope":"actual render() time, excluding fixtures, job setup and QA",
+        "scope":"median of three render() calls per method, alternating order; excludes fixtures, job setup and QA",
         "narration":"muted","fps":12,"transition":"fade","rows":lines,
         "comparisons":comparisons
     },indent=2)+"\n")
