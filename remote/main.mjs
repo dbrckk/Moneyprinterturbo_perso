@@ -1,6 +1,6 @@
 import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
-import { runArtifactsEndpoint, findDirectMp4, directMp4Url } from './downloads.mjs';
+import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard, directMp4Url } from './downloads.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -76,7 +76,7 @@ function showHistory() {
     li.append(link, date);
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
-    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
+    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; $('preview-storyboard').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
     li.append(' · ',button);
     list.append(li);
   }
@@ -89,6 +89,10 @@ async function resolveDirectVideo(run, requestId) {
   try {
     const response = await api(runArtifactsEndpoint(run.id));
     if (!active || active.id !== requestId || active.runId !== run.id) return;
+    const storyboard = findDirectStoryboard(response?.artifacts);
+    const preview = $('preview-storyboard');
+    preview.hidden = !storyboard;
+    if (storyboard) preview.href = directMp4Url(run.id, storyboard.id);
     const mp4 = findDirectMp4(response?.artifacts);
     if (!mp4) {
       $('download-video').hidden = true;
@@ -191,6 +195,7 @@ $('video-form').addEventListener('submit', async event => {
     await api(`${API_ROOT}/actions/workflows/free-video.yml/dispatches`,{method:'POST',body:JSON.stringify(dispatchBody(values,id))});
     active={id,topic:values.topic,createdAt:new Date().toISOString(),state:'Demande envoyée'};
     $('download-video').hidden = true;
+    $('preview-storyboard').hidden = true;
     replaceHistory(active);
     $('run-actions').hidden=false;
     $('run-link').href=ACTIONS_URL;

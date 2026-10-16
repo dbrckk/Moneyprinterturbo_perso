@@ -67,3 +67,8 @@ scènes en repli sont clairement signalées dans `video.alignment.json`. Voir `d
 Depuis GitHub Actions `actions/upload-artifact@v7`, le MP4 est déposé comme artefact individuel `video.mp4` avec `archive: false`. Le studio interroge la liste d'artefacts de **l'exécution suivie** puis construit un lien HTTPS GitHub, sans jamais inclure le jeton dans l'adresse. Ce lien ouvre GitHub : le studio statique n'héberge ni ne télécharge le MP4 lui-même. Le clic peut afficher un lecteur intégré plutôt que déclencher le téléchargement selon le navigateur. L'archive ZIP des projets reste disponible en parallèle. Le lien direct expire avec l'artefact (7 jours).
 
 Le workflow met en cache `~/.ollama/models`, `models/` (Piper SIWIS) et `~/.cache/whisper` (modèle d'alignement) via `actions/cache@v4`, **uniquement lorsque l'option correspondante est utilisée**. Une première exécution doit toujours installer ou télécharger les composants. Les caches peuvent être évincés et ne constituent ni un hébergement permanent ni une garantie de rapidité. Chaque utilisation du modèle Piper vérifie toujours son empreinte SHA-256.
+
+
+## Aperçu visuel sur Android, sans ZIP
+
+Après une génération réussie, le studio affiche **« Voir toutes les scènes · PNG »** si `video.storyboard.png` est disponible. Le workflow publie cette planche de contrôle avec `actions/upload-artifact@v7`, sans archive ZIP. Le lien ouvre l'artefact GitHub (une connexion peut être requise), jamais le jeton personnel. Les anciens rendus ou les artefacts expirés ne présentent pas de bouton de prévisualisation ; les autres fichiers restent accessibles via l'archive complète.

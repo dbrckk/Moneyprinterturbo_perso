@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MP4_ARTIFACT_NAME, findDirectMp4, directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
+import { MP4_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME, findDirectMp4, findDirectStoryboard, directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
 
 test('only nonexpired, nonempty v7 MP4 artifact is eligible', () => {
   const items = [
@@ -23,4 +23,15 @@ test('run API endpoint and direct link are GitHub-owned and numeric', () => {
     assert.throws(() => runArtifactsEndpoint(invalid));
     assert.throws(() => directMp4Url(123, invalid));
   }
+});
+
+test('storyboard preview is offered only for nonexpired individual PNG artifacts', () => {
+  assert.equal(STORYBOARD_ARTIFACT_NAME, 'video.storyboard.png');
+  assert.equal(findDirectStoryboard([{id:44,name:STORYBOARD_ARTIFACT_NAME,
+    expired:false,size_in_bytes:11000}]).id,44);
+  assert.equal(findDirectStoryboard([{id:45,name:STORYBOARD_ARTIFACT_NAME,
+    expired:true,size_in_bytes:11000}]),null);
+  assert.equal(findDirectStoryboard([{id:45,name:'free-studio-video',
+    expired:false,size_in_bytes:11000}]),null);
+  assert.equal(findDirectStoryboard(null),null);
 });

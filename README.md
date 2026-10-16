@@ -294,3 +294,8 @@ verticaux 360p, 720p et 1080p.
 
 Le benchmark comparatif complet, les mesures et les limites se trouvent dans
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+
+### Aperçu du montage directement depuis Android
+
+Les nouvelles exécutions exposent également `video.storyboard.png` sans ZIP. Le bouton **Voir toutes les scènes · PNG** dans le studio ouvre la planche de contrôle sur GitHub lorsque cet artefact existe. La génération PNG est assurée par `video_qa.py`, sans stockage du jeton GitHub chez l'hébergeur du studio.

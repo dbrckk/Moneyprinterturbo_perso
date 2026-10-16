@@ -223,6 +223,13 @@ jobs:
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^aac$'
       - name: Audit synchronization and export visual storyboard
         run: python video_qa.py outputs/video.mp4
+      - name: Direct storyboard PNG for Android (no ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.storyboard.png
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Direct MP4 for Android (no ZIP)
         uses: actions/upload-artifact@v7
         with:
