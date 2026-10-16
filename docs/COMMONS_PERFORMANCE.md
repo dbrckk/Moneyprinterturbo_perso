@@ -58,3 +58,24 @@ Each selected asset now includes `visual_medium`: `photograph-likely`, `artwork-
 ### Stronger Wikimedian category signals
 
 The Commons API now requests **non-hidden file categories** together with licensed image metadata (one query, not an extra HTTP round trip). Tags such as `Category:Paintings of rivers` and `Category:Photographs of rivers` are useful evidence to distinguish artwork from documentary photography when filenames are opaque. The same conservative ranker applies; both media and license are still independently checked. Categories are incomplete and may mix terms, so `visual_medium` remains a *hint* rather than a verified claim.
+
+
+## Visual variety for repeated scene subjects
+
+When several storyboard sentences use the same search query, the engine now
+requests up to **three ranked licensed images** from **one Commons API search**
+instead of showing exactly the same picture throughout the video.
+An additional global allowance of **four** image candidates across repeated
+queries prevents unlimited extra downloads: at most one candidate per unique
+search plus four extra images. Queries with only one qualifying licensed image
+will still reuse it; no unrelated content is substituted.
+
+The assignment is deterministic in narration order, independent of thread
+completion. It also avoids reusing the same Commons source across distinct
+queries when an appropriate alternative is available. New `commons_fetch`
+fields: `image_variants_budget`, `image_variants_fetched`,
+`unique_images_selected`, `scenes_reusing_image`. These are observed
+counts, not promises that the photo candidates will be visually distinct:
+Commons can contain near-duplicate photographs under different filenames.
+All existing per-image license/metadata validation and the graphic fallback
+remain in effect.

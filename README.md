@@ -318,3 +318,12 @@ Après un test réel révélant des portraits sélectionnés par homonymie, les 
 ### Priorité photographique et attribution visuelle
 
 Les résultats Wikimedia distinguent maintenant les **photographies probables**, **œuvres d'art probables** et **médias non classés** d'après leurs métadonnées textuelles. Le classement privilégie les photographies lorsqu'un indice fiable existe ; une œuvre du domaine public reste possible, avec avertissement. La classification est indicative, pas une preuve visuelle automatique. Chaque sélection indique sa catégorie dans le JSON et les crédits de la vidéo.
+
+
+### Diversité des images Wikimedia
+
+Lorsque plusieurs scènes traitent du même sujet, le moteur peut désormais
+attribuer jusqu'à trois images CC0/domaine public différentes, sans dupliquer
+la recherche API. Un budget de quatre téléchargements supplémentaires maximum
+évite d'augmenter excessivement les coûts réseau. Le rapport vidéo indique
+combien de scènes réutilisent encore une image, pour rendre les limites visibles.

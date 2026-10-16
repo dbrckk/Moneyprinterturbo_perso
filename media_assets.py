@@ -411,11 +411,12 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                          max_workers: int = 3,
                          stats: dict[str, float | int] | None = None
                          ) -> tuple[dict[int, MediaAsset], list[str]]:
-    """Search independent scenes concurrently with strict budgets and safe fallbacks.
+    """Fetch varied CC0/PD pictures for repeated topics without extra API searches.
 
-    Up to three Wikimedia requests execute in parallel, not eighteen. Repeated
-    queries are downloaded only once. The returned warnings and scene indices
-    follow the original storyboard order regardless of completion order.
+    Eight independent queries and three workers by default. Repeated queries
+    reuse their *single* Commons API result but may download up to three
+    distinct ranked images, subject to a shared budget of four extra images.
+    The minimum of one image attempt per accepted query is preserved.
     """
     if len(queries) > 18 or not 1 <= max_searches <= 18:
         raise ValueError("Commons scene search limit out of range")
@@ -426,53 +427,78 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         raise ValueError("Invalid requested scene index")
 
     started = time.perf_counter()
-    # Preallocate a deterministic query budget before starting any threads.
-    first_indices: dict[str, int] = {}
+    # Prepare the budget before launching workers: stable regardless of
+    # network completion order and no redundant API calls per topic.
+    query_indices: dict[str, list[int]] = {}
     budget_exceeded: set[int] = set()
     for i in wanted:
         query = queries[i]
-        if query not in first_indices:
-            if len(first_indices) >= max_searches:
-                budget_exceeded.add(i)
-                continue
-            first_indices[query] = i
+        if query not in query_indices and len(query_indices) >= max_searches:
+            budget_exceeded.add(i)
+            continue
+        query_indices.setdefault(query, []).append(i)
 
-    def fetch(query: str, index: int
-              ) -> tuple[MediaAsset | None, list[str], dict[str, float | int]]:
+    # One request per query is mandatory; distribute at most four additional
+    # image candidates fairly across repeated queries, up to three per query.
+    limits = {query: 1 for query in query_indices}
+    extra_budget = 4
+    for _ in range(2):
+        for query, occurrences in query_indices.items():
+            if extra_budget and len(occurrences) > limits[query]:
+                limits[query] += 1
+                extra_budget -= 1
+
+    def fetch(query: str, index: int, limit: int
+              ) -> tuple[list[MediaAsset], list[str], dict[str, float | int]]:
         directory = work / f"commons_scene_{index:02}"
         directory.mkdir(parents=True, exist_ok=True)
         query_timings: dict[str, float | int] = {}
-        assets, notices = commons_assets(query, directory, limit=1, timings=query_timings)
-        return (assets[0] if assets else None), notices, query_timings
+        assets, notices = commons_assets(query, directory, limit=limit,
+                                         timings=query_timings)
+        # A bad or non-conforming external adapter must not make results look
+        # like more verified photos than were requested.
+        return list(assets[:limit]), notices, query_timings
 
-    results: dict[str, tuple[MediaAsset | None, list[str], dict[str, float | int]]] = {}
-    pool_size = min(max_workers, len(first_indices))
+    results: dict[str, tuple[list[MediaAsset], list[str], dict[str, float | int]]] = {}
+    pool_size = min(max_workers, len(query_indices))
     if pool_size:
         with ThreadPoolExecutor(max_workers=pool_size, thread_name_prefix="commons") as pool:
-            futures = {q: pool.submit(fetch, q, i) for q, i in first_indices.items()}
-            for query in first_indices:
+            futures = {query: pool.submit(fetch, query, ids[0], limits[query])
+                       for query, ids in query_indices.items()}
+            for query in query_indices:
                 try:
                     results[query] = futures[query].result()
                 except Exception as exc:
-                    # A malformed Wikimedia response or one failed request must
-                    # never abort the other scenes or the offline background.
-                    results[query] = (None, [f"Wikimedia scene lookup failed: {type(exc).__name__}"], {})
+                    results[query] = ([], [f"Wikimedia scene lookup failed: {type(exc).__name__}"], {})
 
     selected: dict[int, MediaAsset] = {}
     warnings: list[str] = []
+    used_urls: set[str] = set()
+    usage: dict[str, int] = {}
     for i in wanted:
         query = queries[i]
         if i in budget_exceeded or query not in results:
             warnings.append(f"Scene {i+1}: search budget reached; graphic fallback")
             continue
-        asset, notices, _ = results[query]
-        if i == first_indices[query]:
+        assets, notices, _ = results[query]
+        if i == query_indices[query][0]:
             warnings.extend(f"Scene {i+1}: {notice}" for notice in notices)
-        if asset is not None:
-            selected[i] = asset
+        if not assets:
+            continue
+
+        # Rotate candidates for repeated topics. If another query happened to
+        # return the same Commons file, first try an as-yet-unused alternative.
+        cursor = usage.get(query, 0)
+        ordered = assets[cursor % len(assets):] + assets[:cursor % len(assets)]
+        chosen = next((a for a in ordered if a.source_url not in used_urls),
+                      ordered[0])
+        selected[i] = chosen
+        used_urls.add(chosen.source_url)
+        usage[query] = cursor + 1
 
     if stats is not None:
         request_stats = [result[2] for result in results.values()]
+        unique_urls = {a.source_url for a in selected.values()}
         stats.update({
             "scenes_requested": len(wanted),
             "scenes_matched": len(selected),
@@ -482,16 +508,25 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 asset.visual_medium == "artwork-likely" for asset in selected.values()),
             "unspecified_medium_scenes": sum(
                 asset.visual_medium == "unspecified" for asset in selected.values()),
-            "unique_queries": len(first_indices),
-            "contextual_expansions": sum(expand_scenic_search_query(q) != q for q in first_indices),
+            "unique_queries": len(query_indices),
+            "contextual_expansions": sum(
+                expand_scenic_search_query(query) != query for query in query_indices),
+            "image_variants_budget": sum(limits.values()),
+            "image_variants_fetched": sum(len(result[0]) for result in results.values()),
+            "unique_images_selected": len(unique_urls),
+            "scenes_reusing_image": len(selected) - len(unique_urls),
             "workers_used": pool_size,
             "wall_seconds": round(time.perf_counter() - started, 4),
-            # These are sums of task durations and can exceed wall_seconds
-            # because independent requests run at the same time.
-            "api_seconds_sum": round(sum(float(t.get("api_seconds", 0)) for t in request_stats), 4),
-            "download_seconds_sum": round(sum(float(t.get("download_seconds", 0)) for t in request_stats), 4),
-            "verification_seconds_sum": round(sum(float(t.get("verification_seconds", 0)) for t in request_stats), 4),
-            "download_bytes": sum(int(t.get("download_bytes", 0)) for t in request_stats),
-            "download_attempts": sum(int(t.get("download_attempts", 0)) for t in request_stats),
+            # Request durations overlap across concurrent workers.
+            "api_seconds_sum": round(sum(float(t.get("api_seconds", 0))
+                                         for t in request_stats), 4),
+            "download_seconds_sum": round(sum(float(t.get("download_seconds", 0))
+                                              for t in request_stats), 4),
+            "verification_seconds_sum": round(sum(float(t.get("verification_seconds", 0))
+                                                  for t in request_stats), 4),
+            "download_bytes": sum(int(t.get("download_bytes", 0))
+                                  for t in request_stats),
+            "download_attempts": sum(int(t.get("download_attempts", 0))
+                                     for t in request_stats),
         })
     return selected, warnings

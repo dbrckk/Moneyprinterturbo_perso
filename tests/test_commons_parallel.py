@@ -99,3 +99,82 @@ class CommonsParallelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommonsSceneDiversityTests(unittest.TestCase):
+    def test_repeated_query_uses_distinct_images_with_one_search(self):
+        from collections import Counter
+        requested = []
+        def fake_search(query, directory, *, limit, timings):
+            requested.append((query, limit))
+            assets = [media.MediaAsset(
+                directory / f"sample-{n}.jpg", "image",
+                f"https://commons.wikimedia.org/wiki/File:{query}-{n}.jpg",
+                "CC0", "Contributor", f"{query}-{n}")
+                for n in range(limit)]
+            return assets, []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=fake_search) as search:
+            stats = {}
+            selected, warnings = media.commons_scene_assets(
+                ["mountain", "river", "mountain", "mountain", "river", "mountain"],
+                Path(tmp), stats=stats)
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(dict(requested), {"mountain": 3, "river": 2})
+        self.assertEqual(stats["image_variants_budget"], 5)
+        self.assertEqual(stats["image_variants_fetched"], 5)
+        self.assertEqual(stats["unique_images_selected"], 5)
+        self.assertEqual(stats["scenes_reusing_image"], 1)
+        self.assertEqual(selected[0].source_url, selected[3].source_url)
+        self.assertEqual(len({selected[i].source_url for i in (0, 2, 3)}), 3)
+        self.assertEqual(len({selected[i].source_url for i in (1, 4)}), 2)
+        self.assertEqual(warnings, [])
+
+    def test_extra_image_budget_fairly_allocated_and_never_exceeds_four(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_search(query, folder, *, limit, timings):
+                return [fixture(folder, query) for _ in range(limit)], []
+            with patch.object(media, "commons_assets", side_effect=fake_search) as request:
+                stats = {}
+                media.commons_scene_assets(
+                    ["a", "b", "c", "d"] * 3, Path(tmp), stats=stats)
+            self.assertEqual(request.call_count, 4)
+            self.assertEqual(stats["unique_queries"], 4)
+            self.assertEqual(stats["image_variants_budget"], 8)
+            self.assertEqual(sorted(x.kwargs["limit"] for x in request.call_args_list),
+                             [2, 2, 2, 2])
+
+    def test_source_dedup_across_different_queries_if_alternative_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_search(query, folder, *, limit, timings):
+                common = media.MediaAsset(
+                    folder / "common.jpg", "image",
+                    "https://commons.wikimedia.org/wiki/File:common.jpg",
+                    "CC0", "Contributor", "common")
+                alternative = media.MediaAsset(
+                    folder / "other.jpg", "image",
+                    "https://commons.wikimedia.org/wiki/File:other.jpg",
+                    "CC0", "Contributor", "other")
+                return ([common, alternative] if query == "forest" else
+                        [common])[:limit], []
+            with patch.object(media, "commons_assets", side_effect=fake_search):
+                selected, warnings = media.commons_scene_assets(
+                    ["river", "forest", "forest"], Path(tmp))
+            self.assertEqual(selected[0].source_url,
+                             "https://commons.wikimedia.org/wiki/File:common.jpg")
+            self.assertEqual(selected[1].source_url,
+                             "https://commons.wikimedia.org/wiki/File:other.jpg")
+            self.assertEqual(len(selected), 3)
+
+    def test_no_extra_downloads_when_every_query_is_unique(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_search(query, folder, *, limit, timings):
+                return [fixture(folder, query)], []
+            with patch.object(media, "commons_assets", side_effect=fake_search) as request:
+                stats = {}
+                found, warnings = media.commons_scene_assets(
+                    ["forest", "river", "lake"], Path(tmp), stats=stats)
+            self.assertEqual(len(found), 3)
+            self.assertEqual([x.kwargs["limit"] for x in request.call_args_list],
+                             [1, 1, 1])
+            self.assertEqual(stats["scenes_reusing_image"], 0)
