@@ -18,11 +18,12 @@ from media_assets import commons_scene_assets
 def main() -> int:
     work = ROOT / "outputs" / "commons-network-probe"
     work.mkdir(parents=True, exist_ok=True)
-    queries = ["montagne", "forêt", "rivière", "océan"]
+    queries = ["montagne", "forêt", "rivière", "océan",
+               "montagne panorama", "forêt paysage", "rivière paysage", "océan paysage"]
     stats = {}
     started = time.perf_counter()
     selected, warnings = commons_scene_assets(queries, work,
-                                                 max_searches=4, max_workers=3,
+                                                 max_searches=8, max_workers=3,
                                                  stats=stats)
     images = [
         {"scene": index + 1, "query": queries[index], "title": asset.title,
@@ -36,6 +37,8 @@ def main() -> int:
         "status": "licensed-media-fetched" if images else "graphic-fallback-required",
         "duration_seconds": round(time.perf_counter() - started, 3),
         "query_count": len(queries),
+        "single_word_match_count": sum(i < 4 for i in selected),
+        "contextual_match_count": sum(i >= 4 for i in selected),
         "licensed_images": images,
         "network_stats": stats,
         "warnings": warnings,
