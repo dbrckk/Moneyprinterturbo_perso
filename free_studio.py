@@ -361,7 +361,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         if commons:
             queries = scene_search_queries(topic, sentences, scene_queries)
             missing = [i for i, item in enumerate(slots) if item is None]
-            remote, notices = commons_scene_assets(queries, work, indices=missing, stats=commons_stats)
+            remote, notices = commons_scene_assets(queries, work, indices=missing,
+                                                  target_aspect=width/height, stats=commons_stats)
             for i, item in remote.items():
                 slots[i] = item
             warnings.extend(notices)
@@ -492,6 +493,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             media_used.append({"segment": index + 1, "title": asset.title, "kind": asset.kind,
                                "source": asset.source_url, "license": asset.license,
                                "author": asset.author, "visual_medium": asset.visual_medium,
+                               "crop_retention_estimate": asset.crop_retention_estimate,
                                "search_query": queries[index] if queries else None})
         credits_path = output.with_suffix(".credits.txt")
         voice_info = None

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 import html
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -34,6 +35,7 @@ class MediaAsset:
     title: str
     # Descriptive metadata heuristic; not visual content verification.
     visual_medium: str = "unspecified"
+    crop_retention_estimate: float | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -252,14 +254,40 @@ def visual_medium_hint(title: str, description: str = "", categories: str = "") 
     return "unspecified"
 
 
+def crop_retention(width: object, height: object,
+                   target_aspect: float | None) -> float | None:
+    """Estimate the fraction of image area retained by center-cropping.
+
+    Zero processing/network overhead: uses source dimensions from Wikimedia's
+    existing imageinfo request. Not an estimate of content/subject position.
+    """
+    if target_aspect is None:
+        return None
+    try:
+        w, h = float(width), float(height)
+    except (ValueError, TypeError):
+        return None
+    if not all(math.isfinite(v) and v > 0 for v in (w, h)):
+        return None
+    source_aspect = w / h
+    return round(min(source_aspect / target_aspect,
+                     target_aspect / source_aspect), 4)
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
-                   timings: dict[str, float | int] | None = None) -> tuple[list[MediaAsset], list[str]]:
+                   timings: dict[str, float | int] | None = None,
+                   target_aspect: float | None = None
+                   ) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
 
     Failures do not leave incomplete files or break the offline renderer.
     """
     if not 1 <= limit <= 8:
         raise ValueError("Commons media limit out of range")
+    if target_aspect is not None and (
+            isinstance(target_aspect, bool) or not isinstance(target_aspect, (int, float))
+            or not math.isfinite(target_aspect) or not 0.2 <= target_aspect <= 5):
+        raise ValueError("Unsupported target aspect ratio")
     query = re.sub(r"\s+", " ", topic).strip()[:110]
     search_phrase = expand_scenic_search_query(query)
     params = parse.urlencode({
@@ -287,7 +315,8 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         return [], ["Wikimedia Commons returned invalid results"]
     # Rank licensed candidates *before downloading*; the Wikimedia result order
     # is not a guarantee that a photo depicts this particular narrated scene.
-    ranked: list[tuple[int, int, int, dict, dict, str, str, str, str]] = []
+    ranked: list[tuple[int, int, float, int, dict, dict, str, str, str, str,
+                       float | None]] = []
     for page in pages.values():
         title = str(page.get("title", ""))
         if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
@@ -317,10 +346,17 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             medium_rank = _MEDIUM_PRIORITY[medium]
             if medium == "photograph-likely" and score < 3:
                 medium_rank = _MEDIUM_PRIORITY["unspecified"]
-            ranked.append((medium_rank, -score, int(page.get("index", 100000)),
-                           page, info, license_name, url, page_url, medium))
-    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
-    for _, _negscore, _, page, info, license_name, url, page_url, medium in ranked:
+            retention = crop_retention(
+                info.get("thumbwidth", info.get("width")),
+                info.get("thumbheight", info.get("height")), target_aspect)
+            # Content relevance and photo/media type remain higher priorities.
+            # Among otherwise equivalent sources prefer less content lost to crop.
+            ranking_retention = retention if retention is not None else 0.5
+            ranked.append((medium_rank, -score, -ranking_retention,
+                           int(page.get("index", 100000)), page, info,
+                           license_name, url, page_url, medium, retention))
+    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
+    for _, _negscore, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
         if len(assets) >= limit:
             break
         title = str(page.get("title", ""))
@@ -351,7 +387,7 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             continue
         author = _plain(_field(info, "Artist")) or "unknown"
         assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
-                                 visual_medium=medium))
+                                 visual_medium=medium, crop_retention_estimate=retention))
         if medium == "artwork-likely":
             warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
     if not assets:
@@ -438,6 +474,7 @@ def alternate_scenic_search_query(query: str) -> str | None:
 def commons_scene_assets(queries: list[str], work: Path, *,
                          indices: list[int] | None = None, max_searches: int = 8,
                          max_workers: int = 3,
+                         target_aspect: float | None = None,
                          stats: dict[str, float | int] | None = None
                          ) -> tuple[dict[int, MediaAsset], list[str]]:
     """Fetch varied CC0/PD pictures for repeated topics without extra API searches.
@@ -451,6 +488,10 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         raise ValueError("Commons scene search limit out of range")
     if not isinstance(max_workers, int) or not 1 <= max_workers <= 3:
         raise ValueError("Commons concurrency must be between 1 and 3")
+    if target_aspect is not None and (
+            isinstance(target_aspect, bool) or not isinstance(target_aspect, (int, float))
+            or not math.isfinite(target_aspect) or not 0.2 <= target_aspect <= 5):
+        raise ValueError("Unsupported target aspect ratio")
     wanted = list(range(len(queries))) if indices is None else list(indices)
     if any(not isinstance(i, int) or i < 0 or i >= len(queries) for i in wanted):
         raise ValueError("Invalid requested scene index")
@@ -493,8 +534,9 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         directory = work / f"commons_scene_{index:02}"
         directory.mkdir(parents=True, exist_ok=True)
         timings: dict[str, float | int] = {}
+        aspect_options = {"target_aspect": target_aspect} if target_aspect is not None else {}
         assets, notices = commons_assets(query, directory, limit=limit,
-                                         timings=timings)
+                                         timings=timings, **aspect_options)
         # No second API call when the first licensed result set was sufficient.
         timings["secondary_queries_attempted"] = 0
         if secondary_query and len(assets) < limit:
@@ -505,7 +547,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             try:
                 alternatives, extra_notices = commons_assets(
                     secondary_query, alternate_folder,
-                    limit=limit-len(assets), timings=second_timings)
+                    limit=limit-len(assets), timings=second_timings,
+                    **aspect_options)
             except Exception as exc:
                 alternatives, extra_notices = [], [
                     f"Secondary Commons lookup failed: {type(exc).__name__}"]
@@ -524,7 +567,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                         "download_bytes", "download_attempts"):
                 timings[key] = timings.get(key, 0) + second_timings.get(key, 0)
         assets = sorted(assets[:limit], key=lambda a:
-                        _MEDIUM_PRIORITY.get(a.visual_medium, 1))
+                        (_MEDIUM_PRIORITY.get(a.visual_medium, 1),
+                         -(a.crop_retention_estimate if a.crop_retention_estimate is not None else 0.5)))
         return assets, notices, timings
 
     results: dict[str, tuple[list[MediaAsset], list[str], dict[str, float | int]]] = {}
@@ -589,6 +633,13 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
             "unique_images_selected": len(unique_urls),
             "scenes_reusing_image": len(selected) - len(unique_urls),
+            "scenes_with_crop_estimate": sum(
+                a.crop_retention_estimate is not None for a in selected.values()),
+            "mean_crop_retention_estimate": round(
+                sum(a.crop_retention_estimate for a in selected.values()
+                    if a.crop_retention_estimate is not None)
+                / max(1, sum(a.crop_retention_estimate is not None
+                             for a in selected.values())), 3),
             "workers_used": pool_size,
             "wall_seconds": round(time.perf_counter() - started, 4),
             # Request durations overlap across concurrent workers.

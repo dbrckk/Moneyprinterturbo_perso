@@ -102,3 +102,22 @@ The report records `secondary_queries_planned`,
 `secondary_queries_attempted`, and `total_commons_api_queries` so operators
 can distinguish network overhead from useful variety. Any failure leaves
 the original valid scene photo or the animated fallback in place.
+
+
+## Crop-aware mobile-first candidate selection
+
+For rendered 9:16, 1:1 or 16:9 videos, the Commons selector now reuses
+the **source width/height already present in Wikimedia `imageinfo`**.
+When license, likely media type and lexical relevance are equivalent, an
+image whose aspect is closer to the output is selected first. This
+reduces excessive center cropping of wide photos for vertical mobile video.
+The estimated kept-area fraction is
+`min(source_aspect/target_aspect, target_aspect/source_aspect)`.
+
+The estimate is about rectangular image area only; it does not detect
+where people, faces, landmarks or other salient subjects appear, and
+does not guarantee a better shot. Missing/invalid source dimensions are
+left unclassified and still allowed. Per-scene `crop_retention_estimate`,
+`commons_fetch.mean_crop_retention_estimate` and
+`commons_fetch.scenes_with_crop_estimate` make the choice auditable.
+No additional API call, image package or paid vision model is required.

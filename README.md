@@ -337,3 +337,11 @@ alternative connue (par ex. `montagne paysage`). Deux recherches de secours
 maximum sont permises par vidéo, toujours dans le plafond de huit recherches
 Wikimedia, avec les mêmes licences libres et filtres de sécurité. Les résultats
 mesurés sont détaillés dans `video.json`; aucun résultat n'est supposé disponible.
+
+### Cadrage intelligent selon le format vidéo
+
+À pertinence égale, les photos Wikimedia sont aussi sélectionnées selon leur
+compatibilité avec le cadrage final (vertical 9:16, carré ou horizontal 16:9).
+Les dimensions de la source sont déjà disponibles sans requête supplémentaire.
+Le ratio estimé de surface conservée lors du recadrage est enregistré dans le
+rapport JSON ; il ne remplace pas un contrôle humain du sujet et du cadrage.

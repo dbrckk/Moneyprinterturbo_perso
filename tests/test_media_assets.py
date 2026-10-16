@@ -352,3 +352,63 @@ class WikimediaCategoryProvenanceTests(unittest.TestCase):
         self.assertEqual(media.visual_medium_hint(
             "File:Landscape.jpg","","Category:Photographs from 1996"),
             "photograph-likely")
+
+
+
+class TargetAspectAssetRankingTests(unittest.TestCase):
+    def test_crop_retention_for_vertical_and_wide_images(self):
+        self.assertEqual(media.crop_retention(900, 1600, 9/16), 1.0)
+        self.assertAlmostEqual(media.crop_retention(1600, 900, 9/16), .3164, delta=.0001)
+        self.assertEqual(media.crop_retention(1600, 900, None), None)
+        self.assertIsNone(media.crop_retention(None, None, 9/16))
+
+    def test_equally_relevant_candidates_prefer_mobile_friendly_framing(self):
+        payload={"query":{"pages":{
+            "1":{"title":"File:Rose-wide.jpg","index":1,"imageinfo":[{
+                "width":1600,"height":900,
+                "thumburl":"https://upload.wikimedia.org/test.jpg",
+                "descriptionurl":"https://commons.wikimedia.org/wiki/File:Rose-wide.jpg",
+                "extmetadata":{"LicenseShortName":{"value":"CC0"}}}]},
+            "2":{"title":"File:Rose-tall.jpg","index":2,"imageinfo":[{
+                "width":900,"height":1600,
+                "thumburl":"https://upload.wikimedia.org/test-tall.jpg",
+                "descriptionurl":"https://commons.wikimedia.org/wiki/File:Rose-tall.jpg",
+                "extmetadata":{"LicenseShortName":{"value":"CC0"}}}]}}}}
+        with tempfile.TemporaryDirectory() as name:
+            with patch.object(media,"_read_limited",
+                    side_effect=[json.dumps(payload).encode(), b"fixture-image"]), \
+                 patch.object(media,"media_dimensions",return_value=(900,1600)):
+                sources, notices=media.commons_assets(
+                    "rose",Path(name),limit=1,target_aspect=9/16)
+        self.assertEqual(len(sources),1)
+        self.assertEqual(sources[0].title,"File:Rose-tall.jpg")
+        self.assertEqual(sources[0].crop_retention_estimate,1.0)
+        self.assertEqual(notices,[])
+
+    def test_relevance_remains_more_important_than_framing(self):
+        payload={"query":{"pages":{
+            "1":{"title":"File:Rose garden flower.jpg","index":1,"imageinfo":[{
+                "width":1600,"height":900,
+                "thumburl":"https://upload.wikimedia.org/wide.jpg",
+                "descriptionurl":"https://commons.wikimedia.org/wiki/File:Rose-garden.jpg",
+                "extmetadata":{"LicenseShortName":{"value":"CC0"},
+                               "ImageDescription":{"value":"Flower and rose"}}}]},
+            "2":{"title":"File:Flower.jpg","index":2,"imageinfo":[{
+                "width":900,"height":1600,
+                "thumburl":"https://upload.wikimedia.org/tall.jpg",
+                "descriptionurl":"https://commons.wikimedia.org/wiki/File:Flower.jpg",
+                "extmetadata":{"LicenseShortName":{"value":"CC0"},
+                               "ImageDescription":{"value":"Rose flower"}}}]}}}}
+        with tempfile.TemporaryDirectory() as name:
+            with patch.object(media,"_read_limited",
+                    side_effect=[json.dumps(payload).encode(), b"fixture-image"]), \
+                 patch.object(media,"media_dimensions",return_value=(1600,900)):
+                selected,_=media.commons_assets("rose garden",Path(name),
+                                                 limit=1,target_aspect=9/16)
+        self.assertEqual(selected[0].title,"File:Rose garden flower.jpg")
+
+    def test_invalid_aspect_is_rejected_before_network(self):
+        with tempfile.TemporaryDirectory() as name:
+            for bad in (0, -1, float("inf"), float("nan"), "portrait"):
+                with self.assertRaises(ValueError):
+                    media.commons_assets("nature",Path(name),target_aspect=bad)
