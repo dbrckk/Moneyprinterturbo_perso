@@ -17,12 +17,15 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
+import time
+import wave
 from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 from cinematic import build_filters, gradient_source, transition_plan
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
+from tts_batch import synthesize_piper_batch, wav_duration_seconds
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -136,8 +139,10 @@ def size_for(aspect: str, resolution: int) -> tuple[int, int]:
 
 def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
                tts: str = "espeak", piper_model: Path | None = None,
-               speech_rate: int = 145) -> tuple[list[float], Path | None]:
+               speech_rate: int = 145, diagnostics: dict[str, str] | None = None) -> tuple[list[float], Path | None]:
     if mute:
+        if diagnostics is not None:
+            diagnostics["tts_backend"] = "muted"
         return [max(2.6, min(9.0, len(s) / 16.0)) for s in segments], None
     if tts not in ("espeak", "piper"):
         raise ValueError("Unsupported speech engine")
@@ -155,9 +160,15 @@ def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
         check_program("espeak")
     filenames: list[Path] = []
     durations: list[float] = []
+    # Loading an ONNX voice for each scene is wasteful. The Python API can
+    # retain it for the full storyboard; the legacy CLI remains supported.
+    batch = (synthesize_piper_batch(segments, piper_model, work) if tts == "piper" else False)
+    if diagnostics is not None:
+        diagnostics["tts_backend"] = ("piper-python-batch" if batch else
+                                       "piper-cli-legacy" if tts == "piper" else "espeak-cli")
     for idx, sentence in enumerate(segments):
         audio_path = work / f"voice_{idx:02}.wav"
-        if tts == "piper":
+        if tts == "piper" and not batch:
             # Piper runs locally using a voice already installed by the user.
             # No implicit model download or API request is permitted here.
             process = subprocess.run(
@@ -166,10 +177,14 @@ def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
             )
             if process.returncode:
                 raise RuntimeError(f"Piper failed: {process.stderr[-1200:]}")
-        else:
+        elif tts == "espeak":
             execute(["espeak", "-v", LANG_VOICES[lang], "-s", str(speech_rate),
                      "-w", str(audio_path), sentence], timeout=35)
-        durations.append(duration_seconds(audio_path))
+        try:
+            durations.append(wav_duration_seconds(audio_path))
+        except (wave.Error, EOFError):
+            # Preserve compatibility with codecs outside PCM WAV.
+            durations.append(duration_seconds(audio_path))
         filenames.append(audio_path)
     manifest = work / "audio_list.txt"
     manifest.write_text("".join(f"file '{path.name}'\n" for path in filenames), encoding="utf-8")
@@ -242,6 +257,10 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
         for i, (asset, duration) in enumerate(zip(assets, plan.durations))
     ]
     output = work / "background.mp4"
+    if len(scenes) == 1:
+        # Avoid a redundant FFmpeg remux for a one-scene video.
+        shutil.copyfile(scenes[0], output)
+        return output
     if plan.overlap_frames == 0:
         manifest = work / "scenes.txt"
         manifest.write_text("".join(f"file '{scene.name}'\n" for scene in scenes), encoding="utf-8")
@@ -303,11 +322,16 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = size_for(aspect, resolution)
+    render_started = time.perf_counter()
+    metrics: dict[str, float] = {}
+    diagnostics: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="mpt-free-") as tmp:
         work = Path(tmp)
+        stage_started = time.perf_counter()
         durations, audio = make_audio(sentences, lang, work, mute=mute,
                                       tts=tts, piper_model=piper_model,
-                                      speech_rate=speech_rate)
+                                      speech_rate=speech_rate, diagnostics=diagnostics)
+        metrics["audio_seconds"] = round(time.perf_counter() - stage_started, 3)
         segments = make_captions(sentences, durations, work)
         warnings: list[str] = []
         word_times = None
@@ -319,6 +343,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         caption_meta = (generate_karaoke_ass(segments, work, width=width, height=height,
                           word_times=word_times) if caption_style == "kinetic" else None)
         total = sum(durations)
+        stage_started = time.perf_counter()
         slots: list[MediaAsset | None] = [None] * len(sentences)
         queries: list[str] | None = None
         if media_dir is not None:
@@ -335,11 +360,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 slots[i] = item
             warnings.extend(notices)
         using_media = any(item is not None for item in slots)
+        metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
+        stage_started = time.perf_counter()
         # Composite images and abstract fallbacks in timeline order to prevent
         # a single lost Commons result from failing or mislabelling a scene.
         # Animated gradient for each absent media scene; even offline renders move.
         video_background = prepare_media_background(slots, durations, work,
             width=width, height=height, fps=fps, transition=applied_transition)
+        metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
+        stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
                                 height=height, total=total, style=visual_style)
         subtitle_size = max(13, int(width / 34))
@@ -359,6 +388,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd += ["-an"]
         cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
         execute(cmd, cwd=work)
+        metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")
         # Only publish the finished result; preexisting output remains untouched on failure.
@@ -419,9 +449,11 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
         else:
             credits_path.unlink(missing_ok=True)
+        metrics["total_seconds"] = round(time.perf_counter() - render_started, 3)
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
+            "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
             "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (
                 "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else

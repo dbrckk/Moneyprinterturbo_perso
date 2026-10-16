@@ -274,3 +274,9 @@ avertissements. Le SRT reste éditable. Consulter [les limites, licences et test
 Les nouveaux rendus déposent `video.mp4` séparément (GitHub Actions `upload-artifact@v7`, `archive: false`). Dans le portail HTTPS, après une production réussie, le bouton **Ouvrir le MP4 · sans ZIP** donne accès à l'artefact GitHub individuel. Le fichier peut être prévisualisé sur Android ; selon le navigateur, utiliser le menu pour l'enregistrer. GitHub peut demander une connexion. L'archive `free-studio-video` reste disponible pour les SRT/ASS, métadonnées, planche et rapport qualité.
 
 Pour améliorer les rendus suivants, GitHub Actions réutilise si possible les caches des modèles Ollama, Piper (SHA-256 revalidé) et Whisper. Ces caches sont opportunistes et soumis aux limites/évictions de GitHub ; la première exécution ne sera pas nécessairement plus rapide. Voir [le mode d'emploi Android](docs/REMOTE_STUDIO.md).
+
+## Synthèse vocale plus rapide et mesures de rendu
+
+Lorsque Piper est installé via Python, sa voix ONNX est chargée **une seule fois par vidéo**, même avec plusieurs scènes. Le mode CLI précédent reste disponible sans le module Python. Les durées des WAV PCM sont calculées directement depuis leur en-tête ; le moteur évite également un FFmpeg concat superflu pour une scène unique.
+
+Chaque `video.json` expose désormais `tts_backend` et `render_performance` (durée audio, recherche de médias, scènes intermédiaires, encodage final et total). Ces mesures ne comprennent **pas** la préparation du runner ni le téléchargement des modèles. Détails, limites et méthode d'évaluation dans [docs/PERFORMANCE.md](docs/PERFORMANCE.md).

@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/neural-voice-smoke.yml
       - free_studio.py
+      - tts_batch.py
       - .github/workflows/free-video.yml
   workflow_dispatch:
 permissions:
@@ -53,6 +54,8 @@ jobs:
           from pathlib import Path
           d = json.loads(Path('outputs/neural-preview.json').read_text(encoding='utf-8'))
           assert d['speech_engine'] == 'piper'
+          assert d['tts_backend'] == 'piper-python-batch'
+          assert d['render_performance']['audio_seconds'] > 0
           assert d['voice_model']['license_verified'] is True
           assert d['duration_seconds'] > 1
           assert 'CC BY 4.0' in Path('outputs/neural-preview.credits.txt').read_text(encoding='utf-8')

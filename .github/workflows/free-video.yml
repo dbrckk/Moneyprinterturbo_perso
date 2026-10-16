@@ -100,8 +100,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install free render dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+      - name: Install render tools only if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in ffmpeg ffprobe espeak; do
+            if ! command -v "$name" >/dev/null 2>&1; then
+              if [[ "$name" == "ffprobe" ]]; then
+                [[ " ${missing[*]} " == *" ffmpeg "* ]] || missing+=(ffmpeg)
+              else
+                missing+=("$name")
+              fi
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          ffmpeg -hide_banner -version | head -1
+          espeak --version | head -1
       - name: Restore Qwen model cache (subsequent renders)
         if: ${{ inputs.script_mode == 'local-ai' && inputs.script == '' }}
         uses: actions/cache@v4
