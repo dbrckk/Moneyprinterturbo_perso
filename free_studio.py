@@ -22,6 +22,7 @@ from urllib import request
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 from cinematic import build_filters, gradient_source, transition_plan
 from caption_motion import generate_karaoke_ass
+from forced_alignment import align_narration
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -276,7 +277,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            scene_queries: list[str] | None = None, tts: str = "espeak",
            piper_model: Path | None = None, speech_rate: int = 145,
            visual_style: str = "cinematic", transition: str = "auto",
-           caption_style: str = "kinetic") -> dict[str, object]:
+           caption_style: str = "kinetic", word_alignment: str = "estimated") -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -285,6 +286,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         raise ValueError("Unsupported visual style")
     if caption_style not in ("kinetic", "classic"):
         raise ValueError("Unsupported caption style")
+    if word_alignment not in ("estimated", "forced") or (word_alignment == "forced" and (caption_style != "kinetic" or mute)):
+        raise ValueError("Forced word alignment requires spoken kinetic captions")
     if transition not in ("auto", "cut", "fade", "wipeleft"):
         raise ValueError("Unsupported scene transition")
     applied_transition = ("fade" if visual_style == "cinematic" else "cut") if transition == "auto" else transition
@@ -306,10 +309,16 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                       tts=tts, piper_model=piper_model,
                                       speech_rate=speech_rate)
         segments = make_captions(sentences, durations, work)
-        caption_meta = (generate_karaoke_ass(segments, work, width=width, height=height)
-                        if caption_style == 'kinetic' else None)
-        total = sum(durations)
         warnings: list[str] = []
+        word_times = None
+        if word_alignment == "forced":
+            if audio is None:
+                raise ValueError("Acoustic word alignment requires a narration audio track")
+            word_times, notices = align_narration(audio, segments, language=lang)
+            warnings.extend(notices)
+        caption_meta = (generate_karaoke_ass(segments, work, width=width, height=height,
+                          word_times=word_times) if caption_style == "kinetic" else None)
+        total = sum(durations)
         slots: list[MediaAsset | None] = [None] * len(sentences)
         queries: list[str] | None = None
         if media_dir is not None:
@@ -363,9 +372,18 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         shutil.copyfile(work / "captions.srt", output.with_suffix(".srt"))
         if caption_meta is not None:
             shutil.copyfile(work / "captions.ass", output.with_suffix(".ass"))
-            warnings.append("Word highlighting uses estimated timing within each recorded sentence, not forced alignment")
+            if caption_meta["estimated_word_timing"]:
+                warnings.append("Some word timings are estimated, not measured acoustically")
+            output.with_suffix(".alignment.json").write_text(json.dumps({
+                "requested": word_alignment, "method": caption_meta["timing_method"],
+                "aligned_scenes": caption_meta["aligned_scenes"],
+                "scene_count": caption_meta["scene_count"],
+                "phrases": caption_meta["phrases"], "word_timings": word_times,
+                "warnings": warnings,
+            }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         else:
             output.with_suffix(".ass").unlink(missing_ok=True)
+            output.with_suffix(".alignment.json").unlink(missing_ok=True)
         media_used: list[dict[str, object]] = []
         for index, asset in enumerate(slots):
             if asset is None:
@@ -405,7 +423,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
-            "caption_style": caption_style, "caption_timing": "estimated-per-word" if caption_meta else "scene-level",
+            "caption_style": caption_style, "caption_timing": (
+                "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else
+                "mixed-measured-estimated" if caption_meta and caption_meta["aligned_scenes"] else
+                "estimated-per-word" if caption_meta else "scene-level"),
             "caption_phrases": len(caption_meta["phrases"]) if caption_meta else len(segments),
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used, "warnings": warnings,
@@ -428,6 +449,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
                         help="Scene transition; auto fades in cinematic mode and cuts in classic mode")
+    parser.add_argument("--word-alignment", choices=["estimated", "forced"], default="estimated",
+                        help="Optional true acoustic word alignment using CPU stable-ts/Whisper")
     parser.add_argument("--caption-style", choices=["kinetic", "classic"], default="kinetic",
                         help="Estimated word-progress captions or traditional sentence subtitles")
     parser.add_argument("--visual-style", choices=["cinematic", "classic"],
@@ -464,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
                       scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
-                      caption_style=args.caption_style)
+                      caption_style=args.caption_style, word_alignment=args.word_alignment)
         info["script_mode"] = mode
         Path(info["output"]).with_suffix(".json").write_text(
             json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

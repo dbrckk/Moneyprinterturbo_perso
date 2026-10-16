@@ -83,8 +83,12 @@ def _karaoke_fragments(words: list[str], times: list[int]) -> str:
 
 
 def generate_karaoke_ass(segments: list[dict[str, object]], work: Path,
-                         *, width: int, height: int) -> dict[str, object]:
-    """Generate optional .ass for approximate karaoke, preserving SRT elsewhere."""
+                         *, width: int, height: int,
+                         word_times: list[list[dict[str, object]] | None] | None = None
+                         ) -> dict[str, object]:
+    """Render measured word onsets when available; otherwise estimate per scene."""
+    if word_times is not None and len(word_times) != len(segments):
+        raise ValueError("Word alignment must contain one entry per scene")
     if not 1 <= len(segments) <= 18 or width < 240 or height < 240:
         raise ValueError("Invalid caption dimensions or scene count")
     if width > 4096 or height > 4096:
@@ -93,7 +97,7 @@ def generate_karaoke_ass(segments: list[dict[str, object]], work: Path,
     margin_v = max(28, int(height * 0.17))
     margin_lr = max(18, int(width * 0.095))
     lines = [
-        "[Script Info]", "Title: Free Studio estimated kinetic captions",
+        "[Script Info]", "Title: Free Studio kinetic narration",
         "ScriptType: v4.00+", "WrapStyle: 2", "ScaledBorderAndShadow: yes",
         f"PlayResX: {width}", f"PlayResY: {height}", "",
         "[V4+ Styles]", ASS_STYLE,
@@ -106,6 +110,7 @@ def generate_karaoke_ass(segments: list[dict[str, object]], work: Path,
     ]
     events: list[dict[str, object]] = []
     previous_end = 0
+    aligned_scenes = 0
     for scene_number, scene in enumerate(segments, start=1):
         start = float(scene["start"])
         end = float(scene["end"])
@@ -120,32 +125,58 @@ def generate_karaoke_ass(segments: list[dict[str, object]], work: Path,
         total_cs = end_cs - start_cs
         if total_cs < len(words):
             raise ValueError("Duration is too short for spoken word count")
-        timing = _apportion(total_cs, [_word_weight(word) for word in words])
-        offset = start_cs
+        measured = word_times[scene_number - 1] if word_times is not None else None
+        if measured is not None:
+            if len(measured) != len(words):
+                raise ValueError("Acoustic alignment count does not match narration")
+            onsets = [round(float(item["start"]) * 100) for item in measured]
+            if (any(not math.isfinite(float(item["start"])) for item in measured) or
+                any(right < left for left, right in zip(onsets, onsets[1:])) or
+                onsets[0] < start_cs - 11 or onsets[-1] >= end_cs):
+                raise ValueError("Invalid acoustic word onsets")
+            boundaries = []
+            for word_index, onset in enumerate(onsets):
+                lower = start_cs + word_index
+                upper = end_cs - (len(words) - word_index)
+                boundaries.append(min(upper, max(lower, onset,
+                    boundaries[-1] + 1 if boundaries else start_cs)))
+            if any(right <= left for left, right in zip(boundaries, boundaries[1:])):
+                raise ValueError("Acoustic word timestamps lack centisecond precision")
+            boundaries.append(end_cs)
+            aligned_scenes += 1
+        else:
+            intervals = _apportion(total_cs, [_word_weight(word) for word in words])
+            boundaries = [start_cs]
+            for interval in intervals:
+                boundaries.append(boundaries[-1] + interval)
         cursor = 0
         for group in groups:
             count = len(group)
-            slots = timing[cursor:cursor + count]
-            duration_cs = sum(slots)
-            # Split at phrasing boundaries, keeping 100% of the narration interval.
-            body = _karaoke_fragments(group, slots)
+            group_start, group_end = boundaries[cursor], boundaries[cursor + count]
+            interval = [boundaries[i+1] - boundaries[i]
+                        for i in range(cursor, cursor + count)]
+            body = _karaoke_fragments(group, interval)
             lines.append(
-                f"Dialogue: 0,{_timestamp(offset)},{_timestamp(offset+duration_cs)},"
-                f"Kinetic,,0,0,0,,{{\\fad(60,80)}}{body}"
+                f"Dialogue: 0,{_timestamp(group_start)},{_timestamp(group_end)},"
+                f"Kinetic,,0,0,0,,{{\fad(60,80)}}{body}"
             )
             events.append({
-                "scene": scene_number, "start": round(offset/100, 2),
-                "end": round((offset+duration_cs)/100, 2),
-                "word_count": count, "estimated": True,
+                "scene": scene_number, "start": round(group_start / 100, 2),
+                "end": round(group_end / 100, 2),
+                "word_count": count, "estimated": measured is None,
             })
-            offset += duration_cs
             cursor += count
+        offset = boundaries[-1]
         if offset != end_cs:
             raise AssertionError("Caption phrases do not cover the scene")
         previous_end = end_cs
     work.mkdir(parents=True, exist_ok=True)
     target = work / "captions.ass"
     target.write_text("\n".join(lines)+"\n", encoding="utf-8")
+    method = ("stable-ts" if aligned_scenes == len(segments) else
+              "stable-ts-partial" if aligned_scenes else "length-weighted-per-sentence")
     return {"path": str(target), "phrases": events,
-            "estimated_word_timing": True, "timing_method": "length-weighted-per-sentence",
-            "source": "audio-derived-scene-durations"}
+            "estimated_word_timing": aligned_scenes != len(segments),
+            "aligned_scenes": aligned_scenes, "scene_count": len(segments),
+            "timing_method": method,
+            "source": "acoustic-model" if aligned_scenes else "audio-derived-scene-durations"}
