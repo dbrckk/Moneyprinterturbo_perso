@@ -1,5 +1,7 @@
 # MoneyPrinterTurbo Perso — Free Studio
 
+**Studio Android actuel : https://lucid-node-bq96jq9.shipstatic.com** — sous-titres progressifs et alignement acoustique Whisper facultatif.
+
 Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depuis GitHub Actions sur Android**. Le projet comporte deux chemins complémentaires :
 
 1. **Free Studio** (`free_studio.py`) : produit des MP4 avec FFmpeg + eSpeak, sans API ni paiement. Lorsqu'Ollama est installé, un modèle local génère le véritable script IA. Sans Ollama, un texte déterministe est utilisé et **n'est pas présenté comme de l'IA**.
