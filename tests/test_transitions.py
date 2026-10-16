@@ -69,3 +69,22 @@ class TimelineTests(unittest.TestCase):
             self.assertAlmostEqual(free_studio.duration_seconds(target),info['duration_seconds'],delta=0.15)
 
 if __name__=='__main__':unittest.main()
+
+class CompositionBenchmarkPathTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg needed")
+    def test_internal_reference_pipeline_compares_with_optimized_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp) / "baseline.mp4"
+            new = Path(tmp) / "optimized.mp4"
+            opts = dict(resolution=360, fps=12, mute=True, caption_style="classic", transition="fade")
+            old_info = free_studio.render("Test", "La forêt est belle. La mer est calme.", old,
+                                          use_fused_xfade=False, **opts)
+            new_info = free_studio.render("Test", "La forêt est belle. La mer est calme.", new,
+                                          use_fused_xfade=True, **opts)
+            self.assertEqual(old_info["render_performance"]["compositing_pipeline"], "legacy-xfade")
+            self.assertEqual(new_info["render_performance"]["compositing_pipeline"], "fused-xfade")
+            self.assertEqual(old_info["size"], new_info["size"])
+            self.assertEqual(old_info["segments"], new_info["segments"])
+            self.assertAlmostEqual(free_studio.duration_seconds(old),
+                                   free_studio.duration_seconds(new), delta=.15)
+            self.assertEqual(old.with_suffix(".srt").read_text(),new.with_suffix(".srt").read_text())

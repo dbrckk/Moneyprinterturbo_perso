@@ -28,3 +28,7 @@ Mesure exploratoire locale le 16 octobre 2026, deux scènes **synthétiques** de
 | 1080 × 1920 | 0,821 s | 0,457 s | -44,3 % |
 
 **Ces chiffres ne représentent ni le temps total d'une vidéo ni une garantie** : ils ne comprennent ni le chargement de médias, ni la synthèse vocale, ni les scènes pré-encodées ; les fonds synthétiques se compressent facilement. Comparer aussi les journaux `render_performance` de vraies vidéos complexes. Le champ `compositing_pipeline` indique `fused-xfade` ou `cut-concat` pour chaque sortie, et les contrôles continuent de vérifier le codec, la durée audio/SRT et les dimensions.
+
+### Reproductible : comparaison interne des deux versions
+
+La fonction Python `render(..., use_fused_xfade=False)` active l'ancien montage double-encodage **uniquement pour établir une référence de test** ; l'interface Android reste optimisée par défaut. Le script `bench/compare_pipeline.py` produit à 720p et 1080p deux versions des **mêmes scènes** avec les **mêmes sous-titres**, puis exécute `video_qa.py` sur chaque MP4. Les deux variantes utilisent le même preset, CRF et nombre d'images ; seules les passes de transition changent. Le JSON de benchmark est publié en artefact par le workflow `Pipeline Speed Comparison` et inclut les temps `render_performance` de chaque variante. L'ancienne voie n'est pas proposée aux utilisateurs finaux.

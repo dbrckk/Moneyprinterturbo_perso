@@ -297,7 +297,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            scene_queries: list[str] | None = None, tts: str = "espeak",
            piper_model: Path | None = None, speech_rate: int = 145,
            visual_style: str = "cinematic", transition: str = "auto",
-           caption_style: str = "kinetic", word_alignment: str = "estimated") -> dict[str, object]:
+           caption_style: str = "kinetic", word_alignment: str = "estimated",
+           use_fused_xfade: bool = True) -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -324,7 +325,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     output.parent.mkdir(parents=True, exist_ok=True)
     width, height = size_for(aspect, resolution)
     render_started = time.perf_counter()
-    metrics: dict[str, float] = {}
+    metrics: dict[str, float | str] = {}
     diagnostics: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="mpt-free-") as tmp:
         work = Path(tmp)
@@ -367,7 +368,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # final overlays so cinematic transitions are encoded only once.
         # Cut-only output keeps the verified stream-copy concat path.
         plan = transition_plan(durations, fps=fps, transition=applied_transition)
-        fused = plan.overlap_frames > 0
+        fused = plan.overlap_frames > 0 and use_fused_xfade
         if fused:
             clips = [render_scene(asset, length, i, work, width=width,
                          height=height, fps=fps, extra_frames=plan.extra_frames[i])
@@ -401,7 +402,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
         execute(cmd, cwd=work, timeout=360)
-        metrics["compositing_pipeline"] = "fused-xfade" if fused else "cut-concat"
+        metrics["compositing_pipeline"] = ("fused-xfade" if fused else
+                                            "legacy-xfade" if plan.overlap_frames else
+                                            "cut-concat")
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")

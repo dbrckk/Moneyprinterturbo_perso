@@ -1,0 +1,37 @@
+name: Pipeline Speed Comparison
+on:
+  push:
+    paths:
+      - .github/workflows/pipeline-benchmark.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install render tools if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg || ! command -v ffprobe || ! command -v espeak; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg espeak
+          fi
+      - name: Compare matching 720p and 1080p scene renders
+        run: python bench/compare_pipeline.py
+      - name: Upload performance measurements and visual previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: fused-vs-legacy-720p-1080p
+          path: |
+            outputs/benchmarks/comparison.json
+            outputs/benchmarks/*.quality.json
+            outputs/benchmarks/*.storyboard.png
+          retention-days: 7
+          if-no-files-found: error
