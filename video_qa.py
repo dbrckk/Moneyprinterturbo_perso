@@ -169,9 +169,9 @@ def audio_loudness(video: Path) -> dict[str, float | None]:
     )
     if process.returncode:
         raise RuntimeError("Audio loudness analysis failed: " + process.stderr[-800:])
-    integrated = re.findall(r"Integrated loudness:\\s*I:\\s*([-+\\d.]+)\\s*LUFS",
+    integrated = re.findall(r"Integrated loudness:\s*I:\s*([-+\d.]+)\s*LUFS",
                             process.stderr)
-    peak = re.findall(r"True peak:\\s*Peak:\\s*([-+\\d.]+)\\s*dBFS",
+    peak = re.findall(r"True peak:\s*Peak:\s*([-+\d.]+)\s*dBFS",
                       process.stderr)
     if not integrated:
         raise RuntimeError("FFmpeg did not report integrated audio loudness")
