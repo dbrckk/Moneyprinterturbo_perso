@@ -186,6 +186,40 @@ def safe_scenic_score(query: str, title: str, description: str = "") -> int:
     return score
 
 
+_SCENIC_EXPANSION_HINTS = {
+    "montagne": "panorama", "montagnes": "panorama",
+    "mountain": "panorama", "mountains": "panorama",
+    "foret": "paysage", "forets": "paysage",
+    "forest": "landscape", "forests": "landscape",
+    "riviere": "paysage", "rivieres": "paysage",
+    "river": "landscape", "rivers": "landscape",
+    "ocean": "paysage", "oceans": "paysage",
+    "sea": "seascape", "seas": "seascape",
+    "mer": "paysage", "mers": "paysage",
+    "lac": "paysage", "lacs": "paysage",
+    "lake": "landscape", "lakes": "landscape",
+    "plage": "paysage", "plages": "paysage",
+    "beach": "landscape", "beaches": "landscape",
+    "vallee": "paysage", "vallees": "paysage",
+    "valley": "landscape", "valleys": "landscape",
+}
+
+
+def expand_scenic_search_query(query: str) -> str:
+    """Add one tested scene-context term to an ambiguous single nature word.
+
+    This only changes the Commons API search, not user-visible narration,
+    source attribution or candidate relevance checks. Names like 'Henri
+    Rivière' remain unchanged because they contain two meaningful words.
+    """
+    meaningful = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
+    if len(meaningful) != 1:
+        return query
+    key = next(iter(meaningful))
+    hint = _SCENIC_EXPANSION_HINTS.get(key)
+    return query + " " + hint if hint else query
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
                    timings: dict[str, float | int] | None = None) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
@@ -195,8 +229,9 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     if not 1 <= limit <= 8:
         raise ValueError("Commons media limit out of range")
     query = re.sub(r"\s+", " ", topic).strip()[:110]
+    search_phrase = expand_scenic_search_query(query)
     params = parse.urlencode({
-        "action": "query", "format": "json", "generator": "search", "gsrsearch": query,
+        "action": "query", "format": "json", "generator": "search", "gsrsearch": search_phrase,
         "gsrnamespace": "6", "gsrlimit": "30", "prop": "imageinfo", "iiprop": "url|extmetadata|size",
         "iiurlwidth": "1440",
     })
@@ -394,6 +429,7 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             "scenes_requested": len(wanted),
             "scenes_matched": len(selected),
             "unique_queries": len(first_indices),
+            "contextual_expansions": sum(expand_scenic_search_query(q) != q for q in first_indices),
             "workers_used": pool_size,
             "wall_seconds": round(time.perf_counter() - started, 4),
             # These are sums of task durations and can exceed wall_seconds

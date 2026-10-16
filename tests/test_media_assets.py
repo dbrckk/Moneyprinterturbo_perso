@@ -215,3 +215,30 @@ class ScenicCandidateSafetyTests(unittest.TestCase):
     def test_explicit_person_query_is_not_blocked_by_landscape_filter(self):
         self.assertGreater(media.safe_scenic_score("Henri Rivière",
             "File:Henri.riviere.jpg", "Portrait"), 0)
+
+
+class ContextualScenicSearchTests(unittest.TestCase):
+    def test_ambiguous_single_word_gets_one_qualifier(self):
+        self.assertEqual(media.expand_scenic_search_query("montagne"), "montagne panorama")
+        self.assertEqual(media.expand_scenic_search_query("forêt"), "forêt paysage")
+        self.assertEqual(media.expand_scenic_search_query("rivière"), "rivière paysage")
+        self.assertEqual(media.expand_scenic_search_query("ocean"), "ocean paysage")
+        self.assertEqual(media.expand_scenic_search_query("forest"), "forest landscape")
+        self.assertEqual(media.expand_scenic_search_query("Henri Rivière"), "Henri Rivière")
+        self.assertEqual(media.expand_scenic_search_query("rivière paysage"), "rivière paysage")
+
+    def test_api_expands_but_original_query_is_used_for_relevance(self):
+        from urllib import parse
+        payload={"query":{"pages":{"1":{
+            "title":"File:Camille Montagne botaniste.png", "index":1,
+            "imageinfo":[{"descriptionurl":"https://commons.wikimedia.org/wiki/File:Camille_Montagne.png",
+               "thumburl":"https://upload.wikimedia.org/test.png",
+               "extmetadata":{"LicenseShortName":{"value":"CC0"},
+                              "ImageDescription":{"value":"Portrait botaniste"}}}]}}}}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(media,"_read_limited",return_value=json.dumps(payload).encode()) as read:
+            assets,warnings=media.commons_assets("montagne",Path(tmp),limit=1)
+        actual=parse.parse_qs(parse.urlsplit(read.call_args.args[0]).query)["gsrsearch"][0]
+        self.assertEqual(actual,"montagne panorama")
+        self.assertEqual(assets,[])
+        self.assertTrue(warnings)
+        self.assertEqual(read.call_count,1)
