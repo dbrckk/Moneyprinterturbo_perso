@@ -358,3 +358,7 @@ Le moteur reconnaît désormais les images presque identiques même lorsque leur
 ### Voix plus audible sur smartphone, sans double compression
 
 Les narrations françaises eSpeak/Piper sont désormais harmonisées sur la bande-son **complète** avec FFmpeg `loudnorm` (objectif −16 LUFS, pic vrai −1,5 dBTP). La piste AAC est encodée une seule fois en 160 kbit/s, 48 kHz puis **copiée sans réencodage** dans le MP4 final, quel que soit le moteur visuel. Le rapport `video.quality.json` mesure indépendamment le niveau LUFS et le pic vrai réellement obtenus, et avertit en cas de niveau potentiellement inadéquat. La normalisation en une passe a une tolérance de mesure : l'objectif ne constitue pas une garantie exacte. Voir [les tests de mastering](tests/test_audio_mastering.py).
+
+### Export mobile : fichiers SRT et rapport qualité sans ZIP
+
+Outre le MP4 et la planche PNG, le studio Android propose désormais l'ouverture directe des **sous-titres SRT** et du **rapport JSON** contenant les contrôles de rendu et les mesures audio. Les liens n'apparaissent que si GitHub confirme les artefacts, sans incorporer de jeton dans l'URL. Les anciens rendus restent compatibles.

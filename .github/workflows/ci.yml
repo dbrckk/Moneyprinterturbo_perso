@@ -103,6 +103,20 @@ jobs:
           archive: false
           retention-days: 1
           if-no-files-found: error
+      - name: Validate non-ZIP SRT upload on GitHub Actions v7
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/ci-preview.srt
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
+      - name: Validate non-ZIP QA JSON upload on GitHub Actions v7
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/ci-preview.quality.json
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
       - name: Attach real preview video for visual review
         uses: actions/upload-artifact@v4
         with:

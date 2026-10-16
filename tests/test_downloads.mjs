@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MP4_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME, findDirectMp4, findDirectStoryboard, directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
+import { MP4_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME,
+  SUBTITLES_ARTIFACT_NAME, QUALITY_ARTIFACT_NAME,
+  findDirectMp4, findDirectStoryboard, findDirectSubtitles, findDirectQuality,
+  directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
 
 test('only nonexpired, nonempty v7 MP4 artifact is eligible', () => {
   const items = [
@@ -34,4 +37,24 @@ test('storyboard preview is offered only for nonexpired individual PNG artifacts
   assert.equal(findDirectStoryboard([{id:45,name:'free-studio-video',
     expired:false,size_in_bytes:11000}]),null);
   assert.equal(findDirectStoryboard(null),null);
+});
+
+
+test('optional unzipped subtitle and audio QA artifacts are separately validated', () => {
+  const artifacts = [
+    {id: 70, name: SUBTITLES_ARTIFACT_NAME, expired:false, size_in_bytes:590},
+    {id: 71, name: QUALITY_ARTIFACT_NAME, expired:false, size_in_bytes:2500},
+    {id: 72, name: SUBTITLES_ARTIFACT_NAME, expired:true, size_in_bytes:590},
+  ];
+  assert.equal(SUBTITLES_ARTIFACT_NAME,'video.srt');
+  assert.equal(QUALITY_ARTIFACT_NAME,'video.quality.json');
+  assert.equal(findDirectSubtitles(artifacts).id,70);
+  assert.equal(findDirectQuality(artifacts).id,71);
+  assert.equal(findDirectSubtitles([{id:0,name:SUBTITLES_ARTIFACT_NAME,
+    expired:false,size_in_bytes:900}]),null);
+  assert.equal(findDirectQuality([{id:71,name:QUALITY_ARTIFACT_NAME,
+    expired:false,size_in_bytes:0}]),null);
+  assert.equal(findDirectQuality(null),null);
+  assert.equal(findDirectSubtitles([]),null);
+  assert.match(directMp4Url(44,71), /github\\.com\\/dbrckk/);
 });

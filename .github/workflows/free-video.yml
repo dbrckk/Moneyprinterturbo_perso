@@ -237,6 +237,20 @@ jobs:
           archive: false
           retention-days: 7
           if-no-files-found: error
+      - name: Sous-titres éditables SRT pour Android (sans ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.srt
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Rapport qualité pour Android (sans ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.quality.json
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Downloadable MP4
         uses: actions/upload-artifact@v4
         with:

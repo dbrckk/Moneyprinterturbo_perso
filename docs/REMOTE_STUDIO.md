@@ -72,3 +72,10 @@ Le workflow met en cache `~/.ollama/models`, `models/` (Piper SIWIS) et `~/.cach
 ## Aperçu visuel sur Android, sans ZIP
 
 Après une génération réussie, le studio affiche **« Voir toutes les scènes · PNG »** si `video.storyboard.png` est disponible. Le workflow publie cette planche de contrôle avec `actions/upload-artifact@v7`, sans archive ZIP. Le lien ouvre l'artefact GitHub (une connexion peut être requise), jamais le jeton personnel. Les anciens rendus ou les artefacts expirés ne présentent pas de bouton de prévisualisation ; les autres fichiers restent accessibles via l'archive complète.
+
+
+### Accès direct aux sous-titres et aux contrôles sur Android
+
+Les nouveaux rendus GitHub Actions publient quatre fichiers **séparés, sans ZIP** : le MP4 H.264, la planche PNG des scènes, le SRT éditable et le rapport `video.quality.json` (synchronisation, codec, LUFS mesurés et avertissements). Dans le panneau « Production » du studio HTTPS, ces liens s'affichent uniquement pour les artefacts GitHub réellement présents, non expirés et non vides. Les anciens rendus continuent d'afficher seulement les fichiers disponibles. Les crédits et fichiers avancés restent également dans l'archive complète.
+
+GitHub peut demander une connexion pour servir le fichier ; aucun jeton personnel n'est ajouté aux URL. Les artefacts de production expirent après 7 jours. Les fichiers autonomes sont facultatifs à la restauration du suivi, sans empêcher l'accès au MP4.

@@ -1,6 +1,7 @@
 import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
-import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard, directMp4Url } from './downloads.mjs';
+import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
+  findDirectSubtitles, findDirectQuality, directMp4Url } from './downloads.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -76,7 +77,8 @@ function showHistory() {
     li.append(link, date);
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
-    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; $('preview-storyboard').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
+    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; $('preview-storyboard').hidden = true;
+      $('download-subtitles').hidden = true; $('download-quality').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
     li.append(' · ',button);
     list.append(li);
   }
@@ -93,6 +95,15 @@ async function resolveDirectVideo(run, requestId) {
     const preview = $('preview-storyboard');
     preview.hidden = !storyboard;
     if (storyboard) preview.href = directMp4Url(run.id, storyboard.id);
+    // The standalone SRT and QA JSON are optional for older workflow runs.
+    // Never guess artifact IDs, and never attach the GitHub PAT to download URLs.
+    for (const [id, artifact] of [
+      ['download-subtitles', findDirectSubtitles(response?.artifacts)],
+      ['download-quality', findDirectQuality(response?.artifacts)]]) {
+      const link = $(id);
+      link.hidden = !artifact;
+      if (artifact) link.href = directMp4Url(run.id, artifact.id);
+    }
     const mp4 = findDirectMp4(response?.artifacts);
     if (!mp4) {
       $('download-video').hidden = true;
@@ -101,7 +112,7 @@ async function resolveDirectVideo(run, requestId) {
     }
     $('download-video').href = directMp4Url(run.id, mp4.id);
     $('download-video').hidden = false;
-    setStatus('success', 'Vidéo prête', 'Le MP4 est accessible sans ZIP avec le bouton ci-dessous. GitHub peut demander une connexion à ton compte. Les sous-titres, projets et contrôles restent dans l’archive du rendu.');
+    setStatus('success', 'Vidéo prête', 'Le MP4 est accessible sans ZIP avec le bouton ci-dessous. GitHub peut demander une connexion à ton compte. Les sous-titres SRT et le rapport qualité sont aussi disponibles séparément lorsque les artefacts existent ; les autres fichiers restent dans l’archive.');
   } catch (error) {
     if (active?.id === requestId) setStatus('success', 'Vidéo prête', 'Lien MP4 direct indisponible : ' + error.message + ' Tu peux toujours ouvrir le rendu sur GitHub.');
   }
@@ -196,6 +207,8 @@ $('video-form').addEventListener('submit', async event => {
     active={id,topic:values.topic,createdAt:new Date().toISOString(),state:'Demande envoyée'};
     $('download-video').hidden = true;
     $('preview-storyboard').hidden = true;
+    $('download-subtitles').hidden = true;
+    $('download-quality').hidden = true;
     replaceHistory(active);
     $('run-actions').hidden=false;
     $('run-link').href=ACTIONS_URL;
