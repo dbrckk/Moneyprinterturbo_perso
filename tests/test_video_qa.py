@@ -72,6 +72,28 @@ class VideoQualityTests(unittest.TestCase):
         errors = video_qa.validate(self.video, self.metadata, self.subtitle, video_qa.probe(self.video))['errors']
         self.assertTrue(any('unexpectedly contains' in e for e in errors))
 
+    def test_visual_quality_review_warns_without_false_certification(self):
+        self.metadata['media'] = [
+            {'segment':1,'title':'An old painting','visual_medium':'artwork-likely',
+             'crop_retention_estimate':0.25},
+            {'segment':2,'title':'A recent photo','visual_medium':'photograph-likely',
+             'crop_retention_estimate':0.92}]
+        self.metadata['commons_fetch']={'scenes_reusing_image':1}
+        result=video_qa.validate(self.video,self.metadata,self.subtitle,video_qa.probe(self.video))
+        self.assertTrue(result['ok'],result['errors'])
+        self.assertTrue(any('artwork' in w for w in result['warnings']))
+        self.assertTrue(any('two thirds' in w for w in result['warnings']))
+        self.assertTrue(any('reuse' in w for w in result['warnings']))
+        self.assertFalse(any('Scene 2: source framing' in w for w in result['warnings']))
+
+    def test_no_unwarranted_crop_or_art_warnings_for_old_metadata(self):
+        self.metadata['media']=[{'segment':1,'source':'local'}]
+        self.metadata['commons_fetch']={}
+        report=video_qa.validate(self.video,self.metadata,self.subtitle,video_qa.probe(self.video))
+        self.assertTrue(report['ok'])
+        self.assertFalse(any('center crop' in warning for warning in report['warnings']))
+        self.assertFalse(any('may be artwork' in warning for warning in report['warnings']))
+
     def test_cli_writes_failed_report(self):
         self.metadata['duration_seconds'] = 5.0
         self.video.with_suffix('.json').write_text(json.dumps(self.metadata), encoding='utf-8')

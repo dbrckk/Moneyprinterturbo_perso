@@ -122,6 +122,24 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
         warnings.append("No real photographic/video media are reported; verify visual relevance")
     if metadata.get("speech_engine") == "espeak":
         warnings.append("eSpeak is synthetic; consider a reviewed neural TTS voice")
+    # These are review prompts, not false claims of machine-certified visual
+    # quality: photo/art classification is based on Commons textual metadata.
+    listed_media = metadata.get("media", [])
+    if isinstance(listed_media, list):
+        for item in listed_media:
+            if not isinstance(item, dict):
+                continue
+            scene = item.get("segment", "?")
+            if item.get("visual_medium") == "artwork-likely":
+                warnings.append(f"Scene {scene}: selected medium may be artwork, not photography")
+            retained = item.get("crop_retention_estimate")
+            if _positive(retained) and retained <= 1 and retained < 0.34:
+                warnings.append(f"Scene {scene}: source framing loses over two thirds of image area to center crop; review storyboard")
+    commons_stats = metadata.get("commons_fetch")
+    if isinstance(commons_stats, dict):
+        duplicates = commons_stats.get("scenes_reusing_image")
+        if isinstance(duplicates, int) and not isinstance(duplicates, bool) and duplicates > 0:
+            warnings.append(f"{duplicates} Commons scene(s) reuse a previously selected image; review variety")
     return {
         "ok": not errors,
         "checks": {"duration": round(duration, 3) if _positive(duration) else None,

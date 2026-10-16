@@ -121,3 +121,7 @@ left unclassified and still allowed. Per-scene `crop_retention_estimate`,
 `commons_fetch.mean_crop_retention_estimate` and
 `commons_fetch.scenes_with_crop_estimate` make the choice auditable.
 No additional API call, image package or paid vision model is required.
+
+## Visual QA warnings
+
+The separate `video_qa.py` quality report now surfaces **reviewable visual risks** instead of hiding them in project metadata: likely illustrated/artwork media, source imagery projected to lose more than two thirds of its area when center-cropped, and repeated Commons image sources across scenes. These are warnings, not automatic rejection or proof of substandard aesthetics; the GIF/MP4 contact sheet remains the ultimate review surface. The provenance and aspect values are textual/geometry heuristics, never certified computer vision.
