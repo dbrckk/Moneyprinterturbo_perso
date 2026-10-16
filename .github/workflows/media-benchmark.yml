@@ -33,6 +33,7 @@ jobs:
           name: jpeg-mp4-onepass-comparison
           path: |
             outputs/benchmarks/media/comparison.json
+            outputs/benchmarks/media/*.mp4
             outputs/benchmarks/media/*.quality.json
             outputs/benchmarks/media/*.storyboard.png
           retention-days: 7

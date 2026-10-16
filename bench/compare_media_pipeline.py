@@ -2,6 +2,7 @@
 """Benchmark actual JPEG/MP4 files; image content is reproducible synthetic test media."""
 from pathlib import Path
 import json
+import re
 import subprocess
 import sys
 import time
@@ -18,6 +19,24 @@ def ffmpeg(*args):
         raise RuntimeError(result.stderr[-2000:])
 
 
+def visual_ssim(reference: Path, candidate: Path) -> float:
+    """Measure frame-by-frame SSIM, not subjective aesthetic quality."""
+    process=subprocess.run(
+        ["ffmpeg","-hide_banner","-nostdin","-loglevel","info",
+         "-i",str(reference),"-i",str(candidate),"-filter_complex",
+         "[0:v][1:v]ssim","-an","-f","null","-"],
+        capture_output=True,text=True,timeout=180)
+    if process.returncode:
+        raise RuntimeError("SSIM video comparison failed: "+process.stderr[-1200:])
+    match=re.search(r"SSIM\s+Y:[0-9.]+.*?All:([0-9.]+)",process.stderr)
+    if not match:
+        raise RuntimeError("FFmpeg did not report a valid SSIM value")
+    value=float(match.group(1))
+    if not 0.95 <= value <= 1.0:
+        raise RuntimeError(f"Excessive video quality variation: SSIM={value:.4f}")
+    return round(value,6)
+
+
 def main():
     folder=ROOT/"outputs"/"benchmarks"/"media"
     sources=folder/"fixtures"
@@ -28,6 +47,7 @@ def main():
            "-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p",
            str(sources/"02-clip.mp4"))
     lines=[]
+    comparisons={}
     narration="Les paysages révèlent une belle lumière. Le mouvement raconte une nouvelle histoire."
     for resolution in (720,1080):
         rows=[]
@@ -59,12 +79,17 @@ def main():
             raise RuntimeError("Videos have different durations")
         before,after=rows
         change=round(100*(before["seconds"]-after["seconds"])/before["seconds"],1)
-        print(f"{resolution}p: {change:+.1f}% faster with one-pass (positive=faster)",flush=True)
+        reference=folder/f"{resolution}-fused.mp4"
+        candidate=folder/f"{resolution}-media-onepass.mp4"
+        comparisons[str(resolution)]={"speedup_percent":change,
+                                      "full_video_ssim":visual_ssim(reference,candidate)}
+        print(f"{resolution}p: {change:+.1f}% faster, SSIM {comparisons[str(resolution)]['full_video_ssim']}",flush=True)
         lines+=rows
     (folder/"comparison.json").write_text(json.dumps({
         "source":"synthetic JPEG and moving MP4 files, not documentary photography",
         "scope":"actual render() time, excluding fixtures, job setup and QA",
-        "narration":"muted","fps":12,"transition":"fade","rows":lines
+        "narration":"muted","fps":12,"transition":"fade","rows":lines,
+        "comparisons":comparisons
     },indent=2)+"\n")
     return 0
 
