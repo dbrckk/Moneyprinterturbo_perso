@@ -299,3 +299,7 @@ Le benchmark comparatif complet, les mesures et les limites se trouvent dans
 ### Aperçu du montage directement depuis Android
 
 Les nouvelles exécutions exposent également `video.storyboard.png` sans ZIP. Le bouton **Voir toutes les scènes · PNG** dans le studio ouvre la planche de contrôle sur GitHub lorsque cet artefact existe. La génération PNG est assurée par `video_qa.py`, sans stockage du jeton GitHub chez l'hébergeur du studio.
+
+## Optimised JPEG and MP4 video montage
+
+For projects with up to 4 scenes at 720p or 2 scenes at 1080p, a single FFmpeg encode now combines stills, footage, fades, motion, animated captions and audio. This avoids intermediate lossy H.264 files. Full-range JPEG sources are converted to mobile-compatible yuv420p (including in the older pipeline). Unsupported inputs automatically fall back to the established renderer. See [media performance and benchmark](docs/MEDIA_PERFORMANCE.md).
