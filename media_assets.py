@@ -264,8 +264,9 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     search_phrase = expand_scenic_search_query(query)
     params = parse.urlencode({
         "action": "query", "format": "json", "generator": "search", "gsrsearch": search_phrase,
-        "gsrnamespace": "6", "gsrlimit": "30", "prop": "imageinfo", "iiprop": "url|extmetadata|size",
-        "iiurlwidth": "1440",
+        "gsrnamespace": "6", "gsrlimit": "30", "prop": "imageinfo|categories",
+        "cllimit": "max", "clshow": "!hidden",
+        "iiprop": "url|extmetadata|size", "iiurlwidth": "1440",
     })
     lookup_started = time.perf_counter()
     if timings is not None:
@@ -305,7 +306,12 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
         score = safe_scenic_score(query, title, description)
         if score:
-            medium = visual_medium_hint(title, description, _plain(_field(info, "Categories")))
+            categories = " ".join(
+                str(c.get("title", "")) for c in page.get("categories", [])
+                if isinstance(c, dict)
+            )
+            categories += " " + _plain(_field(info, "Categories"))
+            medium = visual_medium_hint(title, description, categories)
             # A positive photo signal must also be relevant by title; generic
             # descriptions alone should not beat accurately titled scenery.
             medium_rank = _MEDIUM_PRIORITY[medium]

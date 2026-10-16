@@ -53,3 +53,8 @@ Le workflow [Wikimedia Commons Real Video Smoke](https://github.com/dbrckk/Money
 Candidates still require independently supported query relevance, a verified CC0/public-domain license and valid dimensions. When equally relevant choices are available, descriptive metadata identifying a **photograph** is preferred over an unclassified image and over metadata indicating a painting, engraving or drawing. If only a licensed artwork is suitable, it remains usable but a warning is attached.
 
 Each selected asset now includes `visual_medium`: `photograph-likely`, `artwork-likely` or `unspecified`. These are **lexical metadata hints**, not a computer-vision assertion of the true visual medium. The `commons_fetch` summary counts how many scenes fall into each category; the credits retain the same information. A title saying "panorama" alone is insufficient to label something a photograph. This optimization reduces misleading stock-like choices where descriptions are informative, but it cannot guarantee documentary photography without inspecting each image.
+
+
+### Stronger Wikimedian category signals
+
+The Commons API now requests **non-hidden file categories** together with licensed image metadata (one query, not an extra HTTP round trip). Tags such as `Category:Paintings of rivers` and `Category:Photographs of rivers` are useful evidence to distinguish artwork from documentary photography when filenames are opaque. The same conservative ranker applies; both media and license are still independently checked. Categories are incomplete and may mix terms, so `visual_medium` remains a *hint* rather than a verified claim.

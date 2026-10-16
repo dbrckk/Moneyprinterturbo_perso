@@ -306,3 +306,49 @@ class WikimediaVisualMediumTests(unittest.TestCase):
             self.assertTrue(any("artwork" in w for w in warnings))
             self.assertEqual(found[0].license, "Public domain")
             self.assertEqual(found[0].metadata()["visual_medium"], "artwork-likely")
+
+
+
+class WikimediaCategoryProvenanceTests(unittest.TestCase):
+    def test_commons_categories_disambiguate_paintings(self):
+        import json
+        from urllib import parse
+        def entry(title, index, categories):
+            return {
+                "title": title, "index": index,
+                "categories": [{"ns": 14, "title": x} for x in categories],
+                "imageinfo": [{
+                    "thumburl": "https://upload.wikimedia.org/test.jpg",
+                    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Landscape.jpg",
+                    "extmetadata": {"LicenseShortName": {"value": "Public domain"}}
+                }]
+            }
+        payload={"query":{"pages":{
+            "1": entry("File:River landscape old.jpg", 1,
+                       ["Category:Paintings of rivers by JMW Turner"]),
+            "2": entry("File:River landscape new.jpg", 2,
+                       ["Category:Photographs of rivers"])
+        }}}
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            with patch.object(media, "_read_limited",
+                              side_effect=[json.dumps(payload).encode(), b"fake-jpeg"]) as read, \
+                 patch.object(media, "media_dimensions", return_value=(1024, 768)):
+                images,warnings=media.commons_assets("river landscape",root,limit=1)
+            params=parse.parse_qs(parse.urlsplit(read.call_args_list[0].args[0]).query)
+            self.assertEqual(params["prop"][0],"imageinfo|categories")
+            self.assertEqual(params["cllimit"][0],"max")
+            self.assertEqual(len(images),1)
+            self.assertEqual(images[0].title,"File:River landscape new.jpg")
+            self.assertEqual(images[0].visual_medium,"photograph-likely")
+            self.assertEqual(warnings,[])
+
+    def test_silent_mixed_category_metadata_does_not_claim_photo(self):
+        self.assertEqual(media.visual_medium_hint(
+            "File:River.jpg","","Category:Bridges in Europe"),"unspecified")
+        self.assertEqual(media.visual_medium_hint(
+            "File:Turner landscape.jpg","","Category:Paintings of rivers"),
+            "artwork-likely")
+        self.assertEqual(media.visual_medium_hint(
+            "File:Landscape.jpg","","Category:Photographs from 1996"),
+            "photograph-likely")
