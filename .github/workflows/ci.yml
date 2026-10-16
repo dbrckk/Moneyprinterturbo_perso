@@ -4,6 +4,7 @@ on:
     paths:
       - free_studio.py
       - cinematic.py
+      - caption_motion.py
       - video_qa.py
       - media_assets.py
       - .github/workflows/free-video.yml
@@ -39,7 +40,7 @@ jobs:
           node --check remote/main.mjs
           node --test tests/test_remote_core.mjs
       - name: Static compilation
-        run: python -m compileall -q free_studio.py cinematic.py media_assets.py video_qa.py studio_server.py tests
+        run: python -m compileall -q free_studio.py cinematic.py caption_motion.py media_assets.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests
@@ -54,6 +55,7 @@ jobs:
       - name: Check editable subtitles and metadata
         run: |
           test -s outputs/ci-preview.srt
+          test -s outputs/ci-preview.ass
           test -s outputs/ci-preview.json
           python -c "import json; assert json.load(open('outputs/ci-preview.json'))['visual_style']=='cinematic'"
           ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^h264$'
@@ -68,6 +70,7 @@ jobs:
             outputs/ci-preview.mp4
             outputs/ci-preview.json
             outputs/ci-preview.srt
+            outputs/ci-preview.ass
             outputs/ci-preview.quality.json
             outputs/ci-preview.storyboard.png
           retention-days: 7

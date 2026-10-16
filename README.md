@@ -238,3 +238,17 @@ Ces contrôles vérifient la qualité **technique** : ils ne certifient ni la
 pertinence éditoriale, ni la véracité des affirmations, ni les droits des médias.
 L'export se fait localement avec FFmpeg et la bibliothèque standard Python,
 sans service externe ni frais supplémentaires.
+
+## Sous-titres progressifs sans service payant
+
+Free Studio propose `--caption-style kinetic` (par défaut) et `--caption-style classic`.
+Le mode **kinetic** utilise FFmpeg/libass pour surligner progressivement les mots : la durée
+réelle de chaque phrase est mesurée après génération eSpeak ou Piper, puis répartie
+**approximativement** entre les mots selon leur longueur et leur ponctuation.
+Ce **n'est pas un alignement phonétique forcé** : le moment précis de chaque mot peut dévier,
+notamment avec les voix neuronales et les pauses. Le fichier `video.ass` accompagne le `video.srt`
+modifiable, lequel garde les bornes exactes des phrases. L'option « Sous-titres animés »
+est maintenant sélectionnable dans le portail Android.
+
+Exemple : `python free_studio.py --topic 'Une forêt' --caption-style kinetic --output outputs/foret.mp4`.
+Le mode `classic` garde l'ancien rendu des sous-titres et n'exporte pas de fichier ASS.

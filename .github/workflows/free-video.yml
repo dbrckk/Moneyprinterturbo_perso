@@ -47,6 +47,12 @@ on:
         type: choice
         options: [cinematic, classic]
         default: cinematic
+      caption_style:
+        description: Sous-titres mot à mot estimés ou classiques
+        required: true
+        type: choice
+        options: [kinetic, classic]
+        default: kinetic
       transition:
         description: Transition entre scènes (auto, fondu, balayage ou coupe)
         required: true
@@ -136,11 +142,12 @@ jobs:
           VISUAL_MODE: ${{ inputs.visuals }}
           VISUAL_STYLE: ${{ inputs.visual_style }}
           TRANSITION: ${{ inputs.transition }}
+          CAPTION_STYLE: ${{ inputs.caption_style }}
           SCENE_QUERIES: ${{ inputs.scene_queries }}
           SPEECH_RATE: ${{ inputs.speech_rate }}
           VOICE: ${{ inputs.voice }}
         run: |
-          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --transition "$TRANSITION" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
+          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --transition "$TRANSITION" --caption-style "$CAPTION_STYLE" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
           if [[ -n "$SCRIPT_TEXT" ]]; then
             if [[ "$SCRIPT_MODE" == "local-ai" ]]; then
               echo 'A custom script and local AI mode cannot be combined' >&2; exit 1
@@ -174,6 +181,7 @@ jobs:
             outputs/video.mp4
             outputs/video.json
             outputs/video.srt
+            outputs/video.ass
             outputs/video.quality.json
             outputs/video.storyboard.png
             outputs/video.credits.txt

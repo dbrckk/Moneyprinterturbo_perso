@@ -66,3 +66,11 @@ test('transition types reject unknown filters and reach GitHub dispatch',()=>{
   }
   assert.throws(()=>validateDraft({...valid, transition:'movie=/etc/passwd'}),/Transition visuelle invalide/);
 });
+
+// Caption style is explicitly checked before any GitHub workflow dispatch.
+test('caption style is constrained', () => {
+  const base = { topic: 'Test court', script: '', scene_queries: '', lang: 'fr',
+    aspect: '9:16', resolution: '360', speech_rate: '145', visuals: 'abstract', caption_style: 'kinetic' };
+  assert.equal(validateDraft(base).caption_style, 'kinetic');
+  assert.throws(() => validateDraft({...base, caption_style: 'broken'}), /sous-titres/);
+});
