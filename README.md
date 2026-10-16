@@ -345,3 +345,8 @@ compatibilité avec le cadrage final (vertical 9:16, carré ou horizontal 16:9).
 Les dimensions de la source sont déjà disponibles sans requête supplémentaire.
 Le ratio estimé de surface conservée lors du recadrage est enregistré dans le
 rapport JSON ; il ne remplace pas un contrôle humain du sujet et du cadrage.
+
+
+### Photos panoramiques dans les vidéos verticales
+
+Si un recadrage 9:16 détruirait plus de deux tiers de la photo source, le montage remplace la coupe centrale par une **photo intégrale sur un fond doux dérivé de la même image**. Ce cadrage alternatif s'applique aux deux moteurs FFmpeg (optimisé et classique) et reste animé. Les couleurs et le cadrage sont vérifiés par des tests d'encodage réels. Aucun service payant ni modèle vidéo n'est requis.

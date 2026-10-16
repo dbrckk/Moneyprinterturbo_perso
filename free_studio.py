@@ -26,6 +26,7 @@ from cinematic import build_filters, gradient_source, transition_plan
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
+from scene_framing import needs_soft_matte, soft_matte_graph
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
@@ -233,7 +234,14 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
         effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
                   "eq=contrast=1.05:saturation=1.07,format=yuv420p")
-    cmd += ["-an", "-vf", effect, "-frames:v", str(frames), "-r", str(fps),
+    if needs_soft_matte(asset):
+        graph = soft_matte_graph(0, width=width, height=height, fps=fps,
+                                 prefix=f"legacy{index}", output_name="framed")
+        cmd += ["-an", "-filter_complex_threads", "1",
+                "-filter_complex", ";".join(graph), "-map", "[framed]"]
+    else:
+        cmd += ["-an", "-vf", effect]
+    cmd += ["-frames:v", str(frames), "-r", str(fps),
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
             str(target)]
     execute(cmd, timeout=240)
@@ -494,6 +502,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "source": asset.source_url, "license": asset.license,
                                "author": asset.author, "visual_medium": asset.visual_medium,
                                "crop_retention_estimate": asset.crop_retention_estimate,
+                               "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
+                                                  else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
         credits_path = output.with_suffix(".credits.txt")
         voice_info = None

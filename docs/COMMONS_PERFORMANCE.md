@@ -125,3 +125,10 @@ No additional API call, image package or paid vision model is required.
 ## Visual QA warnings
 
 The separate `video_qa.py` quality report now surfaces **reviewable visual risks** instead of hiding them in project metadata: likely illustrated/artwork media, source imagery projected to lose more than two thirds of its area when center-cropped, and repeated Commons image sources across scenes. These are warnings, not automatic rejection or proof of substandard aesthetics; the GIF/MP4 contact sheet remains the ultimate review surface. The provenance and aspect values are textual/geometry heuristics, never certified computer vision.
+
+
+## Extreme aspect ratio: preserve the full picture
+
+The real 9:16 Commons smoke test surfaced a valid but **extremely wide image** whose original center crop would preserve only **12.27%** of its source area. For Commons images with `crop_retention_estimate < 0.34`, the renderer now uses **a composed soft matte**: the entire source image is centered crisply over a softly defocused and color-matched extension of that same image. Motion is restrained to a 4% frame zoom. This occurs in both one-pass and legacy transition engines, requires only FFmpeg, and does not trigger additional downloads, CPU vision models or paid APIs. `media[].render_framing` records `soft-matte-full-image` or `cover-center-crop`.
+
+The blur is applied to a 1/16-resolution intermediate for CPU efficiency. It is a design fallback for severely incompatible aspect ratios, not AI inpainting: background edges are derived from source pixels and are intentionally blurred. The video quality audit no longer issues a severe-crop warning for a successfully preserved image. Pixel-based FFmpeg regressions check that both horizontal extremes are retained after encoding in the one-pass and legacy renderers.

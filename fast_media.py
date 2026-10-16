@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from cinematic import gradient_source, transition_plan
+from scene_framing import needs_soft_matte, soft_matte_graph
 
 
 class SceneMedia(Protocol):
@@ -65,9 +66,14 @@ def build_onepass_media_command(
             raise ValueError("Unsupported media kind")
         # Force a known frame count, PTS origin, frame rate, pixel format and SAR
         # even for variable-frame-rate clips and full-range JPEG images.
-        graph.append(f"[{i}:v]{effect},trim=end_frame={frames},"
-                     f"setpts=N/({fps}*TB),fps={fps},format=yuv420p,"
-                     f"setparams=range=limited,setsar=1[s{i}]")
+        frame_tail = (f"trim=end_frame={frames},setpts=N/({fps}*TB),"
+                      f"fps={fps},format=yuv420p,setparams=range=limited,setsar=1")
+        if needs_soft_matte(asset):
+            graph.extend(soft_matte_graph(i, width=width, height=height,
+                fps=fps, prefix=f"soft{i}", output_name=f"s{i}",
+                tail_filters=frame_tail))
+        else:
+            graph.append(f"[{i}:v]{effect},{frame_tail}[s{i}]")
     if audio is not None:
         cmd += ["-i", str(audio)]
     last = "[s0]"

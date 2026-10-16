@@ -133,7 +133,8 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
             if item.get("visual_medium") == "artwork-likely":
                 warnings.append(f"Scene {scene}: selected medium may be artwork, not photography")
             retained = item.get("crop_retention_estimate")
-            if _positive(retained) and retained <= 1 and retained < 0.34:
+            if (_positive(retained) and retained <= 1 and retained < 0.34
+                    and item.get("render_framing") != "soft-matte-full-image"):
                 warnings.append(f"Scene {scene}: source framing loses over two thirds of image area to center crop; review storyboard")
     commons_stats = metadata.get("commons_fetch")
     if isinstance(commons_stats, dict):
