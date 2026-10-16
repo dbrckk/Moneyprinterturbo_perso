@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://auroral-synth-t69srk2.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://scaled-pixel-sxpg5r3.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 

@@ -140,7 +140,7 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://auroral-synth-t69srk2.shipstatic.com**
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://scaled-pixel-sxpg5r3.shipstatic.com**
 
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
