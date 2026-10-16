@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://obscured-core-h7wqmj7.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://elastic-lab-6e6jhfh.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 
