@@ -17,7 +17,7 @@ class WAVTimingTests(unittest.TestCase):
                 writer.setnchannels(1)
                 writer.setsampwidth(2)
                 writer.setframerate(16000)
-                writer.writeframes(b"\\x00\\x00" * 24000)
+                writer.writeframes(bytes(2) * 24000)
             self.assertEqual(tts_batch.wav_duration_seconds(wav), 1.5)
 
     def test_rejects_corruption(self):
@@ -41,7 +41,7 @@ class PiperBatchTests(unittest.TestCase):
                 writer.setnchannels(1)
                 writer.setsampwidth(2)
                 writer.setframerate(16000)
-                writer.writeframes(b"\\x00\\x00" * 8000)
+                writer.writeframes(bytes(2) * 8000)
         fake = types.SimpleNamespace(PiperVoice=FakeVoice)
         with tempfile.TemporaryDirectory() as tmp, patch.object(tts_batch.importlib, "import_module", return_value=fake):
             work = Path(tmp)
