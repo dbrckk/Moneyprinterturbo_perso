@@ -79,3 +79,26 @@ counts, not promises that the photo candidates will be visually distinct:
 Commons can contain near-duplicate photographs under different filenames.
 All existing per-image license/metadata validation and the graphic fallback
 remain in effect.
+
+
+## Evidence-based second search for unusually repetitive scenery
+
+The live comparison [GitHub run 38934234087](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/38934234087)
+retrieved only **one** verified public-domain/CC0 image for `montagne panorama`,
+but **three** for `montagne paysage` and **three additional** results for
+`mountain landscape` (a source comparison, not a guarantee of photos).
+
+If a nature topic appears in **at least three scenes**, has fewer licensed
+candidates than needed, and the video has remaining API search budget, the
+engine can issue **one additional, deliberately contextualized search** to
+fill the available scene variants. At most two secondary searches are planned
+for the entire video; the **same global `max_searches` limit** counts original
+and secondary Wikimedia API requests. The existing limit of four extra
+image downloads across repeated topics still applies to the total of successful
+variants. Mixed results continue to respect the same license, host, file
+dimension and content scoring checks.
+
+The report records `secondary_queries_planned`,
+`secondary_queries_attempted`, and `total_commons_api_queries` so operators
+can distinguish network overhead from useful variety. Any failure leaves
+the original valid scene photo or the animated fallback in place.

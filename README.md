@@ -327,3 +327,13 @@ attribuer jusqu'à trois images CC0/domaine public différentes, sans dupliquer
 la recherche API. Un budget de quatre téléchargements supplémentaires maximum
 évite d'augmenter excessivement les coûts réseau. Le rapport vidéo indique
 combien de scènes réutilisent encore une image, pour rendre les limites visibles.
+
+
+### Recherche secondaire raisonnée pour les scènes répétitives
+
+Lorsqu'un même paysage apparaît dans au moins trois scènes et que Wikimedia
+n'a pas assez d'images différentes, le moteur peut essayer une formulation
+alternative connue (par ex. `montagne paysage`). Deux recherches de secours
+maximum sont permises par vidéo, toujours dans le plafond de huit recherches
+Wikimedia, avec les mêmes licences libres et filtres de sécurité. Les résultats
+mesurés sont détaillés dans `video.json`; aucun résultat n'est supposé disponible.

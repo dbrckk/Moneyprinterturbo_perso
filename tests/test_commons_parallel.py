@@ -178,3 +178,83 @@ class CommonsSceneDiversityTests(unittest.TestCase):
             self.assertEqual([x.kwargs["limit"] for x in request.call_args_list],
                              [1, 1, 1])
             self.assertEqual(stats["scenes_reusing_image"], 0)
+
+
+
+class CommonsSecondarySearchTests(unittest.TestCase):
+    def test_limited_secondary_lookup_increases_distinct_scene_images(self):
+        calls=[]
+        def mocked(query, directory, *, limit, timings):
+            calls.append((query, limit))
+            timings.update({"api_seconds": 0.2, "download_seconds": 0.1,
+                            "verification_seconds": 0.02, "download_bytes": 250,
+                            "download_attempts": limit})
+            assets = [media.MediaAsset(directory / f"{i}.jpg", "image",
+                 f"https://commons.wikimedia.org/wiki/File:{query}-{i}.jpg",
+                 "Public domain", "Test Author", f"{query}-{i}")
+                 for i in range(1 if query == "montagne" else limit)]
+            return assets, []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=mocked):
+            stats={}
+            selected,warnings=media.commons_scene_assets(
+                ["montagne"]*3, Path(tmp), stats=stats)
+        self.assertEqual(calls,[("montagne", 3), ("montagne paysage", 2)])
+        self.assertEqual(len(selected),3)
+        self.assertEqual(len({a.source_url for a in selected.values()}),3)
+        self.assertEqual(stats["unique_queries"],1)
+        self.assertEqual(stats["image_variants_budget"],3)
+        self.assertEqual(stats["image_variants_fetched"],3)
+        self.assertEqual(stats["secondary_queries_attempted"],1)
+        self.assertEqual(stats["total_commons_api_queries"],2)
+        self.assertAlmostEqual(stats["api_seconds_sum"],0.4)
+        self.assertEqual(stats["download_bytes"],500)
+        self.assertEqual(warnings,[])
+
+    def test_secondary_never_bypasses_total_search_budget(self):
+        calls=[]
+        def mocked(query, directory, *, limit, timings):
+            calls.append(query)
+            return [fixture(directory,query)], []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=mocked):
+            stats={}
+            # Only one distinct primary search is allowed.
+            chosen,_=media.commons_scene_assets(
+                ["montagne"]*3,Path(tmp),max_searches=1,stats=stats)
+        self.assertEqual(calls,["montagne"])
+        self.assertEqual(stats["total_commons_api_queries"],1)
+        self.assertEqual(stats["scenes_reusing_image"],2)
+        self.assertEqual(len(chosen),3)
+
+    def test_secondary_failure_keeps_safe_primary_image(self):
+        def mocked(query, directory, *, limit, timings):
+            if query == "montagne paysage":
+                raise ConnectionError("network closed")
+            return [fixture(directory,query)], []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=mocked):
+            stats={}
+            chosen,warnings=media.commons_scene_assets(
+                ["montagne"]*3,Path(tmp),stats=stats)
+        self.assertEqual(len(chosen),3)
+        self.assertEqual(len({a.source_url for a in chosen.values()}),1)
+        self.assertEqual(stats["secondary_queries_attempted"],1)
+        self.assertTrue(any("ConnectionError" in w for w in warnings))
+
+    def test_non_scenic_or_two_occurrences_never_adds_network_calls(self):
+        self.assertIsNone(media.alternate_scenic_search_query("Henri Rivière"))
+        self.assertEqual(media.alternate_scenic_search_query("montagne"),
+                         "montagne paysage")
+        self.assertEqual(media.alternate_scenic_search_query("mountain"),
+                         "mountain landscape")
+        calls=[]
+        def mocked(query, directory, *, limit, timings):
+            calls.append(query)
+            return [fixture(directory,query)], []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=mocked):
+            result,_=media.commons_scene_assets(
+                ["montagne","montagne"],Path(tmp))
+        self.assertEqual(calls,["montagne"])
+        self.assertEqual(len(result),2)

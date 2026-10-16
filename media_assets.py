@@ -406,6 +406,35 @@ def scene_search_queries(topic: str, segments: list[str], overrides: list[str] |
     return queries
 
 
+# Secondary queries are restricted to known nature subjects. They are used
+# only when a repeated-topic storyboard needs additional DIFFERENT images.
+# The first request is still always the user's own query (+ optional context).
+_SCENIC_ALTERNATE_SEARCHES = {
+    "montagne": "montagne paysage", "montagnes": "montagne paysage",
+    "mountain": "mountain landscape", "mountains": "mountain landscape",
+    "foret": "forêt nature", "forets": "forêt nature",
+    "forest": "forest nature", "forests": "forest nature",
+    "riviere": "rivière panorama", "rivieres": "rivière panorama",
+    "river": "river scenery", "rivers": "river scenery",
+    "ocean": "ocean seascape", "oceans": "ocean seascape",
+    "sea": "sea landscape", "seas": "sea landscape",
+    "lac": "lac panorama", "lacs": "lac panorama",
+    "lake": "lake scenery", "lakes": "lake scenery",
+    "plage": "plage côte", "plages": "plage côte",
+    "beach": "beach seascape", "beaches": "beach seascape",
+}
+
+
+def alternate_scenic_search_query(query: str) -> str | None:
+    meaningful = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
+    if len(meaningful) != 1:
+        return None
+    secondary = _SCENIC_ALTERNATE_SEARCHES.get(next(iter(meaningful)))
+    if secondary is None or secondary == expand_scenic_search_query(query):
+        return None
+    return secondary
+
+
 def commons_scene_assets(queries: list[str], work: Path, *,
                          indices: list[int] | None = None, max_searches: int = 8,
                          max_workers: int = 3,
@@ -438,8 +467,9 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             continue
         query_indices.setdefault(query, []).append(i)
 
-    # One request per query is mandatory; distribute at most four additional
-    # image candidates fairly across repeated queries, up to three per query.
+    # One search per user query and at most four extra image candidates.
+    # Additional alternative searches are counted against the same global
+    # max_searches budget; we never circumvent that upper bound.
     limits = {query: 1 for query in query_indices}
     extra_budget = 4
     for _ in range(2):
@@ -448,22 +478,61 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 limits[query] += 1
                 extra_budget -= 1
 
-    def fetch(query: str, index: int, limit: int
+    available_secondary = min(2, max_searches - len(query_indices))
+    alternate_queries: dict[str, str] = {}
+    for query, occurrences in query_indices.items():
+        alternate = alternate_scenic_search_query(query)
+        if (available_secondary and len(occurrences) >= 3
+                and limits[query] > 1 and alternate is not None):
+            alternate_queries[query] = alternate
+            available_secondary -= 1
+
+    def fetch(query: str, index: int, limit: int,
+              secondary_query: str | None
               ) -> tuple[list[MediaAsset], list[str], dict[str, float | int]]:
         directory = work / f"commons_scene_{index:02}"
         directory.mkdir(parents=True, exist_ok=True)
-        query_timings: dict[str, float | int] = {}
+        timings: dict[str, float | int] = {}
         assets, notices = commons_assets(query, directory, limit=limit,
-                                         timings=query_timings)
-        # A bad or non-conforming external adapter must not make results look
-        # like more verified photos than were requested.
-        return list(assets[:limit]), notices, query_timings
+                                         timings=timings)
+        # No second API call when the first licensed result set was sufficient.
+        timings["secondary_queries_attempted"] = 0
+        if secondary_query and len(assets) < limit:
+            alternate_folder = directory / "secondary"
+            alternate_folder.mkdir(exist_ok=True)
+            second_timings: dict[str, float | int] = {}
+            timings["secondary_queries_attempted"] = 1
+            try:
+                alternatives, extra_notices = commons_assets(
+                    secondary_query, alternate_folder,
+                    limit=limit-len(assets), timings=second_timings)
+            except Exception as exc:
+                alternatives, extra_notices = [], [
+                    f"Secondary Commons lookup failed: {type(exc).__name__}"]
+            existing = {item.source_url for item in assets}
+            for item in alternatives:
+                if item.source_url not in existing and len(assets) < limit:
+                    assets.append(item)
+                    existing.add(item.source_url)
+            if assets:
+                notices = [notice for notice in notices
+                           if "No relevant verified public-domain/CC0 images found" not in notice]
+            notices.extend(extra_notices if not assets else [
+                notice for notice in extra_notices
+                if "No relevant verified public-domain/CC0 images found" not in notice])
+            for key in ("api_seconds", "download_seconds", "verification_seconds",
+                        "download_bytes", "download_attempts"):
+                timings[key] = timings.get(key, 0) + second_timings.get(key, 0)
+        assets = sorted(assets[:limit], key=lambda a:
+                        _MEDIUM_PRIORITY.get(a.visual_medium, 1))
+        return assets, notices, timings
 
     results: dict[str, tuple[list[MediaAsset], list[str], dict[str, float | int]]] = {}
     pool_size = min(max_workers, len(query_indices))
     if pool_size:
         with ThreadPoolExecutor(max_workers=pool_size, thread_name_prefix="commons") as pool:
-            futures = {query: pool.submit(fetch, query, ids[0], limits[query])
+            futures = {query: pool.submit(fetch, query, ids[0], limits[query],
+                                          alternate_queries.get(query))
                        for query, ids in query_indices.items()}
             for query in query_indices:
                 try:
@@ -513,6 +582,11 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 expand_scenic_search_query(query) != query for query in query_indices),
             "image_variants_budget": sum(limits.values()),
             "image_variants_fetched": sum(len(result[0]) for result in results.values()),
+            "secondary_queries_planned": len(alternate_queries),
+            "secondary_queries_attempted": sum(
+                int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
+            "total_commons_api_queries": len(query_indices) + sum(
+                int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
             "unique_images_selected": len(unique_urls),
             "scenes_reusing_image": len(selected) - len(unique_urls),
             "workers_used": pool_size,
