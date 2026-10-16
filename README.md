@@ -350,3 +350,7 @@ rapport JSON ; il ne remplace pas un contrôle humain du sujet et du cadrage.
 ### Photos panoramiques dans les vidéos verticales
 
 Si un recadrage 9:16 détruirait plus de deux tiers de la photo source, le montage remplace la coupe centrale par une **photo intégrale sur un fond doux dérivé de la même image**. Ce cadrage alternatif s'applique aux deux moteurs FFmpeg (optimisé et classique) et reste animé. Les couleurs et le cadrage sont vérifiés par des tests d'encodage réels. Aucun service payant ni modèle vidéo n'est requis.
+
+### Réduction des doublons visuels sans service payant
+
+Le moteur reconnaît désormais les images presque identiques même lorsque leurs fichiers ou URL Wikimedia diffèrent : un petit calcul de signature perceptuelle via FFmpeg favorise des illustrations différentes entre scènes. Une image licite reste utilisable si aucune alternative n'existe ; cette estimation n'est **pas** une analyse sémantique des photos. Les mesures détaillées et limites figurent dans [docs/VISUAL_DIVERSITY.md](docs/VISUAL_DIVERSITY.md).

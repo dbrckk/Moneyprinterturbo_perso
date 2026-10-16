@@ -17,6 +17,8 @@ import time
 import unicodedata
 from urllib import parse, request
 
+from visual_hash import near_duplicate, visual_signature
+
 API = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "MoneyPrinterTurboPerso-FreeStudio/0.2 (+https://github.com/dbrckk/Moneyprinterturbo_perso)"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -36,9 +38,12 @@ class MediaAsset:
     # Descriptive metadata heuristic; not visual content verification.
     visual_medium: str = "unspecified"
     crop_retention_estimate: float | None = None
+    visual_fingerprint: int | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
+        # Rendering internals should not be confused with provenance.
+        result.pop("visual_fingerprint", None)
         result["file"] = str(self.file)
         return result
 
@@ -386,8 +391,14 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             warnings.append(f"Could not use Wikimedia image: {title[:90]}")
             continue
         author = _plain(_field(info, "Artist")) or "unknown"
+        hash_started = time.perf_counter()
+        fingerprint = visual_signature(target)
+        if timings is not None:
+            timings["fingerprint_seconds"] = (timings.get("fingerprint_seconds", 0)
+                                              + time.perf_counter() - hash_started)
         assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
-                                 visual_medium=medium, crop_retention_estimate=retention))
+                                 visual_medium=medium, crop_retention_estimate=retention,
+                                 visual_fingerprint=fingerprint))
         if medium == "artwork-likely":
             warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
     if not assets:
@@ -587,6 +598,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
     selected: dict[int, MediaAsset] = {}
     warnings: list[str] = []
     used_urls: set[str] = set()
+    used_signatures: list[int] = []
+    duplicate_candidates_avoided = 0
     usage: dict[str, int] = {}
     for i in wanted:
         query = queries[i]
@@ -603,15 +616,40 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         # return the same Commons file, first try an as-yet-unused alternative.
         cursor = usage.get(query, 0)
         ordered = assets[cursor % len(assets):] + assets[:cursor % len(assets)]
-        chosen = next((a for a in ordered if a.source_url not in used_urls),
-                      ordered[0])
+        # Prefer genuinely different pixels, not just differently named files.
+        # A hash failure never excludes an image; URL-based rotation remains.
+        unique_urls = [a for a in ordered if a.source_url not in used_urls]
+        pixel_diverse = [a for a in unique_urls
+                         if a.visual_fingerprint is None or not any(
+                             near_duplicate(a.visual_fingerprint, prior)
+                             for prior in used_signatures)]
+        if pixel_diverse:
+            chosen = pixel_diverse[0]
+            if chosen is not ordered[0]:
+                duplicate_candidates_avoided += sum(
+                    a.visual_fingerprint is not None and any(
+                        near_duplicate(a.visual_fingerprint, prior)
+                        for prior in used_signatures)
+                    for a in unique_urls[:unique_urls.index(chosen)])
+        elif unique_urls:
+            chosen = unique_urls[0]
+        else:
+            chosen = ordered[0]
         selected[i] = chosen
         used_urls.add(chosen.source_url)
+        if chosen.visual_fingerprint is not None:
+            used_signatures.append(chosen.visual_fingerprint)
         usage[query] = cursor + 1
 
     if stats is not None:
         request_stats = [result[2] for result in results.values()]
         unique_urls = {a.source_url for a in selected.values()}
+        distinct_patterns: list[int] = []
+        for asset in selected.values():
+            signature = asset.visual_fingerprint
+            if signature is not None and not any(
+                    near_duplicate(signature, previous) for previous in distinct_patterns):
+                distinct_patterns.append(signature)
         stats.update({
             "scenes_requested": len(wanted),
             "scenes_matched": len(selected),
@@ -633,6 +671,9 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
             "unique_images_selected": len(unique_urls),
             "scenes_reusing_image": len(selected) - len(unique_urls),
+            "scenes_with_perceptual_signature": len(used_signatures),
+            "distinct_visual_patterns_estimated": len(distinct_patterns),
+            "near_duplicate_candidates_avoided": duplicate_candidates_avoided,
             "scenes_with_crop_estimate": sum(
                 a.crop_retention_estimate is not None for a in selected.values()),
             "mean_crop_retention_estimate": round(
@@ -653,5 +694,7 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                                   for t in request_stats),
             "download_attempts": sum(int(t.get("download_attempts", 0))
                                      for t in request_stats),
+            "fingerprint_seconds_sum": round(sum(
+                float(t.get("fingerprint_seconds", 0)) for t in request_stats), 4),
         })
     return selected, warnings

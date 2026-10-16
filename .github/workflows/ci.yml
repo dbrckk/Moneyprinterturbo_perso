@@ -13,6 +13,7 @@ on:
       - forced_alignment.py
       - video_qa.py
       - media_assets.py
+      - visual_hash.py
       - .github/workflows/free-video.yml
       - studio_server.py
       - web/**
@@ -65,7 +66,7 @@ jobs:
           node --check remote/downloads.mjs
           node --test tests/test_remote_core.mjs tests/test_downloads.mjs
       - name: Static compilation
-        run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py video_qa.py studio_server.py tests
+        run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests
