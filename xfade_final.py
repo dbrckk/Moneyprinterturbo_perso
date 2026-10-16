@@ -56,6 +56,6 @@ def final_xfade_command(scenes: list[Path], plan: FramePlan, *, fps: int,
     if audio is None:
         command += ["-an"]
     else:
-        command += ["-map",f"{len(scenes)}:a:0","-c:a","aac","-b:a","128k"]
+        command += ["-map",f"{len(scenes)}:a:0","-c:a","copy"]
     command += ["-movflags","+faststart","-t",f"{duration:.3f}",str(output)]
     return command

@@ -155,6 +155,33 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
     }
 
 
+def audio_loudness(video: Path) -> dict[str, float | None]:
+    """Analyze AAC loudness independently of its intended mastering target.
+
+    FFmpeg reports measured LUFS/true peak; these are objective audio metrics,
+    not a certificate of human-perceived quality. No second audio encoding.
+    """
+    process = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "info",
+         "-i", str(video), "-map", "0:a:0",
+         "-af", "ebur128=peak=true", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=100,
+    )
+    if process.returncode:
+        raise RuntimeError("Audio loudness analysis failed: " + process.stderr[-800:])
+    integrated = re.findall(r"Integrated loudness:\\s*I:\\s*([-+\\d.]+)\\s*LUFS",
+                            process.stderr)
+    peak = re.findall(r"True peak:\\s*Peak:\\s*([-+\\d.]+)\\s*dBFS",
+                      process.stderr)
+    if not integrated:
+        raise RuntimeError("FFmpeg did not report integrated audio loudness")
+    lufs = float(integrated[-1])
+    true_peak = float(peak[-1]) if peak else None
+    return {"integrated_lufs": round(lufs, 2) if math.isfinite(lufs) else None,
+            "true_peak_dbfs": (round(true_peak, 2) if true_peak is not None
+                               and math.isfinite(true_peak) else None)}
+
+
 def contact_sheet(video: Path, metadata: dict, output: Path, *, columns: int = 3) -> dict:
     """Export each scene's midpoint, with a scene number burned into the tile."""
     if not 1 <= columns <= 6:
@@ -206,6 +233,19 @@ def audit(video: Path, *, metadata_path: Path | None = None,
     metadata = read_metadata(metadata_path)
     result = validate(video, metadata, video.with_suffix(".srt"), probe(video))
     result["file"] = video.name
+    if metadata.get("speech") is True and result["checks"]["audio_codec"] == "aac":
+        try:
+            result["audio_loudness"] = audio_loudness(video)
+            measured = result["audio_loudness"]["integrated_lufs"]
+            peak = result["audio_loudness"]["true_peak_dbfs"]
+            if measured is not None and (measured < -21 or measured > -11):
+                result["warnings"].append(
+                    f"Measured audio loudness {measured} LUFS may be unsuitable for mobile")
+            if peak is not None and peak > -0.1:
+                result["warnings"].append("Audio true peak is very close to 0 dBFS; review clipping")
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            result["warnings"].append(
+                f"Audio loudness inspection unavailable: {type(exc).__name__}")
     sheet_path = sheet_path or video.with_suffix(".storyboard.png")
     if result["checks"]["video_codec"] == "h264":
         try:

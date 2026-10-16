@@ -36,6 +36,8 @@ DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
 ASPECTS = {"9:16": (9, 16), "16:9": (16, 9), "1:1": (1, 1)}
 LANG_VOICES = {"fr": "fr", "en": "en", "es": "es", "de": "de", "it": "it", "pt": "pt"}
 # Voice provenance is only claimed when model bytes match the reviewed upstream file.
+# Target for consistent speech intelligibility on mobile (not a measured LUFS guarantee).
+AUDIO_MASTER_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11"
 SIWIS_MEDIUM_SHA256 = "641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99"
 SIWIS_MEDIUM_CARD = ("https://huggingface.co/rhasspy/piper-voices/blob/"
     "d5de91c972ba5a13cea0e77a63fda1623faac2c1/fr/fr_FR/siwis/medium/MODEL_CARD")
@@ -193,7 +195,15 @@ def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
     manifest = work / "audio_list.txt"
     manifest.write_text("".join(f"file '{path.name}'\n" for path in filenames), encoding="utf-8")
     audio = work / "narration.m4a"
-    execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", manifest.name, "-c:a", "aac", "-b:a", "160k", audio.name], cwd=work)
+    # Master after concatenating all scenes so loudness does not jump between
+    # sentences. Encode AAC once at 48 kHz; final MP4 stages stream-copy it.
+    execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "concat", "-safe", "0", "-i", manifest.name,
+             "-af", AUDIO_MASTER_FILTER, "-ar", "48000",
+             "-c:a", "aac", "-b:a", "160k", audio.name], cwd=work)
+    if diagnostics is not None:
+        diagnostics["audio_mastering"] = "loudnorm-onepass-16LUFS"
+        diagnostics["audio_delivery"] = "aac-stream-copy"
     return durations, audio
 
 
@@ -432,7 +442,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "23", "-pix_fmt", "yuv420p"]
             if audio:
-                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
+                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
             else:
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
@@ -456,7 +466,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "23", "-pix_fmt", "yuv420p"]
             if audio:
-                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
+                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
             else:
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
@@ -539,6 +549,11 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
+            "audio_mastering": ({"method": "ffmpeg-loudnorm-onepass",
+                                  "target_integrated_lufs": -16,
+                                  "target_true_peak_dbfs": -1.5,
+                                  "audio_encoding": "aac-160k-48kHz-stream-copy"}
+                                 if audio else None),
             "commons_fetch": commons_stats if commons else None,
             "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (

@@ -354,3 +354,7 @@ Si un recadrage 9:16 détruirait plus de deux tiers de la photo source, le monta
 ### Réduction des doublons visuels sans service payant
 
 Le moteur reconnaît désormais les images presque identiques même lorsque leurs fichiers ou URL Wikimedia diffèrent : un petit calcul de signature perceptuelle via FFmpeg favorise des illustrations différentes entre scènes. Une image licite reste utilisable si aucune alternative n'existe ; cette estimation n'est **pas** une analyse sémantique des photos. Les mesures détaillées et limites figurent dans [docs/VISUAL_DIVERSITY.md](docs/VISUAL_DIVERSITY.md).
+
+### Voix plus audible sur smartphone, sans double compression
+
+Les narrations françaises eSpeak/Piper sont désormais harmonisées sur la bande-son **complète** avec FFmpeg `loudnorm` (objectif −16 LUFS, pic vrai −1,5 dBTP). La piste AAC est encodée une seule fois en 160 kbit/s, 48 kHz puis **copiée sans réencodage** dans le MP4 final, quel que soit le moteur visuel. Le rapport `video.quality.json` mesure indépendamment le niveau LUFS et le pic vrai réellement obtenus, et avertit en cas de niveau potentiellement inadéquat. La normalisation en une passe a une tolérance de mesure : l'objectif ne constitue pas une garantie exacte. Voir [les tests de mastering](tests/test_audio_mastering.py).

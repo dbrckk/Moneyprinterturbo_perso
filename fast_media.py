@@ -92,7 +92,7 @@ def build_onepass_media_command(
     graph.append(f"{last}{','.join(visual_filters)}[video]")
     cmd += ["-filter_complex", ";".join(graph), "-map", "[video]"]
     if audio is not None:
-        cmd += ["-map", f"{len(assets)}:a:0", "-c:a", "aac", "-b:a", "128k"]
+        cmd += ["-map", f"{len(assets)}:a:0", "-c:a", "copy"]
     else:
         cmd += ["-an"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",

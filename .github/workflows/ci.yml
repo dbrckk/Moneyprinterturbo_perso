@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - free_studio.py
+      - tests/test_audio_mastering.py
       - xfade_final.py
       - fast_abstract.py
       - fast_media.py

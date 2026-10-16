@@ -57,7 +57,7 @@ def build_onepass_abstract_command(
     graph.append(f"{last}{','.join(visual_filters)}[video]")
     cmd.extend(["-filter_complex", ";".join(graph), "-map", "[video]"])
     if audio is not None:
-        cmd.extend(["-map", f"{len(durations)}:a:0", "-c:a", "aac", "-b:a", "128k"])
+        cmd.extend(["-map", f"{len(durations)}:a:0", "-c:a", "copy"])
     else:
         cmd.append("-an")
     cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
