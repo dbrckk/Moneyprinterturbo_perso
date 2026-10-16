@@ -56,5 +56,5 @@ test('optional unzipped subtitle and audio QA artifacts are separately validated
     expired:false,size_in_bytes:0}]),null);
   assert.equal(findDirectQuality(null),null);
   assert.equal(findDirectSubtitles([]),null);
-  assert.match(directMp4Url(44,71), /github\\.com\\/dbrckk/);
+  assert.ok(directMp4Url(44,71).includes('github.com/dbrckk/'));
 });
