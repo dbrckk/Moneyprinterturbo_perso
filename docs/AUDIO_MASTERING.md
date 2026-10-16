@@ -40,3 +40,7 @@ on every signal. AAC packet rounding, codec delay and short narrations can
 change true peaks slightly. The quality check warns on unsuitable levels
 rather than falsely certifying subjective voice quality. Longer narrated
 projects should still be auditioned on a real phone.
+
+## Silent sources and safety
+
+When all source WAVs contain digitally silent PCM, the renderer explicitly skips loudnorm because the FFmpeg filter may otherwise feed NaN/Infinity values into the AAC encoder. It still produces a valid silent AAC stream for compatibility tests and records `audio_mastering.method=skipped-silent-input` with **no claim of a target LUFS**. The video metadata also contains an explicit warning that the TTS source is silent, requiring review; non-silent production voices retain mastering. This safeguard does not suppress FFmpeg errors on non-silent input.

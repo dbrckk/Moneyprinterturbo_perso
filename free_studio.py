@@ -143,6 +143,28 @@ def size_for(aspect: str, resolution: int) -> tuple[int, int]:
     return width, height
 
 
+def _silent_pcm_wav(path: Path) -> bool:
+    """Return True only for a fully silent PCM WAV (including 8-bit unsigned).
+
+    Fake voice shims in tests legitimately produce silence; FFmpeg loudnorm can
+    emit NaN/-Inf on those files. Do not change normal non-silent speech audio.
+    """
+    try:
+        with wave.open(str(path), "rb") as source:
+            width = source.getsampwidth()
+            if width not in (1, 2, 3, 4):
+                return False
+            expected = 128 if width == 1 else 0
+            while True:
+                block = source.readframes(32768)
+                if not block:
+                    return True
+                if any(value != expected for value in block):
+                    return False
+    except (OSError, ValueError, wave.Error, EOFError):
+        return False
+
+
 def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
                tts: str = "espeak", piper_model: Path | None = None,
                speech_rate: int = 145, diagnostics: dict[str, str] | None = None) -> tuple[list[float], Path | None]:
@@ -195,14 +217,19 @@ def make_audio(segments: list[str], lang: str, work: Path, *, mute: bool,
     manifest = work / "audio_list.txt"
     manifest.write_text("".join(f"file '{path.name}'\n" for path in filenames), encoding="utf-8")
     audio = work / "narration.m4a"
-    # Master after concatenating all scenes so loudness does not jump between
-    # sentences. Encode AAC once at 48 kHz; final MP4 stages stream-copy it.
-    execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "concat", "-safe", "0", "-i", manifest.name,
-             "-af", AUDIO_MASTER_FILTER, "-ar", "48000",
-             "-c:a", "aac", "-b:a", "160k", audio.name], cwd=work)
+    # Master after concatenating the whole narration, not each sentence.
+    # Silence-only WAV shims cannot be normalized (loudnorm may emit NaN),
+    # but still need a valid AAC stream for deterministic compatibility tests.
+    skipped_mastering = all(_silent_pcm_wav(path) for path in filenames)
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "concat", "-safe", "0", "-i", manifest.name]
+    if not skipped_mastering:
+        command.extend(["-af", AUDIO_MASTER_FILTER])
+    command.extend(["-ar", "48000", "-c:a", "aac", "-b:a", "160k", audio.name])
+    execute(command, cwd=work)
     if diagnostics is not None:
-        diagnostics["audio_mastering"] = "loudnorm-onepass-16LUFS"
+        diagnostics["audio_mastering"] = ("skipped-silent-input" if skipped_mastering
+                                           else "ffmpeg-loudnorm-onepass")
         diagnostics["audio_delivery"] = "aac-stream-copy"
     return durations, audio
 
@@ -357,6 +384,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["audio_seconds"] = round(time.perf_counter() - stage_started, 3)
         segments = make_captions(sentences, durations, work)
         warnings: list[str] = []
+        if diagnostics.get("audio_mastering") == "skipped-silent-input":
+            warnings.append("Narration contains no audible samples; mastering skipped. Verify TTS output.")
         word_times = None
         if word_alignment == "forced":
             if audio is None:
@@ -549,9 +578,13 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
-            "audio_mastering": ({"method": "ffmpeg-loudnorm-onepass",
-                                  "target_integrated_lufs": -16,
-                                  "target_true_peak_dbfs": -1.5,
+            "audio_mastering": ({"method": diagnostics.get("audio_mastering"),
+                                  "target_integrated_lufs": (
+                                      -16 if diagnostics.get("audio_mastering") == "ffmpeg-loudnorm-onepass"
+                                      else None),
+                                  "target_true_peak_dbfs": (
+                                      -1.5 if diagnostics.get("audio_mastering") == "ffmpeg-loudnorm-onepass"
+                                      else None),
                                   "audio_encoding": "aac-160k-48kHz-stream-copy"}
                                  if audio else None),
             "commons_fetch": commons_stats if commons else None,

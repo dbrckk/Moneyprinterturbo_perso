@@ -53,3 +53,27 @@ class MobileAudioMasteringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SilenceGuardTests(unittest.TestCase):
+    def test_16_bit_silent_wav_does_not_feed_loudnorm(self):
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/"silence.wav"
+            with wave.open(str(source),"wb") as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(16000)
+                out.writeframes(bytes(2)*16000)
+            self.assertTrue(free_studio._silent_pcm_wav(source))
+            with wave.open(str(source),"wb") as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(16000)
+                out.writeframes(bytes(2)*100 + b"\\x11\\x00" + bytes(2)*100)
+            self.assertFalse(free_studio._silent_pcm_wav(source))
+
+    def test_unsigned_8_bit_wav_silence(self):
+        import wave
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/"unsigned.wav"
+            with wave.open(str(source),"wb") as out:
+                out.setnchannels(1);out.setsampwidth(1);out.setframerate(8000)
+                out.writeframes(bytes([128])*8000)
+            self.assertTrue(free_studio._silent_pcm_wav(source))
