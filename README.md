@@ -313,3 +313,8 @@ Le test réseau a également révélé des homonymes trompeurs : des portraits d
 Après un test réel révélant des portraits sélectionnés par homonymie, les recherches géographiques ambiguës à un seul mot sont automatiquement enrichies d'un terme de contexte (par ex. `montagne` → `montagne panorama`) tout en conservant une vérification stricte de la pertinence. Le test contextualisé a récupéré 3 illustrations sous licence compatible sur 4 sujets ; certaines sont des œuvres peintes, pas des photographies.
 
 **Validation Commons réelle :** le [smoke test GitHub du 16 octobre 2026](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/38916712377) a produit une vidéo vérifiée avec **deux illustrations Wikimedia autorisées sur deux scènes** (montagne et rivière), avec 1,3228 s pour l'étape réseau. La licence et les crédits sont conservés dans les artefacts du rendu. Voir [la documentation Commons](docs/COMMONS_PERFORMANCE.md).
+
+
+### Priorité photographique et attribution visuelle
+
+Les résultats Wikimedia distinguent maintenant les **photographies probables**, **œuvres d'art probables** et **médias non classés** d'après leurs métadonnées textuelles. Le classement privilégie les photographies lorsqu'un indice fiable existe ; une œuvre du domaine public reste possible, avec avertissement. La classification est indicative, pas une preuve visuelle automatique. Chaque sélection indique sa catégorie dans le JSON et les crédits de la vidéo.

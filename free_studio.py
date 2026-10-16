@@ -491,7 +491,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 continue
             media_used.append({"segment": index + 1, "title": asset.title, "kind": asset.kind,
                                "source": asset.source_url, "license": asset.license,
-                               "author": asset.author,
+                               "author": asset.author, "visual_medium": asset.visual_medium,
                                "search_query": queries[index] if queries else None})
         credits_path = output.with_suffix(".credits.txt")
         voice_info = None
@@ -515,7 +515,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         if media_used:
             credits.append("MEDIA SOURCES: User-provided media must have appropriate rights.")
             credits.extend(f"Scene {item['segment']}: {item['title']} | Author: {item['author']} | "
-                           f"License: {item['license']} | {item['source']}" for item in media_used)
+                           f"License: {item['license']} | "
+                           f"Visual medium hint: {item['visual_medium']} | {item['source']}"
+                           for item in media_used)
         if voice_info or media_used:
             credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
         else:

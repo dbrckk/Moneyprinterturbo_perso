@@ -32,6 +32,8 @@ class MediaAsset:
     license: str
     author: str
     title: str
+    # Descriptive metadata heuristic; not visual content verification.
+    visual_medium: str = "unspecified"
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -220,6 +222,36 @@ def expand_scenic_search_query(query: str) -> str:
     return query + " " + hint if hint else query
 
 
+_ARTWORK_MEDIUM_CUES = _words("""
+    painting paintings painted painter canvas watercolor watercolour
+    aquarelle aquarelles huile toile gravure gravures engraving engravings
+    lithograph lithographs lithographie lithographies etching etchings
+    illustration illustrations illustrated drawing drawings sketch sketches
+    print prints oil on canvas
+    peinture peintures tableau tableaux dessin dessins
+""")
+_PHOTOGRAPH_MEDIUM_CUES = _words("""
+    photograph photographs photography photographic photographed
+    photographe photographie photographies photo photos
+    fotograf foto fotografia fotografie camera snapshot snapshots
+""")
+_MEDIUM_PRIORITY = {"photograph-likely": 0, "unspecified": 1, "artwork-likely": 2}
+
+
+def visual_medium_hint(title: str, description: str = "", categories: str = "") -> str:
+    """Report a conservative *text-based* guess, never a verified image class.
+
+    Explicit art terminology beats photo claims when both occur. Lack of
+    positive evidence is 'unspecified', not a fictional photo classification.
+    """
+    words = _words(" ".join((title, description, categories)))
+    if words & _ARTWORK_MEDIUM_CUES:
+        return "artwork-likely"
+    if words & _PHOTOGRAPH_MEDIUM_CUES:
+        return "photograph-likely"
+    return "unspecified"
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
                    timings: dict[str, float | int] | None = None) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
@@ -254,7 +286,7 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         return [], ["Wikimedia Commons returned invalid results"]
     # Rank licensed candidates *before downloading*; the Wikimedia result order
     # is not a guarantee that a photo depicts this particular narrated scene.
-    ranked: list[tuple[int, int, dict, dict, str, str, str]] = []
+    ranked: list[tuple[int, int, int, dict, dict, str, str, str, str]] = []
     for page in pages.values():
         title = str(page.get("title", ""))
         if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
@@ -273,9 +305,16 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
         score = safe_scenic_score(query, title, description)
         if score:
-            ranked.append((-score, int(page.get("index", 100000)), page, info, license_name, url, page_url))
-    ranked.sort(key=lambda entry: (entry[0], entry[1]))
-    for _negscore, _, page, info, license_name, url, page_url in ranked:
+            medium = visual_medium_hint(title, description, _plain(_field(info, "Categories")))
+            # A positive photo signal must also be relevant by title; generic
+            # descriptions alone should not beat accurately titled scenery.
+            medium_rank = _MEDIUM_PRIORITY[medium]
+            if medium == "photograph-likely" and score < 3:
+                medium_rank = _MEDIUM_PRIORITY["unspecified"]
+            ranked.append((medium_rank, -score, int(page.get("index", 100000)),
+                           page, info, license_name, url, page_url, medium))
+    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+    for _, _negscore, _, page, info, license_name, url, page_url, medium in ranked:
         if len(assets) >= limit:
             break
         title = str(page.get("title", ""))
@@ -305,7 +344,10 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             warnings.append(f"Could not use Wikimedia image: {title[:90]}")
             continue
         author = _plain(_field(info, "Artist")) or "unknown"
-        assets.append(MediaAsset(target, "image", page_url, license_name, author, title))
+        assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
+                                 visual_medium=medium))
+        if medium == "artwork-likely":
+            warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
     if not assets:
         warnings.append("No relevant verified public-domain/CC0 images found; using graphic backgrounds")
     return assets, warnings
@@ -428,6 +470,12 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         stats.update({
             "scenes_requested": len(wanted),
             "scenes_matched": len(selected),
+            "photograph_likely_scenes": sum(
+                asset.visual_medium == "photograph-likely" for asset in selected.values()),
+            "artwork_likely_scenes": sum(
+                asset.visual_medium == "artwork-likely" for asset in selected.values()),
+            "unspecified_medium_scenes": sum(
+                asset.visual_medium == "unspecified" for asset in selected.values()),
             "unique_queries": len(first_indices),
             "contextual_expansions": sum(expand_scenic_search_query(q) != q for q in first_indices),
             "workers_used": pool_size,

@@ -242,3 +242,67 @@ class ContextualScenicSearchTests(unittest.TestCase):
         self.assertEqual(assets,[])
         self.assertTrue(warnings)
         self.assertEqual(read.call_count,1)
+
+
+
+class WikimediaVisualMediumTests(unittest.TestCase):
+    def test_medium_signals_are_conservative_and_artwork_takes_precedence(self):
+        self.assertEqual(media.visual_medium_hint(
+            "File:Landscape.jpg", "Photograph of a French river"), "photograph-likely")
+        self.assertEqual(media.visual_medium_hint(
+            "File:River landscape.png", "Oil painting on canvas"), "artwork-likely")
+        self.assertEqual(media.visual_medium_hint(
+            "File:River.jpg", "view of a river"), "unspecified")
+        self.assertEqual(media.visual_medium_hint(
+            "File:Photo of watercolor.jpg", "Photograph of a painted canvas"), "artwork-likely")
+        self.assertEqual(media.visual_medium_hint(
+            "File:River from 1918.jpg", "", "Landscape paintings"), "artwork-likely")
+
+    def test_photograph_preferred_over_matching_painting_with_same_license(self):
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            def page(title, index, description):
+                return {"title": title, "index": index, "imageinfo": [{
+                    "thumburl": "https://upload.wikimedia.org/test.jpg",
+                    "descriptionurl": "https://commons.wikimedia.org/wiki/File:River_landscape.jpg",
+                    "extmetadata": {
+                        "LicenseShortName": {"value": "CC0"},
+                        "ImageDescription": {"value": description},
+                        "Artist": {"value": "Example creator"}
+                    }
+                }]}
+            payload = {"query": {"pages": {
+                "1": page("File:River landscape painting.jpg", 1, "Oil painting of a river"),
+                "2": page("File:River landscape photograph.jpg", 2, "Photograph of a river")
+            }}}
+            with patch.object(media, "_read_limited", side_effect=[
+                     json.dumps(payload).encode(), b"fake-jpeg"]), \
+                 patch.object(media, "media_dimensions", return_value=(1200, 800)):
+                found, warnings = media.commons_assets("river landscape", root, limit=1)
+            self.assertEqual(len(found), 1)
+            self.assertEqual(found[0].visual_medium, "photograph-likely")
+            self.assertEqual(found[0].title, "File:River landscape photograph.jpg")
+            self.assertEqual(warnings, [])
+
+    def test_artwork_available_when_no_photo_and_provenance_retained(self):
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            info = {"query": {"pages": {"1": {
+                "title": "File:Landscape oil painting.jpg", "index": 1,
+                "imageinfo": [{
+                    "thumburl": "https://upload.wikimedia.org/test.jpg",
+                    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Landscape_oil_painting.jpg",
+                    "extmetadata": {"LicenseShortName": {"value": "Public domain"}}
+                }]
+            }}}}
+            with patch.object(media, "_read_limited", side_effect=[
+                    json.dumps(info).encode(), b"fake-jpeg"]), \
+                 patch.object(media, "media_dimensions", return_value=(800, 500)):
+                found, warnings = media.commons_assets("landscape", root, limit=1)
+            self.assertEqual(len(found), 1)
+            self.assertEqual(found[0].visual_medium, "artwork-likely")
+            self.assertTrue(any("artwork" in w for w in warnings))
+            self.assertEqual(found[0].license, "Public domain")
+            self.assertEqual(found[0].metadata()["visual_medium"], "artwork-likely")

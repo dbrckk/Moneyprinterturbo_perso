@@ -46,3 +46,10 @@ For single-term natural-scene queries, the Commons **API search** now adds a mod
 Le workflow [Wikimedia Commons Real Video Smoke](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/38916712377) a généré sur un runner GitHub Actions une vraie vidéo H.264/AAC avec **deux scènes sur deux** alimentées par des images Wikimedia vérifiées, en partant des requêtes simples `montagne` et `rivière`. Les deux recherches ont été contextualisées automatiquement ; temps réseau mesuré **1,3228 s** pour l'ensemble de l'étape. Le contrôle `video_qa.py` a réussi (durée, codec, synchronisation, sous-titres et storyboard). L'archive `verified-commons-video-sample` contient le MP4, ses crédits, les fichiers de sous-titres, la planche de contrôle et le JSON de provenance, conservés 3 jours.
 
 **Limite :** deux scènes à 360p et 12 images/s ne représentent ni une charge de production universelle ni une garantie que des médias seront trouvés pour n'importe quel sujet. Les œuvres d'art du domaine public peuvent également être retenues si leur contenu correspond au sujet. Les crédits et la licence sont fournis pour chaque image.
+
+
+## Photo-first ranking without false photo claims
+
+Candidates still require independently supported query relevance, a verified CC0/public-domain license and valid dimensions. When equally relevant choices are available, descriptive metadata identifying a **photograph** is preferred over an unclassified image and over metadata indicating a painting, engraving or drawing. If only a licensed artwork is suitable, it remains usable but a warning is attached.
+
+Each selected asset now includes `visual_medium`: `photograph-likely`, `artwork-likely` or `unspecified`. These are **lexical metadata hints**, not a computer-vision assertion of the true visual medium. The `commons_fetch` summary counts how many scenes fall into each category; the credits retain the same information. A title saying "panorama" alone is insufficient to label something a photograph. This optimization reduces misleading stock-like choices where descriptions are informative, but it cannot guarantee documentary photography without inspecting each image.
