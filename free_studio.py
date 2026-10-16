@@ -25,6 +25,7 @@ from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_s
 from cinematic import build_filters, gradient_source, transition_plan
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
+from fast_media import build_onepass_media_command
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
@@ -224,7 +225,8 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
         effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
                   f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
-                  "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+                  "eq=contrast=1.05:saturation=1.07,"
+                  "scale=in_range=auto:out_range=tv,format=yuv420p")
     else:
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1",
                "-i", str(asset.file)]
@@ -299,7 +301,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            piper_model: Path | None = None, speech_rate: int = 145,
            visual_style: str = "cinematic", transition: str = "auto",
            caption_style: str = "kinetic", word_alignment: str = "estimated",
-           use_fused_xfade: bool = True) -> dict[str, object]:
+           use_fused_xfade: bool = True, use_media_onepass: bool = True) -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -370,12 +372,19 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # H.264 scene clips are needed. More complex media retains tested paths.
         plan = transition_plan(durations, fps=fps, transition=applied_transition)
         direct_abstract = bool(use_fused_xfade and not using_media and len(slots) <= 6)
-        fused = bool(not direct_abstract and plan.overlap_frames > 0 and use_fused_xfade)
+        # Limit memory for simultaneous decoders, filters and animated images.
+        # Two-source 1080p and up-to-four-source 720p media are validated.
+        direct_media = bool(
+            use_fused_xfade and use_media_onepass and using_media and
+            ((resolution <= 720 and len(slots) <= 4) or
+             (resolution == 1080 and len(slots) <= 2)))
+        fused = bool(not (direct_abstract or direct_media) and plan.overlap_frames > 0
+                     and use_fused_xfade)
         if fused:
             clips = [render_scene(asset, length, i, work, width=width,
                          height=height, fps=fps, extra_frames=plan.extra_frames[i])
                      for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
-        elif not direct_abstract:
+        elif not (direct_abstract or direct_media):
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps, transition=applied_transition)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
@@ -391,6 +400,11 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         if direct_abstract:
             cmd = build_onepass_abstract_command(
                 durations, width=width, height=height, fps=fps,
+                transition=applied_transition, visual_filters=filters,
+                audio=audio, output=staged, total=total)
+        elif direct_media:
+            cmd = build_onepass_media_command(
+                slots, durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
                 audio=audio, output=staged, total=total)
         elif fused:
@@ -412,12 +426,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         try:
             execute(cmd, cwd=work, timeout=360)
         except (RuntimeError, OSError, subprocess.SubprocessError):
-            if not direct_abstract:
+            if not (direct_abstract or direct_media):
                 raise
-            # Older FFmpeg builds can reject a multi-input gradient graph.
-            # Keep the validated intermediate renderer as a safe fallback.
+            # Unsupported FFmpeg input combinations retain the established
+            # media path. Keep the actual strategy visible in the report.
             fallback = True
-            warnings.append("Single-pass graphics unavailable on this runner; using legacy FFmpeg rendering")
+            warnings.append("Single-pass composition failed; using legacy FFmpeg rendering")
             retry_started = time.perf_counter()
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps, transition=applied_transition)
@@ -433,8 +447,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
             execute(cmd, cwd=work, timeout=360)
-        metrics["compositing_pipeline"] = ("legacy-single-pass-fallback" if fallback else
+        metrics["compositing_pipeline"] = ("legacy-media-onepass-fallback" if fallback and direct_media else
+                                           "legacy-single-pass-fallback" if fallback else
                                            "direct-abstract-onepass" if direct_abstract else
+                                           "direct-media-onepass" if direct_media else
                                            "fused-xfade" if fused else
                                            "legacy-xfade" if plan.overlap_frames else
                                            "cut-concat")
