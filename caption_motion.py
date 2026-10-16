@@ -158,7 +158,7 @@ def generate_karaoke_ass(segments: list[dict[str, object]], work: Path,
             body = _karaoke_fragments(group, interval)
             lines.append(
                 f"Dialogue: 0,{_timestamp(group_start)},{_timestamp(group_end)},"
-                f"Kinetic,,0,0,0,,{{\fad(60,80)}}{body}"
+                f"Kinetic,,0,0,0,,{{\\fad(60,80)}}{body}"
             )
             events.append({
                 "scene": scene_number, "start": round(group_start / 100, 2),

@@ -53,3 +53,11 @@ dans `cinematic.py` ; il fonctionne sans GPU ni API payante.
 
 Le commit `bdab80a` a passé la CI générale GitHub ainsi que le smoke test réel
 avec voix française Piper. Le jeton GitHub reste uniquement en mémoire du navigateur.
+
+
+## Sous-titres avec alignement acoustique
+
+Choisir « Sous-titres animés : Progressifs » puis « Précision : Alignement audio Whisper sur CPU ».
+Le workflow n'installe `stable-ts` que si cette option est sélectionnée. Un alignement correct
+exige un audio de narration et peut échouer sur des mots propres, des pauses et des noms ; les
+scènes en repli sont clairement signalées dans `video.alignment.json`. Voir `docs/WORD_ALIGNMENT.md`.

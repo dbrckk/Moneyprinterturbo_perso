@@ -53,6 +53,12 @@ on:
         type: choice
         options: [kinetic, classic]
         default: kinetic
+      word_alignment:
+        description: Début de chaque mot (estimation rapide ou analyse audio Whisper sur CPU)
+        required: true
+        type: choice
+        options: [estimated, forced]
+        default: estimated
       transition:
         description: Transition entre scènes (auto, fondu, balayage ou coupe)
         required: true
@@ -131,6 +137,9 @@ jobs:
           echo '641d1ab097da2b81128c076810edb052b385decc8be3381814802a64a73baf99  models/fr_FR-siwis-medium.onnx' | sha256sum --check --status
           python -c "import json; from pathlib import Path; d=json.loads(Path('models/fr_FR-siwis-medium.onnx.json').read_text()); assert d['language']['code']=='fr_FR'"
           command -v piper
+      - name: Install optional acoustic word alignment on CPU
+        if: ${{ inputs.word_alignment == 'forced' && inputs.caption_style == 'kinetic' }}
+        run: python -m pip install --disable-pip-version-check 'stable-ts==2.19.1'
       - name: Generate actual narrated MP4
         env:
           TOPIC: ${{ inputs.topic }}
@@ -143,11 +152,12 @@ jobs:
           VISUAL_STYLE: ${{ inputs.visual_style }}
           TRANSITION: ${{ inputs.transition }}
           CAPTION_STYLE: ${{ inputs.caption_style }}
+          WORD_ALIGNMENT: ${{ inputs.word_alignment }}
           SCENE_QUERIES: ${{ inputs.scene_queries }}
           SPEECH_RATE: ${{ inputs.speech_rate }}
           VOICE: ${{ inputs.voice }}
         run: |
-          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --transition "$TRANSITION" --caption-style "$CAPTION_STYLE" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
+          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --transition "$TRANSITION" --caption-style "$CAPTION_STYLE" --word-alignment "$WORD_ALIGNMENT" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
           if [[ -n "$SCRIPT_TEXT" ]]; then
             if [[ "$SCRIPT_MODE" == "local-ai" ]]; then
               echo 'A custom script and local AI mode cannot be combined' >&2; exit 1
@@ -182,6 +192,7 @@ jobs:
             outputs/video.json
             outputs/video.srt
             outputs/video.ass
+            outputs/video.alignment.json
             outputs/video.quality.json
             outputs/video.storyboard.png
             outputs/video.credits.txt

@@ -252,3 +252,16 @@ est maintenant sélectionnable dans le portail Android.
 
 Exemple : `python free_studio.py --topic 'Une forêt' --caption-style kinetic --output outputs/foret.mp4`.
 Le mode `classic` garde l'ancien rendu des sous-titres et n'exporte pas de fichier ASS.
+
+
+## Alignement audio optionnel des mots
+
+Les sous-titres progressifs acceptent maintenant `--word-alignment estimated` (défaut, léger) ou
+`--word-alignment forced` (alignement sur l'audio généré via un modèle Whisper `tiny` en CPU).
+Cette dernière option est disponible depuis Android sans ordinateur personnel, grâce à GitHub Actions,
+mais le téléchargement de PyTorch et du modèle augmente les besoins CPU, disque et réseau. Aucun service
+commercial d'IA n'est appelé. Les scènes dont les mots ou les horaires ne sont pas validés reviennent
+explicitement en mode estimé ; si aucune scène ne passe, le rendu s'arrête avec une erreur.
+
+Les fichiers `video.alignment.json` et `video.ass` conservent les minutages, la méthode utilisée et les
+avertissements. Le SRT reste éditable. Consulter [les limites, licences et tests](docs/WORD_ALIGNMENT.md).

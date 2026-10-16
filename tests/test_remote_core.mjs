@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, safeError} from '../remote/core.mjs';
-const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_style:'cinematic',caption_style:'kinetic',transition:'auto'};
+const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_style:'cinematic',caption_style:'kinetic',word_alignment:'estimated',transition:'auto'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
   assert.deepEqual(segmentsOf('Bonjour. Salut !\nNouveau paragraphe.'),['Bonjour.','Salut !','Nouveau paragraphe.']);
@@ -73,4 +73,11 @@ test('caption style is constrained', () => {
     aspect: '9:16', resolution: '360', speech_rate: '145', visuals: 'abstract', caption_style: 'kinetic' };
   assert.equal(validateDraft(base).caption_style, 'kinetic');
   assert.throws(() => validateDraft({...base, caption_style: 'broken'}), /sous-titres/);
+});
+
+test('word alignment is explicit, opt-in, and restricted to kinetic captions', () => {
+  assert.equal(validateDraft({...valid,word_alignment:undefined}).word_alignment, 'estimated');
+  assert.equal(dispatchBody({...valid,word_alignment:'forced'},uid).inputs.word_alignment,'forced');
+  assert.throws(()=>validateDraft({...valid,word_alignment:'forged'}),/alignement/);
+  assert.throws(()=>validateDraft({...valid,word_alignment:'forced',caption_style:'classic'}),/progressifs/);
 });

@@ -26,6 +26,8 @@ class RemoteStaticFilesTests(unittest.TestCase):
         self.assertIn('request_id:',yaml)
         self.assertIn('inputs.request_id',yaml)
         self.assertIn('script_mode:',yaml)
+        self.assertIn('word_alignment:',yaml)
+        self.assertIn('stable-ts==2.19.1',yaml)
         self.assertIn('ollama pull qwen2.5:1.5b',yaml)
         self.assertIn('ARGS+=(--ollama-model qwen2.5:1.5b',yaml)
         html=(ROOT/'remote/index.html').read_text(encoding='utf-8')

@@ -1,0 +1,53 @@
+name: CPU Word Alignment Real Smoke
+on:
+  push:
+    paths:
+      - forced_alignment.py
+      - caption_motion.py
+      - .github/workflows/forced-align-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-align:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU model and rendering tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak
+          python -m pip install --disable-pip-version-check 'stable-ts==2.19.1'
+      - name: Align real synthesized narration
+        run: |
+          python free_studio.py --topic 'La mer' --script 'Bonjour le monde. La mer est magnifique.' \
+            --lang fr --caption-style kinetic --word-alignment forced \
+            --resolution 360 --fps 12 --output outputs/word-align-smoke.mp4
+          python video_qa.py outputs/word-align-smoke.mp4
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('outputs/word-align-smoke')
+          info=json.loads(p.with_suffix('.json').read_text())
+          track=json.loads(Path('outputs/word-align-smoke.alignment.json').read_text())
+          assert info['caption_timing'] in ('forced-audio-word-onsets','mixed-measured-estimated')
+          assert track['aligned_scenes'] >= 1
+          assert Path('outputs/word-align-smoke.ass').stat().st_size > 100
+          print(info['caption_timing'],track['aligned_scenes'])
+          PY
+      - name: Publish sample and alignment provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-acoustic-word-alignment
+          path: |
+            outputs/word-align-smoke.mp4
+            outputs/word-align-smoke.srt
+            outputs/word-align-smoke.ass
+            outputs/word-align-smoke.alignment.json
+            outputs/word-align-smoke.quality.json
+            outputs/word-align-smoke.storyboard.png
+          retention-days: 7
+          if-no-files-found: error
