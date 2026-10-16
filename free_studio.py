@@ -23,6 +23,7 @@ from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 from cinematic import build_filters, gradient_source, transition_plan
+from xfade_final import final_xfade_command
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
@@ -362,11 +363,18 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
-        # Composite images and abstract fallbacks in timeline order to prevent
-        # a single lost Commons result from failing or mislabelling a scene.
-        # Animated gradient for each absent media scene; even offline renders move.
-        video_background = prepare_media_background(slots, durations, work,
-            width=width, height=height, fps=fps, transition=applied_transition)
+        # Use the existing CFR scene normalization, but fuse xfade with the
+        # final overlays so cinematic transitions are encoded only once.
+        # Cut-only output keeps the verified stream-copy concat path.
+        plan = transition_plan(durations, fps=fps, transition=applied_transition)
+        fused = plan.overlap_frames > 0
+        if fused:
+            clips = [render_scene(asset, length, i, work, width=width,
+                         height=height, fps=fps, extra_frames=plan.extra_frames[i])
+                     for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
+        else:
+            video_background = prepare_media_background(slots, durations, work,
+                width=width, height=height, fps=fps, transition=applied_transition)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
@@ -377,17 +385,23 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         else:
             filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
-        if audio:
-            cmd += ["-i", str(audio)]
-        cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
-                "-crf", "23", "-pix_fmt", "yuv420p"]
-        if audio:
-            cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
+        if fused:
+            cmd = final_xfade_command(clips, plan, fps=fps,
+                transition=applied_transition, overlays=filters, audio=audio,
+                duration=total, output=staged)
         else:
-            cmd += ["-an"]
-        cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
-        execute(cmd, cwd=work)
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
+            if audio:
+                cmd += ["-i", str(audio)]
+            cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "23", "-pix_fmt", "yuv420p"]
+            if audio:
+                cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
+            else:
+                cmd += ["-an"]
+            cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
+        execute(cmd, cwd=work, timeout=360)
+        metrics["compositing_pipeline"] = "fused-xfade" if fused else "cut-concat"
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")

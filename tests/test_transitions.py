@@ -41,6 +41,8 @@ class TimelineTests(unittest.TestCase):
                     info = free_studio.render('Paysage', 'La forêt paisible. La montagne. Le soleil.', target,
                         resolution=360,fps=12,mute=True,transition=transition)
                     self.assertEqual(info['scene_transition'],transition)
+                    self.assertEqual(info['render_performance']['compositing_pipeline'],
+                                     'cut-concat' if transition == 'cut' else 'fused-xfade')
                     self.assertEqual(len(info['segments']),3)
                     self.assertAlmostEqual(free_studio.duration_seconds(target),
                         info['duration_seconds'],delta=0.15)
