@@ -1,0 +1,65 @@
+name: Wikimedia Commons Real Video Smoke
+on:
+  push:
+    paths:
+      - media_assets.py
+      - free_studio.py
+      - .github/workflows/commons-video-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  commons-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check FFmpeg and eSpeak
+        shell: bash
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1 || ! command -v espeak >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg espeak
+          fi
+      - name: Render genuine CC0/public-domain Commons scene material into a video
+        run: |
+          python free_studio.py --topic "Paysages français" --commons             --scene-queries 'montagne|rivière'             --script 'Une montagne s élève devant nous. La rivière traverse un paysage magnifique.'             --lang fr --aspect '9:16' --resolution 360 --fps 12             --output outputs/commons-real.mp4
+      - name: Validate actual MP4, SRT, provenance and fallback state
+        run: |
+          python video_qa.py outputs/commons-real.mp4
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          video=Path('outputs/commons-real.mp4')
+          meta=json.loads(video.with_suffix('.json').read_text())
+          quality=json.loads(video.with_suffix('.quality.json').read_text())
+          assert quality['ok'], quality['errors']
+          assert meta['commons_fetch']['unique_queries']==2
+          assert meta['commons_fetch']['contextual_expansions']==2
+          assert meta['duration_seconds']>2
+          for asset in meta['media']:
+              assert asset['license'].lower() in ('cc0','cc0 1.0','public domain','pd-old','pd-self','pd-us','pd-art')
+              assert asset['source'].startswith('https://commons.wikimedia.org/')
+          found=len(meta['media'])
+          status='ACTUAL VERIFIED MEDIA' if found else 'GRAPHIC FALLBACK; NETWORK MEDIA UNAVAILABLE'
+          print(status, found, 'scenes, wall',meta['commons_fetch']['wall_seconds'],'seconds')
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+              summary.write(f'## Commons real-video smoke\n\nStatus: **{status}**\n\n')
+              summary.write(f'Verified Commons scenes: **{found}/2**\n\n')
+              summary.write(f'Commons elapsed: **{meta["commons_fetch"]["wall_seconds"]} seconds**\n')
+          PY
+      - name: Attach actual video, storyboard, subtitles and network timings
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-commons-video-sample
+          path: |
+            outputs/commons-real.mp4
+            outputs/commons-real.json
+            outputs/commons-real.srt
+            outputs/commons-real.ass
+            outputs/commons-real.quality.json
+            outputs/commons-real.storyboard.png
+            outputs/commons-real.credits.txt
+          retention-days: 3
+          if-no-files-found: error
