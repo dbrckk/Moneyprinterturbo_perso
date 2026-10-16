@@ -307,3 +307,5 @@ For projects with up to 4 scenes at 720p or 2 scenes at 1080p, a single FFmpeg e
 ### Wikimedia Commons : téléchargement parallélisé et contrôle réseau
 
 Les nouvelles vidéos Commons recherchent les illustrations CC0/domaine public avec **trois tâches maximum en parallèle**, tout en réutilisant les résultats des requêtes répétées (huit recherches distinctes maximum). Le rapport `video.json` expose `commons_fetch` et les durées réseau, téléchargement et vérification. Les recherches infructueuses continuent de produire les fonds animés de secours et un avertissement plutôt que de bloquer la vidéo. Consulte [la documentation et les limites](docs/COMMONS_PERFORMANCE.md).
+
+Le test réseau a également révélé des homonymes trompeurs : des portraits de personnes portant les noms Montagne ou Rivière. Un filtre conservateur rejette maintenant ces résultats pour les recherches naturelles ambiguës à un seul mot et préfère un fond graphique. Voir [les précisions et limites](docs/COMMONS_PERFORMANCE.md).

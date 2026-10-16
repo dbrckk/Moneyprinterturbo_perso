@@ -193,3 +193,25 @@ class CommonsRelevanceTests(unittest.TestCase):
             self.assertEqual(selected,[])
             self.assertTrue(any('relevant' in w for w in warnings))
             self.assertEqual(request.call_count,1)
+
+
+class ScenicCandidateSafetyTests(unittest.TestCase):
+    def test_ambiguous_landscape_nouns_cannot_match_unrelated_people(self):
+        self.assertEqual(media.safe_scenic_score("montagne",
+            "File:Camille Montagne botaniste (cropped).png", "Portrait d'un botaniste"), 0)
+        self.assertEqual(media.safe_scenic_score("rivière",
+            "File:Henri.riviere.jpg", "Henri Rivière French painter"), 0)
+        self.assertEqual(media.safe_scenic_score("océan",
+            "File:Ocean-Morel-Fatio.jpg", "A painting of an ocean"), 0)
+
+    def test_real_landscape_context_remains_eligible(self):
+        self.assertGreater(media.safe_scenic_score("montagne",
+            "File:Panorama montagne alps.jpg", "A mountain summit view"), 0)
+        self.assertGreater(media.safe_scenic_score("rivière",
+            "File:River landscape photographed.jpg", "Rivière au bord des arbres"), 0)
+        self.assertGreater(media.safe_scenic_score("océan",
+            "File:Ocean coastal seascape.jpg", "Côte et plage"), 0)
+
+    def test_explicit_person_query_is_not_blocked_by_landscape_filter(self):
+        self.assertGreater(media.safe_scenic_score("Henri Rivière",
+            "File:Henri.riviere.jpg", "Portrait"), 0)

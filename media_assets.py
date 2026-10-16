@@ -132,6 +132,60 @@ def relevance_score(query: str, title: str, description: str = "") -> int:
     return 3 * len(wanted & title_words) + len(wanted & desc_words)
 
 
+# A single ambiguous landscape noun can also be someone's family name, a
+# painting title, or a biography. Do not treat matching the surname alone as
+# evidence the picture illustrates the place. Prefer graphic fallback.
+_SCENIC_SINGLE_QUERY_WORDS = _words("""
+    montagne montagnes mountain mountains riviere rivieres river rivers
+    ocean oceans sea seas mer mers foret forets forest forests
+    lake lakes lac lacs beach beaches plage plages waterfall waterfalls
+    cascade cascades valley valleys vallee vallees desert deserts
+""")
+_SCENIC_CONTEXT_WORDS = _words("""
+    panorama panoramique panoramic panorama view vista landscape landscapes
+    paysage paysages scenery nature naturel natural wild wilderness
+    alps alpine alp mountains peak peaks summit summits massif neige snowy
+    forest woods woodland bois woodland trees arbres vallon vallee valley
+    riverbank stream riverside watercourse shore bank torrent creeks
+    seaside coastline coastal coast shoreline ocean sea beach seascape
+    plage plages dune dunes dunes waves vague vagues island islands ile iles
+    lake lakes lac lacs waterfall waterfalls cascades creeks
+    hiking trail trek scenery aerial drone photography photographed photo
+    réserve reserve park parc national mountains paysage
+    ciel sky clouds nuages sunrise sunset horizon reflection reflected
+    sunrise coucher soleil volcan volcano glaciers glacial
+""")
+_NON_SCENIC_SUBJECT_WORDS = _words("""
+    portrait portraits portraits botaniste botanist scientist scientifique
+    biographie biography people people person woman man women men
+    musician author écrivain ecrivain composer actor actress acteur actrice
+    artwork painting paintings peintre artist artists tableau tableaux
+    engraving engravings stamp stamps book bookcover couverture
+    philosopher philosophe politician politics député depute
+""")
+
+
+def safe_scenic_score(query: str, title: str, description: str = "") -> int:
+    """Conservative extra filter for *single-word* landscape requests.
+
+    A portrait of someone named 'Rivière' is NOT a river photograph. Scene
+    relevance remains deterministic, and a missed image is safer than a
+    misleading illustration. Non-scenic queries keep ordinary relevance.
+    """
+    score = relevance_score(query, title, description)
+    if score <= 0:
+        return 0
+    request_words = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
+    if len(request_words) != 1 or not (request_words & _SCENIC_SINGLE_QUERY_WORDS):
+        return score
+    content_words = _words(title + " " + description)
+    if content_words & _NON_SCENIC_SUBJECT_WORDS:
+        return 0
+    if not ((content_words - request_words) & _SCENIC_CONTEXT_WORDS):
+        return 0
+    return score
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
                    timings: dict[str, float | int] | None = None) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
@@ -182,7 +236,7 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         if not _trusted_url(url) or not _trusted_url(page_url, api=True):
             continue
         description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
-        score = relevance_score(query, title, description)
+        score = safe_scenic_score(query, title, description)
         if score:
             ranked.append((-score, int(page.get("index", 100000)), page, info, license_name, url, page_url))
     ranked.sort(key=lambda entry: (entry[0], entry[1]))

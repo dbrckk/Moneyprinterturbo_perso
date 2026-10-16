@@ -30,3 +30,7 @@ python bench/compare_commons_lookup.py
 It uses six mocked Commons queries (180 ms latency each), and compares sequential with three-worker scheduling over three trials. These figures measure concurrency behavior only, **not** live Wikimedia throughput.
 
 For actual throughput, select Commons in the Android studio, generate a narration with several distinct scenes, and inspect `video.json`. Compare different runs and the percentage of scenes matched; network conditions, Wikimedia limits, license availability, search relevance, encoding complexity, and GitHub runner load all affect outcomes. Zero matched scenes is explicitly a fallback, never claimed as a successful Commons retrieval.
+
+## Avoid false landscape matches
+
+The live network smoke test of 16 October 2026 exposed several cases where single-word searches for `montagne` or `rivière` selected public-domain portraits of people with those surnames. Legal status alone is not visual relevance. The renderer now applies `safe_scenic_score` for **ambiguous single-word nature requests**: it rejects explicit biographies, portraits and paintings and requires independent landscape context in the Commons title or image description. A two-word query for a *person* (e.g. Henri Rivière) remains eligible. This is a conservative lexical heuristic, not computer vision: it can reject valid nature images, so the result count may decrease. The stable fallback is an original animated background rather than an unverified claim about scene relevance.
