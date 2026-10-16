@@ -125,7 +125,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
         self.assertEqual(stats["image_variants_fetched"], 5)
         self.assertEqual(stats["unique_images_selected"], 5)
         self.assertEqual(stats["scenes_reusing_image"], 1)
-        self.assertEqual(selected[0].source_url, selected[3].source_url)
+        self.assertEqual(selected[0].source_url, selected[5].source_url)
         self.assertEqual(len({selected[i].source_url for i in (0, 2, 3)}), 3)
         self.assertEqual(len({selected[i].source_url for i in (1, 4)}), 2)
         self.assertEqual(warnings, [])
