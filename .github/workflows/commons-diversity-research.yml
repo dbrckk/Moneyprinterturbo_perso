@@ -1,0 +1,30 @@
+name: Commons Visual Variety Source Comparison
+on:
+  push:
+    paths:
+      - bench/commons_diversity_research.py
+      - .github/workflows/commons-diversity-research.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate available image decoding
+        run: |
+          if ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+      - name: Sample alternative nature-photo searches
+        run: python bench/commons_diversity_research.py
+      - name: Upload attribution, detailed results and sample images
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-visual-variety-source-comparison
+          path: outputs/commons-alternative-research/
+          retention-days: 3
+          if-no-files-found: error
