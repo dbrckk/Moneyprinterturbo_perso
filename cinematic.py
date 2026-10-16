@@ -1,6 +1,49 @@
 """FFmpeg cinematic motion graphics: deterministic, local and license-free."""
 from __future__ import annotations
 from pathlib import Path
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class TransitionPlan:
+    """A scene timeline quantized once to the destination frame rate."""
+    durations: tuple[float, ...]
+    extra_frames: tuple[int, ...]
+    offset_frames: tuple[int, ...]
+    total_frames: int
+    overlap_frames: int
+
+
+def transition_plan(durations: list[float], *, fps: int, transition: str) -> TransitionPlan:
+    if transition not in ("cut", "fade", "wipeleft"):
+        raise ValueError("Unsupported transition")
+    if not durations or len(durations) > 18 or not 1 <= fps <= 60:
+        raise ValueError("Invalid transition scene count or frame rate")
+    if any(not math.isfinite(d) or d <= 0 for d in durations):
+        raise ValueError("Invalid scene duration")
+    frames: list[int] = []
+    total_seconds = 0.0
+    prev = 0
+    for duration in durations:
+        total_seconds += duration
+        next_boundary = round(total_seconds * fps)
+        if next_boundary <= prev:
+            raise ValueError("Scene duration below a frame")
+        frames.append(next_boundary - prev)
+        prev = next_boundary
+    overlap = (max(2, round(0.24 * fps / 2) * 2)
+               if transition != "cut" and len(frames) > 1 and fps >= 8 else 0)
+    # Even overlap gives an integral half on each side of the boundary.
+    if overlap and min(frames) < overlap * 2:
+        overlap = 0  # Too short to crossfade safely: retain exact cuts.
+    half = overlap // 2
+    extras = tuple((half if i > 0 else 0) +
+                   (half if i < len(frames) - 1 else 0) for i in range(len(frames)))
+    offsets = tuple(sum(frames[:i+1]) - half for i in range(len(frames)-1)) if overlap else ()
+    return TransitionPlan(tuple(n / fps for n in frames), extras,
+                          offsets, sum(frames), overlap)
+
+
 import math
 import textwrap
 

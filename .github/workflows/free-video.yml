@@ -47,6 +47,12 @@ on:
         type: choice
         options: [cinematic, classic]
         default: cinematic
+      transition:
+        description: Transition entre scènes (auto, fondu, balayage ou coupe)
+        required: true
+        type: choice
+        options: [auto, fade, wipeleft, cut]
+        default: auto
       visuals:
         description: Visuels gratuits (Commons = domaine public/CC0, repli garanti)
         required: true
@@ -129,11 +135,12 @@ jobs:
           SCRIPT_MODE: ${{ inputs.script_mode }}
           VISUAL_MODE: ${{ inputs.visuals }}
           VISUAL_STYLE: ${{ inputs.visual_style }}
+          TRANSITION: ${{ inputs.transition }}
           SCENE_QUERIES: ${{ inputs.scene_queries }}
           SPEECH_RATE: ${{ inputs.speech_rate }}
           VOICE: ${{ inputs.voice }}
         run: |
-          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
+          ARGS=(--topic "$TOPIC" --lang "$LANG" --aspect "$ASPECT" --resolution "$RESOLUTION" --visual-style "$VISUAL_STYLE" --transition "$TRANSITION" --speech-rate "$SPEECH_RATE" --output outputs/video.mp4)
           if [[ -n "$SCRIPT_TEXT" ]]; then
             if [[ "$SCRIPT_MODE" == "local-ai" ]]; then
               echo 'A custom script and local AI mode cannot be combined' >&2; exit 1

@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import unicodedata
 from urllib import parse, request
 
 API = "https://commons.wikimedia.org/w/api.php"
@@ -107,6 +108,28 @@ def _read_limited(url: str, max_bytes: int, *, timeout: int) -> bytes:
     return data
 
 
+def _words(text: str) -> set[str]:
+    # Accent-insensitive overlap is deterministic and requires no paid NLP API.
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    ascii_text = "".join(c for c in normalized if not unicodedata.combining(c))
+    return set(re.findall(r"[a-z0-9]{3,}", ascii_text))
+
+
+def relevance_score(query: str, title: str, description: str = "") -> int:
+    """Transparent filename/description keyword score, not AI similarity.
+
+    Zero score means we cannot justify using this image for the scene.
+    Exact words are preferred over guessed semantics; users can override
+    scene search terms for improved Wikimedia matching.
+    """
+    wanted = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
+    if not wanted:
+        wanted = _words(query)
+    title_words = _words(title.replace("File:", ""))
+    desc_words = _words(description[:400])
+    return 3 * len(wanted & title_words) + len(wanted & desc_words)
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
 
@@ -129,9 +152,10 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5) -> tuple[list[Medi
     pages = payload.get("query", {}).get("pages", {})
     if not isinstance(pages, dict):
         return [], ["Wikimedia Commons returned invalid results"]
-    for page in sorted(pages.values(), key=lambda p: p.get("index", 100000)):
-        if len(assets) >= limit:
-            break
+    # Rank licensed candidates *before downloading*; the Wikimedia result order
+    # is not a guarantee that a photo depicts this particular narrated scene.
+    ranked: list[tuple[int, int, dict, dict, str, str, str]] = []
+    for page in pages.values():
         title = str(page.get("title", ""))
         if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
             continue
@@ -143,11 +167,18 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5) -> tuple[list[Medi
         if license_name.lower() not in ALLOWED_LICENSES:
             continue
         url = str(info.get("thumburl") or info.get("url") or "")
-        if not _trusted_url(url):
-            continue
         page_url = str(info.get("descriptionurl") or "")
-        if not _trusted_url(page_url, api=True):
+        if not _trusted_url(url) or not _trusted_url(page_url, api=True):
             continue
+        description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
+        score = relevance_score(query, title, description)
+        if score:
+            ranked.append((-score, int(page.get("index", 100000)), page, info, license_name, url, page_url))
+    ranked.sort(key=lambda entry: (entry[0], entry[1]))
+    for _negscore, _, page, info, license_name, url, page_url in ranked:
+        if len(assets) >= limit:
+            break
+        title = str(page.get("title", ""))
         suffix = Path(title).suffix.lower()
         target = work / f"commons_{len(assets):02}{suffix}"
         try:
@@ -163,7 +194,7 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5) -> tuple[list[Medi
         author = _plain(_field(info, "Artist")) or "unknown"
         assets.append(MediaAsset(target, "image", page_url, license_name, author, title))
     if not assets:
-        warnings.append("No verified public-domain/CC0 images found; using graphic backgrounds")
+        warnings.append("No relevant verified public-domain/CC0 images found; using graphic backgrounds")
     return assets, warnings
 
 

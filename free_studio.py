@@ -20,7 +20,7 @@ import textwrap
 from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
-from cinematic import build_filters, gradient_source
+from cinematic import build_filters, gradient_source, transition_plan
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -190,10 +190,11 @@ def make_captions(segments: list[str], durations: list[float], work: Path) -> li
 
 
 def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Path,
-                 *, width: int, height: int, fps: int) -> Path:
+                 *, width: int, height: int, fps: int,
+                 extra_frames: int = 0) -> Path:
     """Normalize one photo/video to a silent CFR clip with a gentle camera move."""
     target = work / f"scene_{index:02}.mp4"
-    frames = max(1, round(duration * fps))
+    frames = max(1, round(duration * fps) + extra_frames)
     if asset is None:
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
                "-i", gradient_source(index, width, height, fps)]
@@ -221,16 +222,50 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
 
 
 def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
-                             *, width: int, height: int, fps: int) -> Path:
-    if len(assets) != len(durations):
+                             *, width: int, height: int, fps: int,
+                             transition: str = "cut") -> Path:
+    """Compose CFR media clips, with optionally frame-accurate crossfades.
+
+    Each crossfade is centered on the original narration/SRT boundary. The
+    incoming and outgoing clips receive half a transition's worth of extra
+    frames; the overlap then removes those exact frames, so runtime is not
+    shortened and subtitle/voice synchronization is preserved.
+    """
+    if len(assets) != len(durations) or not assets:
         raise ValueError("Each scene must have exactly one media slot")
-    scenes = [render_scene(asset, duration, i, work, width=width,
-                           height=height, fps=fps) for i, (asset, duration) in enumerate(zip(assets, durations))]
-    manifest = work / "scenes.txt"
-    manifest.write_text("".join(f"file '{scene.name}'\n" for scene in scenes), encoding="utf-8")
+    plan = transition_plan(durations, fps=fps, transition=transition)
+    scenes = [
+        render_scene(asset, duration, i, work, width=width, height=height, fps=fps,
+                     extra_frames=plan.extra_frames[i])
+        for i, (asset, duration) in enumerate(zip(assets, plan.durations))
+    ]
     output = work / "background.mp4"
-    execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat",
-             "-safe", "0", "-i", manifest.name, "-c", "copy", output.name], cwd=work)
+    if plan.overlap_frames == 0:
+        manifest = work / "scenes.txt"
+        manifest.write_text("".join(f"file '{scene.name}'\n" for scene in scenes), encoding="utf-8")
+        execute(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat",
+                 "-safe", "0", "-i", manifest.name, "-c", "copy", output.name], cwd=work)
+        return output
+    filters: list[str] = []
+    previous = "[0:v]"
+    for i in range(1, len(scenes)):
+        current = f"[xf{i}]"
+        filters.append(
+            f"{previous}[{i}:v]xfade=transition={transition}:"
+            f"duration={plan.overlap_frames/fps:.6f}:"
+            f"offset={plan.offset_frames[i-1]/fps:.6f}{current}"
+        )
+        previous = current
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+           "-filter_complex_threads", "1"]
+    for scene in scenes:
+        cmd.extend(["-i", str(scene)])
+    cmd += ["-filter_complex", ";".join(filters), "-map", previous,
+            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-pix_fmt", "yuv420p", "-frames:v", str(plan.total_frames), str(output)]
+    execute(cmd, timeout=300)
+    if not output.exists() or output.stat().st_size < 1000:
+        raise RuntimeError("No valid transition output")
     return output
 
 
@@ -239,13 +274,16 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            media_dir: Path | None = None, commons: bool = False,
            scene_queries: list[str] | None = None, tts: str = "espeak",
            piper_model: Path | None = None, speech_rate: int = 145,
-           visual_style: str = "cinematic") -> dict[str, object]:
+           visual_style: str = "cinematic", transition: str = "auto") -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
         raise ValueError("Frame rate must be 1–60")
     if visual_style not in ("cinematic", "classic"):
         raise ValueError("Unsupported visual style")
+    if transition not in ("auto", "cut", "fade", "wipeleft"):
+        raise ValueError("Unsupported scene transition")
+    applied_transition = ("fade" if visual_style == "cinematic" else "cut") if transition == "auto" else transition
     if aspect not in ASPECTS or resolution not in (360, 720, 1080) or lang not in LANG_VOICES:
         raise ValueError("Unsupported aspect, resolution or voice language")
     sentences = split_script(script)
@@ -286,7 +324,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # a single lost Commons result from failing or mislabelling a scene.
         # Animated gradient for each absent media scene; even offline renders move.
         video_background = prepare_media_background(slots, durations, work,
-            width=width, height=height, fps=fps)
+            width=width, height=height, fps=fps, transition=applied_transition)
         filters = build_filters(segments, slots, work, width=width,
                                 height=height, total=total, style=visual_style)
         subtitle_size = max(13, int(width / 34))
@@ -352,7 +390,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
-            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "voice_model": voice_info,
+            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used, "warnings": warnings,
         }
@@ -372,6 +410,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--aspect", choices=sorted(ASPECTS), default="9:16")
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
+    parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
+                        help="Scene transition; auto fades in cinematic mode and cuts in classic mode")
     parser.add_argument("--visual-style", choices=["cinematic", "classic"],
                         default="cinematic", help="Animated cinematic look or classic titles")
     parser.add_argument("--mute", action="store_true", help="Render without synthetic voice")
@@ -405,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
                       media_dir=args.media_dir, commons=args.commons,
                       scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
-                      visual_style=args.visual_style)
+                      visual_style=args.visual_style, transition=args.transition)
         info["script_mode"] = mode
         Path(info["output"]).with_suffix(".json").write_text(
             json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

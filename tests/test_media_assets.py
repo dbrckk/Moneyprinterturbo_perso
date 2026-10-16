@@ -156,3 +156,40 @@ class SceneSearchTests(unittest.TestCase):
             self.assertIn("Scene 2:", target.with_suffix(".credits.txt").read_text())
             self.assertEqual(search.call_args.kwargs["indices"], [0, 1])
             self.assertAlmostEqual(studio.duration_seconds(target), info["duration_seconds"], delta=0.3)
+
+class CommonsRelevanceTests(unittest.TestCase):
+    def test_text_scoring_prefers_accurate_title_and_ignores_accents(self):
+        self.assertGreater(media.relevance_score('forêt montagne','File:Forêt montagne.jpg'),
+                           media.relevance_score('forêt montagne','File:Forest.jpg','Une montagne'))
+        self.assertEqual(media.relevance_score('forêt montagne','File:Car showroom.jpg','Voiture électrique'),0)
+        self.assertGreater(media.relevance_score('énergie solaire','File:Energie solaire.jpg'),0)
+
+    @unittest.skipUnless(FFMPEG, 'FFmpeg required')
+    def test_commons_prefers_relevant_photo_over_top_unrelated_result(self):
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name)
+            img=root/'demo.png';make_image(img)
+            def item(title,index):
+                return {'title':title,'index':index,'imageinfo':[{'descriptionurl':
+                    'https://commons.wikimedia.org/wiki/'+title,
+                    'thumburl':'https://upload.wikimedia.org/test.png',
+                    'extmetadata':{'LicenseShortName':{'value':'CC0'}}}]}
+            data={'query':{'pages':{'1':item('File:Car.png',1),'2':item('File:Montagne_neige.png',2)}}}
+            with patch.object(media,'_read_limited',side_effect=[json.dumps(data).encode(),img.read_bytes()]) as request:
+                found,warnings=media.commons_assets('montagne neige',root,limit=1)
+            self.assertEqual(len(found),1)
+            self.assertEqual(found[0].title,'File:Montagne_neige.png')
+            self.assertEqual(request.call_count,2)
+            self.assertEqual(warnings,[])
+
+    def test_commons_explicit_fallback_when_licence_ok_but_no_match(self):
+        candidate={'query':{'pages':{'1':{'title':'File:Car.png','index':1,
+          'imageinfo':[{'descriptionurl':'https://commons.wikimedia.org/wiki/File:Car.png',
+          'thumburl':'https://upload.wikimedia.org/test.png',
+          'extmetadata':{'LicenseShortName':{'value':'CC0'}}}]}}}}
+        with tempfile.TemporaryDirectory() as name:
+            with patch.object(media,'_read_limited',return_value=json.dumps(candidate).encode()) as request:
+                selected,warnings=media.commons_assets('mountain glacier',Path(name))
+            self.assertEqual(selected,[])
+            self.assertTrue(any('relevant' in w for w in warnings))
+            self.assertEqual(request.call_count,1)

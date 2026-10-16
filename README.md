@@ -188,3 +188,31 @@ Le fichier JSON de sortie documente `visual_style`. La source FFmpeg `gradients`
 est nécessaire ; elle est incluse dans FFmpeg sur Ubuntu GitHub Actions.
 `motion-canvas/motion-canvas` (dans star-list) reste une **référence de conception**,
 son code n'a pas été incorporé.
+
+## Nouvelles transitions vidéo synchronisées
+
+Les scènes peuvent désormais être raccordées par un **fondu enchaîné**, un
+**balayage horizontal**, ou une **coupe nette**. L'option `auto` (par défaut)
+utilise un fondu en mode `cinematic` et une coupe en mode `classic`.
+Les transitions sont centrées sur les limites temporelles de la narration ;
+le moteur ajoute une marge de vidéo avant de la recouvrir, ce qui évite
+de raccourcir les MP4 ou de décaler les sous-titres. Durées quantifiées au
+framerate de sortie, avec retour à la coupe pour les scènes trop courtes.
+
+```bash
+python3 free_studio.py --topic 'Voyage' --script 'La forêt. La montagne. La mer.' \
+  --visual-style cinematic --transition wipeleft --output outputs/voyage.mp4
+```
+
+L'option `transition` est disponible dans le studio distant Android et GitHub
+Actions. Les tests génèrent des vidéos réelles et vérifient la cohérence temporelle.
+
+## Pertinence des médias Wikimedia
+
+Les images sont maintenant classées par correspondance exacte de mots-clés
+(accentuation normalisée), dans le titre et la description des fichiers. Une
+licence admissible **ne suffit pas** à retenir une image sans rapport : dans ce
+cas, la scène utilise le graphisme original et le JSON indique le repli. Ce
+classement n'est pas un modèle de compréhension sémantique : les photographies
+peuvent manquer si leur titre est en anglais et le scénario en français.
+La saisie de mots-clés visuels explicites reste recommandée.
