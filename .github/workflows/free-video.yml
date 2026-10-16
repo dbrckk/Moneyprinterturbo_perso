@@ -164,6 +164,8 @@ jobs:
           test -s outputs/video.srt
           ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^h264$'
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/video.mp4 | grep -q '^aac$'
+      - name: Audit synchronization and export visual storyboard
+        run: python video_qa.py outputs/video.mp4
       - name: Downloadable MP4
         uses: actions/upload-artifact@v4
         with:
@@ -172,6 +174,8 @@ jobs:
             outputs/video.mp4
             outputs/video.json
             outputs/video.srt
+            outputs/video.quality.json
+            outputs/video.storyboard.png
             outputs/video.credits.txt
           retention-days: 7
           if-no-files-found: error

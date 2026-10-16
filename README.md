@@ -216,3 +216,25 @@ cas, la scène utilise le graphisme original et le JSON indique le repli. Ce
 classement n'est pas un modèle de compréhension sémantique : les photographies
 peuvent manquer si leur titre est en anglais et le scénario en français.
 La saisie de mots-clés visuels explicites reste recommandée.
+
+## Contrôle qualité et planche d'aperçus (automatique)
+
+Chaque rendu GitHub Actions est maintenant vérifié par `video_qa.py` **après** le montage.
+Il contrôle la durée réelle contre celle de la narration, le codec H.264, le
+format couleur yuv420p, les dimensions, la présence de la piste audio AAC si
+une voix est prévue et la correspondance des sous-titres SRT avec les scènes.
+Une anomalie bloque la livraison normale au lieu de publier un MP4 défectueux.
+
+Une **planche PNG** contenant l'image centrale de chaque scène et un rapport
+JSON détaillé sont inclus dans l'archive GitHub :
+`video.storyboard.png` et `video.quality.json`, en plus du MP4/SRT et des crédits.
+Pour vérifier localement :
+
+```bash
+python3 video_qa.py outputs/video.mp4
+```
+
+Ces contrôles vérifient la qualité **technique** : ils ne certifient ni la
+pertinence éditoriale, ni la véracité des affirmations, ni les droits des médias.
+L'export se fait localement avec FFmpeg et la bibliothèque standard Python,
+sans service externe ni frais supplémentaires.

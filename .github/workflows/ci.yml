@@ -4,6 +4,7 @@ on:
     paths:
       - free_studio.py
       - cinematic.py
+      - video_qa.py
       - media_assets.py
       - .github/workflows/free-video.yml
       - studio_server.py
@@ -38,7 +39,7 @@ jobs:
           node --check remote/main.mjs
           node --test tests/test_remote_core.mjs
       - name: Static compilation
-        run: python -m compileall -q free_studio.py cinematic.py media_assets.py studio_server.py tests
+        run: python -m compileall -q free_studio.py cinematic.py media_assets.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests
@@ -57,6 +58,8 @@ jobs:
           python -c "import json; assert json.load(open('outputs/ci-preview.json'))['visual_style']=='cinematic'"
           ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^h264$'
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 outputs/ci-preview.mp4 | grep -q '^aac$'
+      - name: Verify delivery quality and export scene contact sheet
+        run: python video_qa.py outputs/ci-preview.mp4
       - name: Attach real preview video for visual review
         uses: actions/upload-artifact@v4
         with:
@@ -65,5 +68,7 @@ jobs:
             outputs/ci-preview.mp4
             outputs/ci-preview.json
             outputs/ci-preview.srt
+            outputs/ci-preview.quality.json
+            outputs/ci-preview.storyboard.png
           retention-days: 7
           if-no-files-found: error
