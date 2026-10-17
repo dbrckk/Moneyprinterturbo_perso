@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shouldAutoResume,shouldVerifyCompletedRun,createRunSelection,
-        isUncertainDispatchFailure,recentUnconfirmedRequest} from '../remote/run_lifecycle.mjs';
+        isUncertainDispatchFailure,recentUnconfirmedRequest,classifyTrackingError} from '../remote/run_lifecycle.mjs';
 const now=Date.parse('2026-10-17T08:00:00Z');
 const base={id:'studio-12345678-1234-1234-1234-123456789abc',
   createdAt:new Date(now-3600_000).toISOString(),state:'Demande envoyée'};
@@ -63,4 +63,15 @@ test('ambiguous dispatch is resumable and blocks only fresh same-topic duplicate
   assert.equal(recentUnconfirmedRequest([{...active,state:'Réussi'}],'Montagne',now),null);
   assert.equal(recentUnconfirmedRequest(null,'Montagne',now),null);
   assert.equal(recentUnconfirmedRequest([active],'Montagne',NaN),null);
+});
+
+test('rate limits and temporary GitHub failures never masquerade as video failure',()=>{
+ assert.equal(classifyTrackingError({httpStatus:429}).kind,'rate-limit');
+ assert.equal(classifyTrackingError({httpStatus:403,message:'API rate limit exceeded'}).kind,'rate-limit');
+ assert.equal(classifyTrackingError({httpStatus:403,message:'Resource not accessible'}).kind,'auth');
+ assert.equal(classifyTrackingError({httpStatus:401}).kind,'auth');
+ assert.equal(classifyTrackingError({httpStatus:404}).kind,'not-found');
+ assert.equal(classifyTrackingError({httpStatus:503}).kind,'temporary');
+ assert.equal(classifyTrackingError({name:'AbortError'}).kind,'temporary');
+ assert.equal(classifyTrackingError(null).kind,'unknown');
 });

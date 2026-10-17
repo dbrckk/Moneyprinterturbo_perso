@@ -6,7 +6,7 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
-  isUncertainDispatchFailure, recentUnconfirmedRequest } from './run_lifecycle.mjs';
+  isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -208,7 +208,12 @@ async function lookupRun() {
         setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
     }
   } catch (error) {
-    if (runSelection.isCurrent(generation) && active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
+    if (runSelection.isCurrent(generation) && active?.id === lookupFor) {
+      const detail=classifyTrackingError(error);
+      setStatus(detail.kind==='auth' || detail.kind==='not-found' ? 'failed' : 'running',
+        'Suivi indisponible', detail.message+' Le lien GitHub Actions reste accessible.');
+      if (detail.kind==='rate-limit') stopPoll();
+    }
   } finally {
     if (lookupInFlight === lookupKey) lookupInFlight = null;
   }

@@ -131,3 +131,8 @@ Une réponse explicite 401/403/404/422 n'est pas présentée comme acceptée.
 Cette protection évite certains doublons de rendus et les frais de temps de
 calcul, mais ne prouve pas qu'un workflow a démarré tant que l'API GitHub
 n'a pas renvoyé le nom exact `Free Studio · studio-…`.
+
+
+### Limites API GitHub
+
+Une réponse 429 ou une erreur 403 signalant explicitement une limite de requêtes n'est plus affichée comme un échec de génération. Le suivi automatique s'arrête pour éviter de solliciter davantage GitHub et peut être relancé manuellement. Les erreurs 401/403 d'autorisation, 404 d'identifiant inaccessible et les indisponibilités réseau ont des messages distincts. Les jetons restent uniquement en mémoire.

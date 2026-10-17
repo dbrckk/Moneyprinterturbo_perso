@@ -46,3 +46,17 @@ export function recentUnconfirmedRequest(records, topic, now=Date.now()) {
     return age>=0 && age<=5*60_000;
   }) ?? null;
 }
+
+/** GitHub API rate limiting is a temporary state, never a render failure. */
+export function classifyTrackingError(error) {
+  const status=Number(error?.httpStatus);
+  if (status===429 || status===403 && /rate.limit|quota|secondary/i.test(String(error?.message||'')))
+    return {kind:'rate-limit',message:'GitHub limite temporairement les requêtes. Le rendu continue. Attends quelques minutes avant d’actualiser.'};
+  if (status===401 || status===403)
+    return {kind:'auth',message:'Accès GitHub refusé. Vérifie les autorisations du jeton, puis actualise le suivi.'};
+  if (status===404)
+    return {kind:'not-found',message:'Ce rendu GitHub est introuvable ou inaccessible avec les autorisations actuelles.'};
+  if (error?.name==='AbortError' || error?.name==='TypeError' || status>=500)
+    return {kind:'temporary',message:'Connexion GitHub temporairement indisponible. Le rendu peut continuer ; réessaie plus tard.'};
+  return {kind:'unknown',message:'Impossible de consulter le suivi GitHub. Vérifie la demande et réessaie.'};
+}
