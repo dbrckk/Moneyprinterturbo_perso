@@ -375,3 +375,8 @@ Les boutons **Copier mon brouillon** et **Restaurer le brouillon** transfèrent 
 ### Suivi Android au retour dans le studio
 
 La création continue sur GitHub même après fermeture de l'onglet. Au retour sur Android, le studio récupère automatiquement les demandes récentes en attente et vérifie les anciens rendus terminés avant d'afficher leurs fichiers. Les requêtes de suivi s'arrêtent hors ligne et en arrière-plan ; aucun jeton GitHub n'est sauvegardé.
+
+
+### Option GitHub Pages : même adresse à chaque mise à jour
+
+Le workflow [Pages](.github/workflows/pages.yml) peut désormais publier automatiquement le studio quand le dossier `remote/` change, une fois la source Pages réglée sur **GitHub Actions** dans Settings → Pages. Tant que ce réglage manque, le workflow le signale et ne prétend pas qu'un site Pages existe. L'adresse prévisible est `https://dbrckk.github.io/Moneyprinterturbo_perso/`, à utiliser seulement après un premier déploiement réussi. Le studio ShipStatic existant reste disponible indépendamment.

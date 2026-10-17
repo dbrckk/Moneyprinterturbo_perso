@@ -98,3 +98,10 @@ Le jeton GitHub n'est jamais inclus dans les liens de téléchargement.
 Les demandes de rendu en cours datant de moins de 48 heures sont suivies automatiquement lorsque le navigateur revient au premier plan, à la réouverture ou au retour du réseau. Le suivi s'interrompt quand la page est masquée pour préserver les appels GitHub. Le jeton GitHub reste en mémoire du formulaire uniquement ; aucun secret n'est enregistré dans l'historique.
 
 Un état local « Réussi » n'autorise plus directement l'affichage des fichiers. Le studio lit d'abord l'exécution GitHub correspondante et contrôle son identifiant, son titre, son type, sa branche, ainsi que le dépôt et le chemin du workflow lorsqu'ils sont fournis. Les fichiers n'apparaissent qu'après validation du résultat par GitHub. Le suivi actif s'arrête toujours après 20 minutes, sans interrompre la création côté GitHub.
+
+
+## Adresse fixe facultative (GitHub Pages)
+
+Un workflow de déploiement GitHub Pages se déclenche automatiquement quand un fichier de `remote/` change sur `main`. Il vérifie si le dépôt est configuré avec **GitHub Actions** comme source Pages. Tant que cette option n'est pas activée, il termine sans prétendre avoir déployé le site et affiche une instruction dans son récapitulatif. Pour l'activer une seule fois : **GitHub → Moneyprinterturbo_perso → Settings → Pages → Build and deployment → GitHub Actions**. Après le premier déploiement réussi, l'URL devrait être `https://dbrckk.github.io/Moneyprinterturbo_perso/` et restera stable entre mises à jour. Le navigateur conserve les brouillons uniquement par origine : importer un brouillon de ShipStatic sur GitHub Pages requiert d'utiliser les contrôles de copie/restauration prévus dans le studio.
+
+La création d'un sous-domaine fixe ShipStatic a été essayée, mais refusée par la limite de domaines du compte. Nous ne redirigeons aucun autre projet existant, et GitHub Pages ne demande pas de jeton d'IA ni d'abonnement.

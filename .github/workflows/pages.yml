@@ -1,5 +1,10 @@
 name: Déployer Remote Studio sur GitHub Pages
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'remote/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,9 +21,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Detect whether Pages already uses GitHub Actions
+        id: pages
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              const response = await github.rest.repos.getPages({
+                owner: context.repo.owner, repo: context.repo.repo
+              });
+              const enabled = response.data.build_type === 'workflow';
+              core.setOutput('enabled', enabled ? 'true' : 'false');
+              if (!enabled) core.notice('GitHub Pages must use GitHub Actions as its publishing source.');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.setOutput('enabled', 'false');
+              core.notice('One-time setup: Settings > Pages > Build and deployment > GitHub Actions.');
+            }
+      - name: Explain one-time setup if Pages is not enabled
+        if: steps.pages.outputs.enabled != 'true'
+        run: |
+          echo '## GitHub Pages awaiting one-time activation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Enable **Settings > Pages > Build and deployment > GitHub Actions** once.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Then rerun this workflow or edit a file in remote/.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No site is claimed live until a Pages deployment succeeds.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/configure-pages@v5
+        if: steps.pages.outputs.enabled == 'true'
       - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outputs.enabled == 'true'
         with:
           path: remote
       - id: deployment
+        if: steps.pages.outputs.enabled == 'true'
         uses: actions/deploy-pages@v4
