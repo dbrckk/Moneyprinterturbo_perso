@@ -59,14 +59,14 @@ export function isGithubRateLimited(status, rawMessage='', headers=null) {
   };
   return header('x-ratelimit-remaining')==='0' ||
     header('retry-after')!==null ||
-    /rate[ -]?limit|secondary|abuse detection|quota/i.test(String(rawMessage||''));
+    /rate[ -]?limit|abuse detection|quota/i.test(String(rawMessage||''));
 }
 
 /** GitHub API rate limiting is a temporary state, never a render failure. */
 export function classifyTrackingError(error) {
   const status=Number(error?.httpStatus);
   if (error?.rateLimited===true || status===429 ||
-      (status===403 && /rate[ -]?limit|secondary|abuse detection|quota/i.test(String(error?.message||''))))
+      (status===403 && /rate[ -]?limit|abuse detection|quota/i.test(String(error?.message||''))))
     return {kind:'rate-limit',message:'GitHub limite temporairement les requêtes. Le rendu continue. Attends quelques minutes avant d’actualiser.'};
   if (status===401 || status===403)
     return {kind:'auth',message:'Accès GitHub refusé. Vérifie les autorisations du jeton, puis actualise le suivi.'};
