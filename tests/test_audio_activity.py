@@ -50,8 +50,8 @@ class AudibleNarrationTests(unittest.TestCase):
         }
         target.with_suffix(".json").write_text(json.dumps(details))
         target.with_suffix(".srt").write_text(
-            "1\\n00:00:00,000 --> 00:00:01,500\\nLa première scène.\\n\\n"
-            "2\\n00:00:01,500 --> 00:00:03,000\\nLa deuxième scène.\\n")
+            "1\n00:00:00,000 --> 00:00:01,500\nLa première scène.\n\n"
+            "2\n00:00:01,500 --> 00:00:03,000\nLa deuxième scène.\n")
         return target
 
     def test_silent_aac_cannot_pass_narrated_video_qa(self):

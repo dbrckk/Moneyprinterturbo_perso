@@ -190,7 +190,7 @@ def audio_loudness(video: Path) -> dict[str, object]:
     quiet: list[list[float]] = []
     beginning: float | None = None
     # FFmpeg can report silence_end at EOF, even for a fully silent track.
-    for event in re.finditer(r"silence_(start|end):\\s*([0-9]+(?:\\.[0-9]+)?)",
+    for event in re.finditer(r"silence_(start|end):\s*([0-9]+(?:\.[0-9]+)?)",
                              process.stderr):
         position = float(event.group(2))
         if event.group(1) == "start":
