@@ -31,6 +31,12 @@ jobs:
         with:
           path: .clip-cache
           key: mpt-clip-q8-xenova-6ef1ebc-v1
+      - name: Install FFmpeg when unavailable
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
       - name: Create two local image candidates
         shell: bash
         run: |
