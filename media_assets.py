@@ -382,14 +382,15 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             retention = crop_retention(
                 info.get("thumbwidth", info.get("width")),
                 info.get("thumbheight", info.get("height")), target_aspect)
-            # Content relevance and photo/media type remain higher priorities.
-            # Among otherwise equivalent sources prefer less content lost to crop.
+            # Relevance must outrank a weak text-only media-class guess:
+            # a barely related photograph must not beat a clearly described
+            # artwork. Break relevance ties by medium and then crop suitability.
             ranking_retention = retention if retention is not None else 0.5
-            ranked.append((medium_rank, -score, -ranking_retention,
+            ranked.append((-score, medium_rank, -ranking_retention,
                            int(page.get("index", 100000)), page, info,
                            license_name, url, page_url, medium, retention))
     ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
-    for _, _negscore, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
+    for _negscore, _, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
         if len(assets) >= limit:
             break
         title = str(page.get("title", ""))
@@ -605,9 +606,11 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             for key in ("api_seconds", "download_seconds", "verification_seconds",
                         "download_bytes", "download_attempts"):
                 timings[key] = timings.get(key, 0) + second_timings.get(key, 0)
-        assets = sorted(assets[:limit], key=lambda a:
-                        (_MEDIUM_PRIORITY.get(a.visual_medium, 1),
-                         -(a.crop_retention_estimate if a.crop_retention_estimate is not None else 0.5)))
+        # commons_assets already orders by textual relevance, medium and crop.
+        # Do not re-sort by medium/crop alone: that would put a weakly related
+        # photograph ahead of a more relevant visual during scene assignment.
+        # Any supplementary assets stay behind the initial query's matches.
+        assets = assets[:limit]
         return assets, notices, timings
 
     results: dict[str, tuple[list[MediaAsset], list[str], dict[str, float | int]]] = {}
