@@ -48,12 +48,12 @@ that Commons finds all translations or that the pixels depict the topic.
 Title matches still count more than description matches, and the existing
 landscape/person disambiguation and CC0/public-domain filter are retained.
 
-For new Commons assets, the scene manifest now includes
+For new primary-search Commons assets, the scene manifest now includes
 `query_term_count` and `query_term_coverage` (0–1) based on textual filename
 and Commons-description evidence. Two or more requested visual terms with
 fewer than half matched produce a **non-blocking** publication-review warning
-in `video.quality.json`. Locally supplied files and older manifests without
-those measurements are not assigned fabricated scores.
+in `video.quality.json`. Locally supplied files, images returned by broadened secondary searches and
+older manifests without comparable measurements are not assigned fabricated scores.
 
 The video QA pass also samples the **rendered MP4**, not Wikimedia thumbnails:
 at the midpoint of each scene, FFmpeg extracts 16×16 grayscale pixels.
