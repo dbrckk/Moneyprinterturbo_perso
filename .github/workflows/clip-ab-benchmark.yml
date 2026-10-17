@@ -73,7 +73,14 @@ jobs:
               fp.write(f"Commons downloads: {m['commons_seconds']}s; local CLIP inference: "
                        f"{m['semantic_seconds']}s.\n\n")
               fp.write('**Not an accuracy score.** Review the direct contact sheet and '
-                       'manual rating CSV before preferring a default setting.\n')
+                       'manual rating CSV before preferring a default setting.\n\n')
+              fp.write('| Visual query | Candidate pair | CLIP decision |\n'
+                       '|---|---|---|\n')
+              for case in m['cases']:
+                  status = 'ready' if case['status']=='evaluated' else 'insufficient licensed media'
+                  decision = ('changed' if case.get('changed') else 'retained') if (
+                      case['status']=='evaluated') else 'not evaluated'
+                  fp.write(f"| {case['query']} | {status} | {decision} |\n")
           PY
       - name: Direct visual before/after sheet for Android
         uses: actions/upload-artifact@v7
