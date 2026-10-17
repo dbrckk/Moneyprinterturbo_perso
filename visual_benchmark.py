@@ -8,6 +8,7 @@ no unreviewed automatic metric is called an accuracy improvement.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import html
 import json
@@ -182,15 +183,22 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
     collected: dict[str, tuple] = {}
     notices: dict[str, list[str]] = {}
     started = time.perf_counter()
-    for index, query in enumerate(queries):
+    def retrieve(entry: tuple[int, str]) -> tuple[str, list, list[str]]:
+        index, query = entry
         folder = work / f"case_{index:02}"
         folder.mkdir(parents=True, exist_ok=True)
         try:
             assets, warnings = fetch(query, folder, limit=2, target_aspect=9 / 16)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
             assets, warnings = [], [f"Source lookup failed: {type(exc).__name__}"]
-        collected[query] = (assets, warnings, {})
-        notices[query] = warnings
+        return query, assets, warnings
+
+    # Media downloads are independent and bounded to three parallel Commons
+    # requests; model inference still happens once after all lookups finish.
+    with ThreadPoolExecutor(max_workers=min(3, len(queries))) as pool:
+        for query, assets, warnings in pool.map(retrieve, enumerate(queries)):
+            collected[query] = (assets, warnings, {})
+            notices[query] = warnings
     commons_seconds = round(time.perf_counter() - started, 3)
 
     # One model initialization for the full comparison, no per-scene reloading.
