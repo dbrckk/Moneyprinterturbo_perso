@@ -115,8 +115,10 @@ class SemanticRankingTests(unittest.TestCase):
                     ["forest", "river", "mountain", "sea"], root,
                     semantic_ranking=True, stats=stats)
             self.assertEqual(len(found), 4)
-            self.assertEqual(sum(call.kwargs["limit"] for call in get.call_args_list), 8)
-            self.assertEqual(stats["image_variants_budget"], 8)
+            # "sea" is not in the intentionally conservative prompt glossary:
+            # no extra image download should be spent on an unsupported query.
+            self.assertEqual(sum(call.kwargs["limit"] for call in get.call_args_list), 7)
+            self.assertEqual(stats["image_variants_budget"], 7)
             self.assertEqual(stats["semantic_status"], "ok")
 
 
