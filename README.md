@@ -1,6 +1,6 @@
 # MoneyPrinterTurbo Perso — Free Studio
 
-**Studio Android actuel : https://infinite-link-65wdd6s.shipstatic.com** — MP4 sans ZIP, alignement Whisper et caches facultatifs.
+**Studio Android actuel : https://floating-loop-r8dne4k.shipstatic.com** — MP4 sans ZIP, alignement Whisper et caches facultatifs.
 
 Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depuis GitHub Actions sur Android**. Le projet comporte deux chemins complémentaires :
 
@@ -142,7 +142,7 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://infinite-link-65wdd6s.shipstatic.com**
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://floating-loop-r8dne4k.shipstatic.com**
 
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
