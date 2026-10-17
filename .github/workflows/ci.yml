@@ -16,6 +16,8 @@ on:
       - video_qa.py
       - media_assets.py
       - semantic_rank.py
+      - visual_benchmark.py
+      - .github/workflows/clip-ab-benchmark.yml
       - semantic/**
       - visual_hash.py
       - .github/workflows/free-video.yml
@@ -76,7 +78,7 @@ jobs:
           node --test semantic/test_clip_rank.mjs
           node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs tests/test_run_lifecycle.mjs
       - name: Static compilation
-        run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py video_qa.py studio_server.py tests
+        run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py visual_benchmark.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests

@@ -70,3 +70,50 @@ real inference on two generated sample PNG files.
 A human still needs to inspect the rendered scene contact sheet: CLIP can
 confuse near-duplicate landscapes, styles, art, names, and obscure French
 concepts. Turn this off if speed is more important than experimentation.
+
+## A/B measurement on real Wikimedia images
+
+The additional [`visual_benchmark.py`](../visual_benchmark.py) and
+[`CLIP A/B Visual Benchmark`](../.github/workflows/clip-ab-benchmark.yml)
+workflow run a bounded, on-demand comparison on **real** Commons media.
+Five fixed scene topics are searched with the same CC0/public-domain policy
+as production; two verified thumbnails per topic are needed to form a pair.
+At most three searches run concurrently and the model is initialized once.
+The workflow exports:
+
+- **Direct `contact-sheet.png` for Android:** left column is the existing
+  Commons textual selection and right column is optional CLIP selection
+  (rows correspond to the query order shown in the workflow summary).
+- **Direct `metrics.json`:** number of eligible pairs, whether CLIP changed
+  the selected source, individual provenance and timings; no claim of
+  objective accuracy.
+- **`clip-ab-human-review` archive:** offline HTML with original images,
+  authors and licenses, and `human-review.csv` for explicit ratings.
+
+The first actual workflow run on **17 October 2026** evaluated two of five
+topics and CLIP changed **zero** selected source images. That is a
+*coverage/decision observation*, **not evidence of a visual-quality gain**.
+Other topics had fewer than two verified licensed candidate files, so they
+are not scored. The default therefore remains **off**.
+
+For a local comparison after `npm install --prefix semantic`, FFmpeg and
+FFprobe are installed:
+
+```bash
+python visual_benchmark.py --output outputs/clip-ab-benchmark
+```
+
+Open the HTML and PNG review artifacts. In the CSV template, fill the
+`human_choice_baseline_clip_tie_both_bad` column with one of `baseline`,
+`clip`, `tie`, or `both_bad`; leave undecided cases blank. Then aggregate
+only actual human votes (no download or model is needed):
+
+```bash
+python visual_benchmark.py --output outputs/clip-ab-benchmark \
+  --score-reviews outputs/clip-ab-benchmark/human-review.csv
+```
+
+The output `human-score.json` counts decisive preferences on changed
+source images. Choosing an algorithm as winner when both variants show the
+*same source image* is explicitly rejected. Sample sizes remain small and
+voluntary; the scoring tool **does not automatically change the default**.
