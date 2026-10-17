@@ -71,6 +71,12 @@ on:
         type: choice
         options: [commons, abstract]
         default: commons
+      visual_ai:
+        description: Comparaison visuelle CLIP sur CPU (facultative, plus lente)
+        required: true
+        type: choice
+        options: ['off', clip]
+        default: 'off'
       lang:
         description: Langue et voix
         required: true
@@ -120,6 +126,18 @@ jobs:
           fi
           ffmpeg -hide_banner -version | head -1
           espeak --version | head -1
+      - name: Restore optional CLIP weights cache
+        if: ${{ inputs.visual_ai == 'clip' && inputs.visuals == 'commons' }}
+        uses: actions/cache@v4
+        with:
+          path: .clip-cache
+          key: mpt-clip-q8-xenova-6ef1ebc-v1
+      - name: Install optional local CPU vision classifier
+        if: ${{ inputs.visual_ai == 'clip' && inputs.visuals == 'commons' }}
+        run: |
+          node --version
+          npm install --prefix semantic --no-audit --no-fund
+          node --test semantic/test_clip_rank.mjs
       - name: Restore Qwen model cache (subsequent renders)
         if: ${{ inputs.script_mode == 'local-ai' && inputs.script == '' }}
         uses: actions/cache@v4
@@ -189,6 +207,8 @@ jobs:
           SCRIPT_TEXT: ${{ inputs.script }}
           SCRIPT_MODE: ${{ inputs.script_mode }}
           VISUAL_MODE: ${{ inputs.visuals }}
+          VISUAL_AI: ${{ inputs.visual_ai }}
+          MPT_CLIP_CACHE_DIR: ${{ github.workspace }}/.clip-cache
           VISUAL_STYLE: ${{ inputs.visual_style }}
           TRANSITION: ${{ inputs.transition }}
           CAPTION_STYLE: ${{ inputs.caption_style }}
@@ -213,6 +233,7 @@ jobs:
             echo 'Unknown speech engine' >&2; exit 1
           fi
           if [[ "$VISUAL_MODE" == "commons" ]]; then ARGS+=(--commons); fi
+          if [[ "$VISUAL_AI" == "clip" ]]; then ARGS+=(--visual-ai clip); fi
           if [[ -n "$SCENE_QUERIES" ]]; then ARGS+=(--scene-queries "$SCENE_QUERIES"); fi
           python free_studio.py "${ARGS[@]}"
       - name: Verify output contains video and audio streams
