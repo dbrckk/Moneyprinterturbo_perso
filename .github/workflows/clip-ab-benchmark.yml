@@ -1,0 +1,103 @@
+name: CLIP A/B Visual Benchmark
+on:
+  push:
+    paths:
+      - visual_benchmark.py
+      - tests/test_visual_benchmark.py
+      - .github/workflows/clip-ab-benchmark.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install video inspection tools
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+      - name: Verify benchmark safety and non-ML fallback tests
+        run: python -m unittest discover -s tests -p 'test_visual_benchmark.py' -v
+      - name: Install local optional CLIP runtime
+        run: npm install --prefix semantic --no-audit --no-fund
+      - name: Restore pinned model weights cache
+        uses: actions/cache@v4
+        with:
+          path: .clip-cache
+          key: mpt-clip-q8-xenova-6ef1ebc-v1
+      - name: Benchmark real Wikimedia Commons candidates and CLIP on CPU
+        env:
+          MPT_CLIP_CACHE_DIR: ${{ github.workspace }}/.clip-cache
+        run: python visual_benchmark.py --output outputs/clip-ab-benchmark
+      - name: Verify benchmark measured comparisons, never fabricated accuracy
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          base = Path('outputs/clip-ab-benchmark')
+          metrics = json.loads((base/'metrics.json').read_text(encoding='utf-8'))
+          assert metrics['semantic_status']=='ok', metrics['warnings']
+          assert metrics['evaluated_cases']>=2
+          assert metrics['human_reviews_completed']==0
+          assert metrics['changed_cases']+metrics['retained_cases']==metrics['evaluated_cases']
+          assert 'accuracy' not in metrics
+          assert (base/'contact-sheet.png').stat().st_size>1000
+          assert (base/'human-review.csv').stat().st_size>40
+          print('A/B comparisons and human-review assets validated:', {
+              k: metrics[k] for k in ('evaluated_cases','changed_cases','retained_cases',
+                                      'commons_seconds','semantic_seconds')})
+          PY
+      - name: Add results summary without claiming visual correctness
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          m=json.loads(Path('outputs/clip-ab-benchmark/metrics.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fp:
+              fp.write('## Commons lexical vs CLIP — A/B review\n\n')
+              fp.write(f"Evaluated pairs: **{m['evaluated_cases']}**; decisions changed: "
+                       f"**{m['changed_cases']}**; unchanged: **{m['retained_cases']}**.\n\n")
+              fp.write(f"Commons downloads: {m['commons_seconds']}s; local CLIP inference: "
+                       f"{m['semantic_seconds']}s.\n\n")
+              fp.write('**Not an accuracy score.** Review the direct contact sheet and '
+                       'manual rating CSV before preferring a default setting.\n')
+          PY
+      - name: Direct visual before/after sheet for Android
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/clip-ab-benchmark/contact-sheet.png
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Direct metrics JSON for Android
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/clip-ab-benchmark/metrics.json
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Full review report, images and human annotations
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-ab-human-review
+          path: |
+            outputs/clip-ab-benchmark/report.html
+            outputs/clip-ab-benchmark/images/**
+            outputs/clip-ab-benchmark/metrics.json
+            outputs/clip-ab-benchmark/human-review.csv
+            outputs/clip-ab-benchmark/contact-sheet.png
+          retention-days: 7
+          if-no-files-found: error
