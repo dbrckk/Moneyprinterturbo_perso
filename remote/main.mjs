@@ -169,12 +169,13 @@ async function lookupRun() {
   if (!active || Date.now() - lastPoll < 1500) return;
   const lookupFor=active.id;
   const generation = runSelection.current();
-  if (lookupInFlight === lookupFor) return;
+  const lookupKey = `${lookupFor}:${generation}`;
+  if (lookupInFlight === lookupKey) return;
   if (navigator.onLine === false) {
     setStatus('running','Connexion nécessaire','Le rendu GitHub continue. Le suivi reprendra au retour du réseau.');
     return;
   }
-  lookupInFlight = lookupFor;
+  lookupInFlight = lookupKey;
   lastPoll = Date.now();
   try {
     // Known historical runs can fall outside the most recent 30 workflow runs.
@@ -198,7 +199,7 @@ async function lookupRun() {
   } catch (error) {
     if (runSelection.isCurrent(generation) && active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
   } finally {
-    if (lookupInFlight === lookupFor) lookupInFlight = null;
+    if (lookupInFlight === lookupKey) lookupInFlight = null;
   }
 }
 function stopPoll() { if (pollTimer !== null) { clearInterval(pollTimer); pollTimer=null; } }
