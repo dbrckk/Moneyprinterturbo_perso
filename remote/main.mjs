@@ -6,7 +6,8 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
-  isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError } from './run_lifecycle.mjs';
+  isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError,
+  isGithubRateLimited } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -165,8 +166,12 @@ async function api(url, options = {}) {
   if (!response.ok) {
     let data = {};
     try { data = await response.json(); } catch { /* non-json GitHub response */ }
+    // Classify from the ORIGINAL GitHub message/headers. safeError(403)
+    // deliberately hides GitHub's message, including its quota details.
+    const rateLimited = isGithubRateLimited(response.status, data?.message, response.headers);
     const err = new Error(safeError(response.status, data));
     err.httpStatus = response.status;
+    err.rateLimited = rateLimited;
     throw err;
   }
   return response.status === 204 ? null : response.json();
