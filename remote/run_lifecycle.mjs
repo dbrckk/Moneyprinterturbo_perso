@@ -20,3 +20,9 @@ export function shouldVerifyCompletedRun(record) {
     typeof record.id === 'string' && /^studio-[0-9a-f-]{36}$/i.test(record.id) &&
     Number.isSafeInteger(Number(record.runId)) && Number(record.runId) > 0;
 }
+
+/** Ignore late replies from a previously selected history entry. */
+export function createRunSelection() {
+  let generation=0;
+  return {select(){return ++generation;},current(){return generation;},isCurrent(value){return value===generation;}};
+}

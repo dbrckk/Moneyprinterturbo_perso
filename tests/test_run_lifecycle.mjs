@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldAutoResume,shouldVerifyCompletedRun} from '../remote/run_lifecycle.mjs';
+import {shouldAutoResume,shouldVerifyCompletedRun,createRunSelection} from '../remote/run_lifecycle.mjs';
 const now=Date.parse('2026-10-17T08:00:00Z');
 const base={id:'studio-12345678-1234-1234-1234-123456789abc',
   createdAt:new Date(now-3600_000).toISOString(),state:'Demande envoyée'};
@@ -30,4 +30,12 @@ test('completed run needs a valid GitHub run and request id',()=>{
     assert.equal(shouldVerifyCompletedRun({...base,state:'Réussi',runId:id}),false);
   }
   assert.equal(shouldVerifyCompletedRun({...base,state:'Réussi',id:'bad',runId:1001}),false);
+});
+
+test('stale history replies cannot update a newly selected run',()=>{
+ const session=createRunSelection();const first=session.select();
+ assert.equal(session.isCurrent(first),true);
+ const next=session.select();assert.equal(session.isCurrent(first),false);
+ assert.equal(session.isCurrent(next),true);
+ assert.equal(session.current(),next);
 });

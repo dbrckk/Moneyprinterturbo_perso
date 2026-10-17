@@ -105,3 +105,6 @@ Un état local « Réussi » n'autorise plus directement l'affichage des fichier
 Un workflow de déploiement GitHub Pages se déclenche automatiquement quand un fichier de `remote/` change sur `main`. Il vérifie si le dépôt est configuré avec **GitHub Actions** comme source Pages. Tant que cette option n'est pas activée, il termine sans prétendre avoir déployé le site et affiche une instruction dans son récapitulatif. Pour l'activer une seule fois : **GitHub → Moneyprinterturbo_perso → Settings → Pages → Build and deployment → GitHub Actions**. Après le premier déploiement réussi, l'URL devrait être `https://dbrckk.github.io/Moneyprinterturbo_perso/` et restera stable entre mises à jour. Le navigateur conserve les brouillons uniquement par origine : importer un brouillon de ShipStatic sur GitHub Pages requiert d'utiliser les contrôles de copie/restauration prévus dans le studio.
 
 La création d'un sous-domaine fixe ShipStatic a été essayée, mais refusée par la limite de domaines du compte. Nous ne redirigeons aucun autre projet existant, et GitHub Pages ne demande pas de jeton d'IA ni d'abonnement.
+
+
+Le suivi et les téléchargements ignorent maintenant les réponses réseau arrivées après un changement de rendu sélectionné dans l'historique Android, y compris lors du retour au même rendu.

@@ -4,7 +4,7 @@ import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
-import { shouldAutoResume, shouldVerifyCompletedRun } from './run_lifecycle.mjs';
+import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -15,6 +15,7 @@ let active = null;
 let pollTimer = null;
 let lastPoll = 0;
 let lookupInFlight = null;
+const runSelection = createRunSelection();
 
 function storageRead(key, fallback) {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
@@ -82,7 +83,7 @@ function showHistory() {
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
     button.addEventListener('click', () => {
-      stopPoll(); active = item;
+      stopPoll(); runSelection.select(); active = item;
       for (const id of ['download-video','preview-storyboard','download-subtitles','download-quality']) $(id).hidden = true;
       lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href;
       setStatus('running','Suivi','Recherche de la demande dans GitHub Actions…');
@@ -98,9 +99,10 @@ function replaceHistory(record) {
   rows.unshift(record); historySave(rows); showHistory();
 }
 async function resolveDirectVideo(run, requestId) {
+  const generation = runSelection.current();
   try {
     const response = await api(runArtifactsEndpoint(run.id));
-    if (!active || active.id !== requestId || active.runId !== run.id) return;
+    if (!runSelection.isCurrent(generation) || !active || active.id !== requestId || active.runId !== run.id) return;
     const storyboard = findDirectStoryboard(response?.artifacts);
     const preview = $('preview-storyboard');
     preview.hidden = !storyboard;
@@ -124,7 +126,7 @@ async function resolveDirectVideo(run, requestId) {
     $('download-video').hidden = false;
     setStatus('success', 'Vidéo prête', 'Le MP4 est accessible sans ZIP avec le bouton ci-dessous. GitHub peut demander une connexion à ton compte. Les sous-titres SRT et le rapport qualité sont aussi disponibles séparément lorsque les artefacts existent ; les autres fichiers restent dans l’archive.');
   } catch (error) {
-    if (active?.id === requestId) setStatus('success', 'Vidéo prête', 'Lien MP4 direct indisponible : ' + error.message + ' Tu peux toujours ouvrir le rendu sur GitHub.');
+    if (runSelection.isCurrent(generation) && active?.id === requestId) setStatus('success', 'Vidéo prête', 'Lien MP4 direct indisponible : ' + error.message + ' Tu peux toujours ouvrir le rendu sur GitHub.');
   }
 }
 function updateRun(run) {
@@ -166,6 +168,7 @@ async function api(url, options = {}) {
 async function lookupRun() {
   if (!active || Date.now() - lastPoll < 1500) return;
   const lookupFor=active.id;
+  const generation = runSelection.current();
   if (lookupInFlight === lookupFor) return;
   if (navigator.onLine === false) {
     setStatus('running','Connexion nécessaire','Le rendu GitHub continue. Le suivi reprendra au retour du réseau.');
@@ -179,20 +182,21 @@ async function lookupRun() {
     let matched;
     if (active.runId) {
       const known = await api(knownRunEndpoint(active.runId));
-      if (!active || active.id !== lookupFor) return;
+      if (!runSelection.isCurrent(generation) || !active || active.id !== lookupFor) return;
       if (!isExpectedRun(known, lookupFor)) {
         throw new Error('Ce rendu GitHub ne correspond pas à la demande sauvegardée.');
       }
       matched = known;
     } else {
       const result = await api(RUNS_ENDPOINT);
-      if (!active || active.id !== lookupFor) return;
+      if (!runSelection.isCurrent(generation) || !active || active.id !== lookupFor) return;
       matched = findRun(result?.workflow_runs, lookupFor);
     }
+    if (!runSelection.isCurrent(generation)) return;
     if (matched) updateRun(matched);
     else if (!active.runId) setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
   } catch (error) {
-    if (active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
+    if (runSelection.isCurrent(generation) && active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
   } finally {
     if (lookupInFlight === lookupFor) lookupInFlight = null;
   }
@@ -264,6 +268,7 @@ $('video-form').addEventListener('submit', async event => {
   const launch=$('launch');launch.disabled=true;launch.querySelector('span').textContent='Envoi vers GitHub…';
   try {
     await api(`${API_ROOT}/actions/workflows/free-video.yml/dispatches`,{method:'POST',body:JSON.stringify(dispatchBody(values,id))});
+    runSelection.select();
     active={id,topic:values.topic,createdAt:new Date().toISOString(),state:'Demande envoyée'};
     $('download-video').hidden = true;
     $('preview-storyboard').hidden = true;
@@ -305,7 +310,7 @@ function startOfflineShell() {
 restoreDraft();showScenes();showHistory();startOfflineShell();
 const previous=loadHistory()[0];
 if (previous) {
-  active=previous;
+  runSelection.select();active=previous;
   $('run-actions').hidden=false;
   $('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;
   setStatus('',previous.state||'Dernière demande','Demande restaurée. Le suivi peut reprendre automatiquement.');
