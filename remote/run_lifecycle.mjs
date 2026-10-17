@@ -47,10 +47,26 @@ export function recentUnconfirmedRequest(records, topic, now=Date.now()) {
   }) ?? null;
 }
 
+/** Preserve rate-limit signals before GitHub's response is translated into a
+ * generic French authorization message. A 403 alone is NOT a quota error.
+ */
+export function isGithubRateLimited(status, rawMessage='', headers=null) {
+  if (status===429) return true;
+  if (status!==403) return false;
+  const header = name => {
+    const value = typeof headers?.get==='function' ? headers.get(name) : headers?.[name];
+    return typeof value==='string' ? value.trim() : null;
+  };
+  return header('x-ratelimit-remaining')==='0' ||
+    header('retry-after')!==null ||
+    /rate[ -]?limit|secondary|abuse detection|quota/i.test(String(rawMessage||''));
+}
+
 /** GitHub API rate limiting is a temporary state, never a render failure. */
 export function classifyTrackingError(error) {
   const status=Number(error?.httpStatus);
-  if (status===429 || status===403 && /rate.limit|quota|secondary/i.test(String(error?.message||'')))
+  if (error?.rateLimited===true || status===429 ||
+      (status===403 && /rate[ -]?limit|secondary|abuse detection|quota/i.test(String(error?.message||''))))
     return {kind:'rate-limit',message:'GitHub limite temporairement les requêtes. Le rendu continue. Attends quelques minutes avant d’actualiser.'};
   if (status===401 || status===403)
     return {kind:'auth',message:'Accès GitHub refusé. Vérifie les autorisations du jeton, puis actualise le suivi.'};
