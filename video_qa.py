@@ -198,6 +198,17 @@ def audio_loudness(video: Path) -> dict[str, object]:
         elif beginning is not None and position >= beginning:
             quiet.append([round(beginning, 4), round(position, 4)])
             beginning = None
+    # Some FFmpeg builds leave an open silence_start at EOF. Preserve it,
+    # otherwise an entirely quiet AAC stream can escape per-scene checks.
+    if beginning is not None:
+        try:
+            duration = float(json.loads(execute([
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "json", str(video)], timeout=25).stdout)["format"]["duration"])
+            if math.isfinite(duration) and duration > beginning:
+                quiet.append([round(beginning, 4), round(duration, 4)])
+        except (KeyError, TypeError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+            pass
     return {"integrated_lufs": round(lufs, 2) if math.isfinite(lufs) else None,
             "true_peak_dbfs": (round(true_peak, 2) if true_peak is not None
                                and math.isfinite(true_peak) else None),

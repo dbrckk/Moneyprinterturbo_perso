@@ -94,6 +94,49 @@ class VideoQualityTests(unittest.TestCase):
         self.assertFalse(any('center crop' in warning for warning in report['warnings']))
         self.assertFalse(any('may be artwork' in warning for warning in report['warnings']))
 
+
+    def test_silent_aac_track_fails_audit_even_when_codec_valid(self):
+        silent = self.root / 'silent.mp4'
+        video_qa.execute([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'testsrc2=s=160x288:r=12:d=3',
+            '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono',
+            '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(silent),
+        ])
+        silent.with_suffix('.json').write_text(json.dumps(self.metadata), encoding='utf-8')
+        silent.with_suffix('.srt').write_text(self.subtitle.read_text(encoding='utf-8'),
+                                              encoding='utf-8')
+        result = video_qa.audit(silent)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['checks']['audio_codec'], 'aac')
+        self.assertTrue(any('silent AAC track' in error or 'almost entirely silent' in error
+                            for error in result['errors']), result['errors'])
+
+    def test_per_scene_missing_voice_is_detected(self):
+        clip = self.root / 'voice-gap.mp4'
+        video_qa.execute([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'testsrc2=s=160x288:r=12:d=3',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=3',
+            '-filter_complex', '[1:a]volume=enable=between(t\\,1.5\\,3):volume=0[a]',
+            '-map', '0:v', '-map', '[a]', '-t', '3',
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(clip),
+        ])
+        clip.with_suffix('.json').write_text(json.dumps(self.metadata), encoding='utf-8')
+        clip.with_suffix('.srt').write_text(self.subtitle.read_text(encoding='utf-8'),
+                                            encoding='utf-8')
+        result = video_qa.audit(clip)
+        self.assertFalse(result['ok'])
+        self.assertTrue(any('Scene 2' in error and 'silent' in error
+                            for error in result['errors']), result['errors'])
+
+    def test_silence_share_clips_intervals_to_scene(self):
+        self.assertAlmostEqual(video_qa.silence_share(1.5, 3.0,
+                               [[0.0, 1.7], [2.0, 2.5]]), 0.7 / 1.5)
+        self.assertEqual(video_qa.silence_share(2.0, 2.0, [[0, 3]]), 0)
+
     def test_cli_writes_failed_report(self):
         self.metadata['duration_seconds'] = 5.0
         self.video.with_suffix('.json').write_text(json.dumps(self.metadata), encoding='utf-8')
