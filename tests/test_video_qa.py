@@ -86,6 +86,55 @@ class VideoQualityTests(unittest.TestCase):
         self.assertTrue(any('reuse' in w for w in result['warnings']))
         self.assertFalse(any('Scene 2: source framing' in w for w in result['warnings']))
 
+    def test_weak_commons_text_evidence_warns_without_failing_delivery(self):
+        self.metadata['media'] = [{
+            'segment': 1, 'source': 'https://commons.wikimedia.org/wiki/File:Example.jpg',
+            'query_term_count': 3, 'query_term_coverage': 0.333
+        }, {
+            'segment': 2, 'source': 'local',
+            'query_term_count': 3, 'query_term_coverage': 0.0
+        }]
+        result = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertTrue(result['ok'], result['errors'])
+        self.assertTrue(any('Scene 1:' in w and 'search concepts' in w
+                            for w in result['warnings']))
+        self.assertFalse(any('Scene 2:' in w and 'search concepts' in w
+                             for w in result['warnings']))
+        self.metadata['media'][0]['query_term_coverage'] = 0.667
+        result = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertFalse(any('search concepts' in w for w in result['warnings']))
+
+    def test_midpoint_review_checks_rendered_pixels_not_source_filename(self):
+        report = video_qa.inspect_midpoint_frames(self.video, self.metadata['segments'])
+        self.assertEqual(len(report['scenes']), 2)
+        self.assertEqual(report['samples_unavailable'], 0)
+        self.assertFalse(any('almost entirely dark' in w for w in report['warnings']))
+        self.assertTrue(all(0 <= row['median_luma'] <= 255 for row in report['scenes']))
+
+        black = self.root / 'black.mp4'
+        video_qa.execute([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'color=c=black:s=160x288:r=12:d=3',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(black),
+        ])
+        bad = video_qa.inspect_midpoint_frames(black, self.metadata['segments'])
+        self.assertEqual(len(bad['scenes']), 2)
+        self.assertTrue(all('mostly-dark' in row['findings'] for row in bad['scenes']))
+        self.assertTrue(any('Scene 1:' in w and 'dark' in w for w in bad['warnings']))
+
+    def test_midpoint_review_is_nonfatal_if_ffmpeg_sampling_fails(self):
+        from unittest.mock import patch
+        from subprocess import TimeoutExpired
+        with patch.object(video_qa.subprocess, 'run',
+                          side_effect=TimeoutExpired('ffmpeg', 20)):
+            result = video_qa.inspect_midpoint_frames(
+                self.video, self.metadata['segments'])
+        self.assertEqual(result['samples_unavailable'], 2)
+        self.assertEqual(result['scenes'], [])
+        self.assertTrue(any('unavailable' in w for w in result['warnings']))
+
     def test_no_unwarranted_crop_or_art_warnings_for_old_metadata(self):
         self.metadata['media']=[{'segment':1,'source':'local'}]
         self.metadata['commons_fetch']={}
