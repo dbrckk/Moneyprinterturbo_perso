@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, safeError} from '../remote/core.mjs';
+import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, knownRunEndpoint, isExpectedRun, safeError} from '../remote/core.mjs';
 const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_style:'cinematic',caption_style:'kinetic',word_alignment:'estimated',transition:'auto'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
@@ -80,4 +80,21 @@ test('word alignment is explicit, opt-in, and restricted to kinetic captions', (
   assert.equal(dispatchBody({...valid,word_alignment:'forced'},uid).inputs.word_alignment,'forced');
   assert.throws(()=>validateDraft({...valid,word_alignment:'forged'}),/alignement/);
   assert.throws(()=>validateDraft({...valid,word_alignment:'forced',caption_style:'classic'}),/progressifs/);
+});
+
+
+test('saved GitHub runs can be resumed directly after leaving recent history', () => {
+  const run = {id: 12345, event:'workflow_dispatch',
+    display_title:runTitle(uid),head_branch:'main',status:'completed',conclusion:'success'};
+  assert.equal(knownRunEndpoint(12345),
+    'https://api.github.com/repos/dbrckk/Moneyprinterturbo_perso/actions/runs/12345');
+  assert.equal(knownRunEndpoint('12345'), knownRunEndpoint(12345));
+  assert.equal(isExpectedRun(run,uid), true);
+  for (const changes of [{event:'push'}, {display_title:'Unrelated run'},
+                         {head_branch:'other'}, {id:0}]) {
+    assert.equal(isExpectedRun({...run,...changes},uid),false);
+  }
+  for (const bad of [0,-1,'12?token=secret','1.5','abc',null,Number.MAX_SAFE_INTEGER+1]) {
+    assert.throws(()=>knownRunEndpoint(bad));
+  }
 });

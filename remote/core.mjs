@@ -97,6 +97,22 @@ export function findRun(runs, id) {
     r?.display_title === runTitle(id) && r?.head_branch === 'main') ?? null : null;
 }
 
+/** Resume a previously known run directly, even after it leaves the last 30. */
+export function knownRunEndpoint(runId) {
+  const id = Number(runId);
+  if (!Number.isSafeInteger(id) || id <= 0 || String(id) !== String(runId)) {
+    throw new Error('Identifiant de rendu GitHub invalide.');
+  }
+  return `${API_ROOT}/actions/runs/${id}`;
+}
+
+/** Do not accidentally show another workflow's output for a saved run ID. */
+export function isExpectedRun(run, requestId) {
+  return !!run && run.event === 'workflow_dispatch' &&
+    run.display_title === runTitle(requestId) && run.head_branch === 'main' &&
+    Number.isSafeInteger(Number(run.id)) && Number(run.id) > 0;
+}
+
 export function workflowRunLink(run) {
   const id = Number(run?.id);
   return Number.isSafeInteger(id) && id > 0 ? `https://github.com/${REPOSITORY}/actions/runs/${id}` : ACTIONS_URL;

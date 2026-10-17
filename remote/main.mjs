@@ -1,5 +1,6 @@
 import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
-  runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
+  runTitle, safeError, segmentsOf, validateDraft, workflowRunLink,
+  knownRunEndpoint, isExpectedRun } from './core.mjs';
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
@@ -159,9 +160,21 @@ async function lookupRun() {
   const lookupFor=active.id;
   lastPoll = Date.now();
   try {
-    const result = await api(RUNS_ENDPOINT);
-    if (!active || active.id !== lookupFor) return;
-    const matched = findRun(result?.workflow_runs, lookupFor);
+    // Known historical runs can fall outside the most recent 30 workflow runs.
+    // Query their exact numeric ID instead of losing the Android tracking link.
+    let matched;
+    if (active.runId) {
+      const known = await api(knownRunEndpoint(active.runId));
+      if (!active || active.id !== lookupFor) return;
+      if (!isExpectedRun(known, lookupFor)) {
+        throw new Error('Ce rendu GitHub ne correspond pas à la demande sauvegardée.');
+      }
+      matched = known;
+    } else {
+      const result = await api(RUNS_ENDPOINT);
+      if (!active || active.id !== lookupFor) return;
+      matched = findRun(result?.workflow_runs, lookupFor);
+    }
     if (matched) updateRun(matched);
     else if (!active.runId) setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
   } catch (error) {

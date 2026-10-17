@@ -79,3 +79,15 @@ Après une génération réussie, le studio affiche **« Voir toutes les scènes
 Les nouveaux rendus GitHub Actions publient quatre fichiers **séparés, sans ZIP** : le MP4 H.264, la planche PNG des scènes, le SRT éditable et le rapport `video.quality.json` (synchronisation, codec, LUFS mesurés et avertissements). Dans le panneau « Production » du studio HTTPS, ces liens s'affichent uniquement pour les artefacts GitHub réellement présents, non expirés et non vides. Les anciens rendus continuent d'afficher seulement les fichiers disponibles. Les crédits et fichiers avancés restent également dans l'archive complète.
 
 GitHub peut demander une connexion pour servir le fichier ; aucun jeton personnel n'est ajouté aux URL. Les artefacts de production expirent après 7 jours. Les fichiers autonomes sont facultatifs à la restauration du suivi, sans empêcher l'accès au MP4.
+
+
+## Reprendre un rendu ancien
+
+Le suivi Android interroge désormais directement l'API GitHub par identifiant de run
+quand une demande historique possède déjà son numéro. Cela fonctionne même
+lorsqu'elle n'apparaît plus dans les 30 dernières exécutions du workflow.
+Avant d'afficher un résultat, le studio compare le titre exact de la demande,
+la branche et le type de déclenchement : un numéro erroné ne peut pas
+être interprété comme une vidéo appartenant à cette demande. Les demandes
+n'ayant pas encore de numéro utilisent toujours la recherche récente.
+Le jeton GitHub n'est jamais inclus dans les liens de téléchargement.
