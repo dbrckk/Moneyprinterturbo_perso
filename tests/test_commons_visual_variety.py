@@ -34,6 +34,29 @@ class VisualDiversityTests(unittest.TestCase):
         self.assertEqual(stats["unique_images_selected"],3)
         self.assertEqual(errors,[])
 
+    def test_scene_selection_preserves_search_relevance_before_medium_and_crop(self):
+        # A search result has already been ranked by Commons textual evidence.
+        # Per-scene image rotation must not reverse it using weaker heuristics.
+        def search(query, folder, *, limit, timings, **kwargs):
+            return [
+                media.MediaAsset(folder / "best.jpg", "image",
+                    "https://commons.wikimedia.org/wiki/File:best.jpg",
+                    "CC0", "Example", "River gorge bridge painting",
+                    visual_medium="artwork-likely", crop_retention_estimate=0.3),
+                media.MediaAsset(folder / "weak.jpg", "image",
+                    "https://commons.wikimedia.org/wiki/File:weak.jpg",
+                    "CC0", "Example", "River photograph",
+                    visual_medium="photograph-likely", crop_retention_estimate=1.0)
+            ][:limit], []
+        with TemporaryDirectory() as folder, patch.object(
+                media, "commons_assets", side_effect=search):
+            selected, warnings = media.commons_scene_assets(
+                ["river gorge bridge", "river gorge bridge"], Path(folder),
+                max_searches=1, target_aspect=9/16)
+        self.assertEqual([selected[0].title, selected[1].title],
+                         ["River gorge bridge painting", "River photograph"])
+        self.assertEqual(warnings, [])
+
     def test_missing_signatures_preserve_url_ranking(self):
         def search(query, folder, *, limit, timings, **kwargs):
             return [asset(folder,"a",None),asset(folder,"b",None)][:limit], []
