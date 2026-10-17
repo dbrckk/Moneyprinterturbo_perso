@@ -119,3 +119,27 @@ class PiperAttributionTests(unittest.TestCase):
             self.assertIn("not automatically verified", video.with_suffix(".credits.txt").read_text())
             self.assertNotIn("License: https://creativecommons", video.with_suffix(".credits.txt").read_text())
             self.assertEqual(info["speech_engine"], "piper")
+
+
+class ProvenanceFileTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg required')
+    def test_muted_original_graphics_always_write_attribution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / 'sample.mp4'
+            studio.render('Forêt', 'La forêt est magnifique.', video,
+                          mute=True, resolution=360, fps=12)
+            credits = video.with_suffix('.credits.txt')
+            self.assertTrue(credits.is_file())
+            body = credits.read_text(encoding='utf-8')
+            self.assertIn('Original animated graphic backgrounds', body)
+            self.assertIn('Voice: None', body)
+
+    @unittest.skipUnless(all(shutil.which(n) for n in ('espeak','ffmpeg','ffprobe')), 'Audio tools required')
+    def test_espeak_original_graphics_attribution_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / 'spoken.mp4'
+            studio.render('Forêt', 'La forêt est magnifique.', video,
+                          lang='fr', resolution=360, fps=12)
+            body = video.with_suffix('.credits.txt').read_text(encoding='utf-8')
+            self.assertIn('eSpeak synthetic speech',body)
+            self.assertNotIn('SIWIS French medium',body)

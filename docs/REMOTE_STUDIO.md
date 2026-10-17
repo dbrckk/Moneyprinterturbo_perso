@@ -108,3 +108,8 @@ La création d'un sous-domaine fixe ShipStatic a été essayée, mais refusée p
 
 
 Le suivi et les téléchargements ignorent maintenant les réponses réseau arrivées après un changement de rendu sélectionné dans l'historique Android, y compris lors du retour au même rendu.
+
+
+### Crédits et fiche technique accessibles directement depuis Android
+
+Chaque nouveau rendu publie désormais **six fichiers individuels sans ZIP** : MP4, planche PNG, sous-titres SRT, rapport de qualité JSON, **crédits TXT** et **métadonnées des scènes JSON**. Les crédits sont générés même pour une vidéo muette sur fonds animés originaux : ce fichier indique explicitement qu'aucune image externe et aucune voix n'ont été utilisées. Les sorties eSpeak précisent la source de synthèse vocale sans attribuer à tort la licence SIWIS de Piper. Les liens n'apparaissent que si GitHub confirme que l'artefact est présent, non vide et non expiré. Les anciens rendus restent compatibles.

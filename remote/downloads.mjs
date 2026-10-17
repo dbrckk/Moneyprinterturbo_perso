@@ -3,6 +3,8 @@ export const MP4_ARTIFACT_NAME = 'video.mp4';
 export const STORYBOARD_ARTIFACT_NAME = 'video.storyboard.png';
 export const SUBTITLES_ARTIFACT_NAME = 'video.srt';
 export const QUALITY_ARTIFACT_NAME = 'video.quality.json';
+export const CREDITS_ARTIFACT_NAME = 'video.credits.txt';
+export const MANIFEST_ARTIFACT_NAME = 'video.json';
 export const REPO = 'dbrckk/Moneyprinterturbo_perso';
 
 function positiveId(id) {
@@ -35,6 +37,18 @@ export function findDirectSubtitles(artifacts) {
 export function findDirectQuality(artifacts) {
   if (!Array.isArray(artifacts)) return null;
   return artifacts.find(a => a && a.name === QUALITY_ARTIFACT_NAME &&
+    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+}
+
+export function findDirectCredits(artifacts) {
+  if (!Array.isArray(artifacts)) return null;
+  return artifacts.find(a => a && a.name === CREDITS_ARTIFACT_NAME &&
+    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+}
+
+export function findDirectManifest(artifacts) {
+  if (!Array.isArray(artifacts)) return null;
+  return artifacts.find(a => a && a.name === MANIFEST_ARTIFACT_NAME &&
     a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
 }
 

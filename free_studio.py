@@ -569,10 +569,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                            f"License: {item['license']} | "
                            f"Visual medium hint: {item['visual_medium']} | {item['source']}"
                            for item in media_used)
-        if voice_info or media_used:
-            credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
-        else:
-            credits_path.unlink(missing_ok=True)
+        # Always ship provenance, even for original gradients and eSpeak:
+        # Android publishers should never have to guess where visuals/voice came from.
+        if not media_used:
+            credits.append("Visuals: Original animated graphic backgrounds (no Commons or third-party media selected).")
+        if audio is None:
+            credits.append("Voice: None (muted output).")
+        elif tts == "espeak":
+            credits.append("Voice: eSpeak synthetic speech produced locally; review applicable voice rights before publication.")
+        credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
         metrics["total_seconds"] = round(time.perf_counter() - render_started, 3)
         info: dict[str, object] = {
             "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],

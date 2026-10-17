@@ -251,6 +251,20 @@ jobs:
           archive: false
           retention-days: 7
           if-no-files-found: error
+      - name: Crédits des sources directement sur Android (sans ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.credits.txt
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+      - name: Fiche des scènes et paramètres directement sur Android (sans ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.json
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Downloadable MP4
         uses: actions/upload-artifact@v4
         with:

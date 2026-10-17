@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MP4_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME,
   SUBTITLES_ARTIFACT_NAME, QUALITY_ARTIFACT_NAME,
+  CREDITS_ARTIFACT_NAME, MANIFEST_ARTIFACT_NAME,
   findDirectMp4, findDirectStoryboard, findDirectSubtitles, findDirectQuality,
+  findDirectCredits, findDirectManifest,
   directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
 
 test('only nonexpired, nonempty v7 MP4 artifact is eligible', () => {
@@ -57,4 +59,22 @@ test('optional unzipped subtitle and audio QA artifacts are separately validated
   assert.equal(findDirectQuality(null),null);
   assert.equal(findDirectSubtitles([]),null);
   assert.ok(directMp4Url(44,71).includes('github.com/dbrckk/'));
+});
+
+test('direct publisher attribution and project manifest require valid unexpired nonempty artifacts',()=>{
+  const assets=[
+    {id:91,name:CREDITS_ARTIFACT_NAME,expired:false,size_in_bytes:180},
+    {id:92,name:MANIFEST_ARTIFACT_NAME,expired:false,size_in_bytes:2900},
+    {id:93,name:CREDITS_ARTIFACT_NAME,expired:true,size_in_bytes:300},
+    {id:94,name:MANIFEST_ARTIFACT_NAME,expired:false,size_in_bytes:0},
+  ];
+  assert.equal(CREDITS_ARTIFACT_NAME,'video.credits.txt');
+  assert.equal(MANIFEST_ARTIFACT_NAME,'video.json');
+  assert.equal(findDirectCredits(assets).id,91);
+  assert.equal(findDirectManifest(assets).id,92);
+  assert.equal(findDirectCredits(assets.slice(2)),null);
+  assert.equal(findDirectManifest(assets.slice(3)),null);
+  assert.equal(findDirectCredits(null),null);
+  assert.equal(findDirectManifest([]),null);
+  assert.equal(findDirectCredits([{id:0,name:CREDITS_ARTIFACT_NAME,expired:false,size_in_bytes:4}]),null);
 });

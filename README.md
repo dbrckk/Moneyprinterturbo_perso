@@ -380,3 +380,7 @@ La création continue sur GitHub même après fermeture de l'onglet. Au retour s
 ### Option GitHub Pages : même adresse à chaque mise à jour
 
 Le workflow [Pages](.github/workflows/pages.yml) peut désormais publier automatiquement le studio quand le dossier `remote/` change, une fois la source Pages réglée sur **GitHub Actions** dans Settings → Pages. Tant que ce réglage manque, le workflow le signale et ne prétend pas qu'un site Pages existe. L'adresse prévisible est `https://dbrckk.github.io/Moneyprinterturbo_perso/`, à utiliser seulement après un premier déploiement réussi. Le studio ShipStatic existant reste disponible indépendamment.
+
+### Publication sur mobile avec crédits et fiche de montage
+
+Le panneau Android propose maintenant les crédits des sources et de la voix (`video.credits.txt`) ainsi que les scènes, paramètres et avertissements (`video.json`) **en fichiers individuels sans ZIP**. Chaque rendu génère un fichier de crédits, même quand toutes les images sont originales ou la vidéo est muette. Cette piste de provenance facilite la publication responsable des contenus.
