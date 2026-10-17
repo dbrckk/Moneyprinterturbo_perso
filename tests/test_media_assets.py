@@ -299,6 +299,14 @@ class ScenicCandidateSafetyTests(unittest.TestCase):
         self.assertEqual(media.safe_scenic_score("océan",
             "File:Ocean-Morel-Fatio.jpg", "A painting of an ocean"), 0)
 
+    def test_translated_nature_alias_cannot_validate_a_surname_alone(self):
+        self.assertEqual(media.safe_scenic_score(
+            "forêt", "File:Jean Forest.jpg", "Jean Forest"), 0)
+        self.assertEqual(media.safe_scenic_score(
+            "forest", "File:Jean Forêt.jpg", "Jean Forêt"), 0)
+        self.assertGreater(media.safe_scenic_score(
+            "forêt", "File:Forest panorama.jpg", "Landscape photograph"), 0)
+
     def test_real_landscape_context_remains_eligible(self):
         self.assertGreater(media.safe_scenic_score("montagne",
             "File:Panorama montagne alps.jpg", "A mountain summit view"), 0)
