@@ -223,6 +223,42 @@ class CommonsRelevanceTests(unittest.TestCase):
         self.assertEqual(media.relevance_score('forêt montagne','File:Car showroom.jpg','Voiture électrique'),0)
         self.assertGreater(media.relevance_score('énergie solaire','File:Energie solaire.jpg'),0)
 
+    def test_bilingual_visual_concepts_are_bounded_and_explainable(self):
+        evidence = media.lexical_evidence(
+            "forêt neige", "File:Forest snow landscape.jpg")
+        self.assertEqual(evidence["query_terms"], 2)
+        self.assertEqual(evidence["matched_terms"], 2)
+        self.assertEqual(evidence["coverage"], 1.0)
+        self.assertEqual(evidence["score"], 6)
+        self.assertGreater(media.relevance_score("rivière", "File:River.jpg"), 0)
+        self.assertEqual(media.relevance_score(
+            "batterie électrique", "File:Electric battery.jpg"), 0)
+        self.assertEqual(media.lexical_evidence(
+            "forêt montagne château", "File:Forest.jpg")["coverage"], 0.333)
+
+    def test_commons_keeps_bilingual_evidence_with_author_and_license(self):
+        page = {"query": {"pages": {"1": {
+            "title": "File:Forest snow panorama.jpg", "index": 1,
+            "imageinfo": [{
+                "thumburl": "https://upload.wikimedia.org/test.jpg",
+                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Forest_snow_panorama.jpg",
+                "extmetadata": {"LicenseShortName": {"value": "CC0"},
+                                "Artist": {"value": "Author"}}
+            }]
+        }}}}
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(media, "_read_limited", side_effect=[
+                json.dumps(page).encode(), b"fake-image"
+            ]), patch.object(media, "media_dimensions", return_value=(900, 1600)):
+                selected, warnings = media.commons_assets(
+                    "forêt neige", Path(folder), limit=1)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(warnings, [])
+        self.assertEqual(selected[0].query_term_count, 2)
+        self.assertEqual(selected[0].query_term_coverage, 1.0)
+        self.assertEqual(selected[0].metadata()["query_term_coverage"], 1.0)
+        self.assertEqual(selected[0].license, "CC0")
+
     @unittest.skipUnless(FFMPEG, 'FFmpeg required')
     def test_commons_prefers_relevant_photo_over_top_unrelated_result(self):
         with tempfile.TemporaryDirectory() as name:
