@@ -255,7 +255,15 @@ def safe_scenic_score(query: str, title: str, description: str = "") -> int:
     content_words = _words(title + " " + description)
     if content_words & _NON_SCENIC_SUBJECT_WORDS:
         return 0
-    if not ((content_words - scenic_words) & _SCENIC_CONTEXT_WORDS):
+    # A translated alias of the requested subject is NOT independent scenic
+    # context: 'Jean Forest' must not satisfy a request for 'forêt' merely
+    # because 'forest' is both an English alias and a context word.
+    scenic_concepts = _concepts(scenic_words)
+    independent_context = {
+        word for word in content_words
+        if _VISUAL_CONCEPTS.get(word, word) not in scenic_concepts
+    }
+    if not (independent_context & _SCENIC_CONTEXT_WORDS):
         return 0
     return score
 
