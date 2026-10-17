@@ -89,7 +89,10 @@ def _plain(value: str) -> str:
 
 
 def _field(info: dict, name: str) -> str:
-    value = info.get("extmetadata", {}).get(name, {})
+    metadata = info.get("extmetadata", {})
+    if not isinstance(metadata, dict):
+        return ""
+    value = metadata.get(name, {})
     return str(value.get("value", "")) if isinstance(value, dict) else ""
 
 
@@ -103,12 +106,28 @@ def _trusted_url(url: str, *, api: bool = False) -> bool:
         return False
 
 
+class _TrustedRedirectHandler(request.HTTPRedirectHandler):
+    """Validate the redirect destination *before* any new HTTP request."""
+
+    def __init__(self, *, api: bool):
+        self.api = api
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _trusted_url(newurl, api=self.api):
+            raise ValueError("Cross-host redirect blocked before request")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _read_limited(url: str, max_bytes: int, *, timeout: int) -> bytes:
-    if not _trusted_url(url, api=(url == API or url.startswith(API + "?"))):
+    api = url == API or url.startswith(API + "?")
+    if not _trusted_url(url, api=api):
         raise ValueError("Media URL has an unexpected host")
     req = request.Request(url, headers={"User-Agent": USER_AGENT})
-    with request.urlopen(req, timeout=timeout) as response:
-        if not _trusted_url(response.geturl(), api=(url == API or url.startswith(API + "?"))):
+    # urlopen() silently follows redirects before response.geturl() can be
+    # checked. Restrict every hop to the same approved Wikimedia host.
+    opener = request.build_opener(_TrustedRedirectHandler(api=api))
+    with opener.open(req, timeout=timeout) as response:
+        if not _trusted_url(response.geturl(), api=api):
             raise ValueError("Cross-host redirect blocked")
         declared = response.headers.get("Content-Length")
         if declared and int(declared) > max_bytes:
@@ -141,9 +160,10 @@ def relevance_score(query: str, title: str, description: str = "") -> int:
     return 3 * len(wanted & title_words) + len(wanted & desc_words)
 
 
-# A single ambiguous landscape noun can also be someone's family name, a
-# painting title, or a biography. Do not treat matching the surname alone as
-# evidence the picture illustrates the place. Prefer graphic fallback.
+# An ambiguous landscape noun can also be a person's family name, a
+# painting title or a biography. Do not treat matching the surname alone as
+# evidence the picture illustrates the place, even when the request includes
+# explicit landscape-context words. Prefer the graphic fallback.
 _SCENIC_SINGLE_QUERY_WORDS = _words("""
     montagne montagnes mountain mountains riviere rivieres river rivers
     ocean oceans sea seas mer mers foret forets forest forests
@@ -175,22 +195,28 @@ _NON_SCENIC_SUBJECT_WORDS = _words("""
 
 
 def safe_scenic_score(query: str, title: str, description: str = "") -> int:
-    """Conservative extra filter for *single-word* landscape requests.
+    """Avoid false landscape matches on people sharing a nature surname.
 
-    A portrait of someone named 'Rivière' is NOT a river photograph. Scene
-    relevance remains deterministic, and a missed image is safer than a
-    misleading illustration. Non-scenic queries keep ordinary relevance.
+    Applies to one-word landscape queries and explicit scenic combinations,
+    such as "rivière paysage". A named person query ("Henri Rivière") stays
+    eligible because it does not request a landscape. This is only a text
+    heuristic; no claim of visual understanding is made.
     """
     score = relevance_score(query, title, description)
     if score <= 0:
         return 0
     request_words = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
-    if len(request_words) != 1 or not (request_words & _SCENIC_SINGLE_QUERY_WORDS):
+    scenic_words = request_words & _SCENIC_SINGLE_QUERY_WORDS
+    if not scenic_words:
+        return score
+    scenic_intent = (len(request_words) == 1 or
+                     bool((request_words - scenic_words) & _SCENIC_CONTEXT_WORDS))
+    if not scenic_intent:
         return score
     content_words = _words(title + " " + description)
     if content_words & _NON_SCENIC_SUBJECT_WORDS:
         return 0
-    if not ((content_words - request_words) & _SCENIC_CONTEXT_WORDS):
+    if not ((content_words - scenic_words) & _SCENIC_CONTEXT_WORDS):
         return 0
     return score
 
@@ -323,11 +349,13 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     ranked: list[tuple[int, int, float, int, dict, dict, str, str, str, str,
                        float | None]] = []
     for page in pages.values():
+        if not isinstance(page, dict):
+            continue
         title = str(page.get("title", ""))
         if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
             continue
         info_list = page.get("imageinfo") or []
-        if not info_list:
+        if not isinstance(info_list, list) or not info_list or not isinstance(info_list[0], dict):
             continue
         info = info_list[0]
         license_name = _plain(_field(info, "LicenseShortName"))
