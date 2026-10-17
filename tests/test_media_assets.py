@@ -358,6 +358,31 @@ class WikimediaVisualMediumTests(unittest.TestCase):
             self.assertEqual(found[0].title, "File:River landscape photograph.jpg")
             self.assertEqual(warnings, [])
 
+    def test_strong_scene_match_beats_weak_photo_and_better_crop(self):
+        # The photo only matches "river"; the artwork depicts all three
+        # requested concepts. The old media-first sort incorrectly chose it.
+        def page(title, index, width, height):
+            return {"title": title, "index": index, "imageinfo": [{
+                "width": width, "height": height,
+                "thumburl": "https://upload.wikimedia.org/sample.jpg",
+                "descriptionurl": "https://commons.wikimedia.org/wiki/File:sample.jpg",
+                "extmetadata": {"LicenseShortName": {"value": "CC0"}}
+            }]}
+        payload = {"query": {"pages": {
+            "1": page("File:River photograph.jpg", 1, 900, 1600),
+            "2": page("File:River gorge bridge painting.jpg", 2, 1600, 900)
+        }}}
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(media, "_read_limited", side_effect=[
+                json.dumps(payload).encode(), b"fixture-image"
+            ]) as read, patch.object(media, "media_dimensions", return_value=(1600, 900)):
+                images, _ = media.commons_assets(
+                    "river gorge bridge", Path(folder), limit=1,
+                    target_aspect=9/16)
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0].title, "File:River gorge bridge painting.jpg")
+        self.assertEqual(read.call_count, 2)
+
     def test_artwork_available_when_no_photo_and_provenance_retained(self):
         import json
         with tempfile.TemporaryDirectory() as folder:
