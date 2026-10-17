@@ -1,0 +1,62 @@
+name: CLIP Local CPU Inference Smoke
+on:
+  push:
+    paths:
+      - semantic/**
+      - semantic_rank.py
+      - .github/workflows/clip-smoke.yml
+  pull_request:
+    paths:
+      - semantic/**
+      - semantic_rank.py
+      - .github/workflows/clip-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install optional standalone CLIP runtime
+        run: npm install --prefix semantic --no-audit --no-fund
+      - name: Validate CLIP adapter with no model download
+        run: node --test semantic/test_clip_rank.mjs
+      - name: Restore model cache
+        uses: actions/cache@v4
+        with:
+          path: .clip-cache
+          key: mpt-clip-q8-xenova-6ef1ebc-v1
+      - name: Create two local image candidates
+        shell: bash
+        run: |
+          ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi -i testsrc2=s=224x224:r=1 -frames:v 1 -update 1 /tmp/mpt-clip-one.png
+          ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi -i smptebars=s=224x224:r=1 -frames:v 1 -update 1 /tmp/mpt-clip-two.png
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('clip-input.json').write_text(json.dumps({'candidates': [
+              {'id': 0, 'path': '/tmp/mpt-clip-one.png', 'prompt': 'mountain'},
+              {'id': 1, 'path': '/tmp/mpt-clip-two.png', 'prompt': 'forest'}
+          ]}))
+          PY
+      - name: Run real CPU ONNX zero-shot inference with pinned model revision
+        env:
+          MPT_CLIP_CACHE_DIR: ${{ github.workspace }}/.clip-cache
+        run: node semantic/clip_rank.mjs clip-input.json clip-output.json
+      - name: Assert real finite inference scores and model identity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.loads(Path('clip-output.json').read_text())
+          assert result['model']=='Xenova/clip-vit-base-patch32'
+          scores=result['scores']
+          assert len(scores)==2 and [row['id'] for row in scores]==[0,1]
+          assert all(0 <= row['score'] <= 1 for row in scores)
+          print('Validated two real local CLIP inferences:', scores)
+          PY
