@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, knownRunEndpoint, isExpectedRun, safeError} from '../remote/core.mjs';
-const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_style:'cinematic',caption_style:'kinetic',word_alignment:'estimated',transition:'auto'};
+const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_ai:'off',visual_style:'cinematic',caption_style:'kinetic',word_alignment:'estimated',transition:'auto'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
   assert.deepEqual(segmentsOf('Bonjour. Salut !\nNouveau paragraphe.'),['Bonjour.','Salut !','Nouveau paragraphe.']);
@@ -51,6 +51,13 @@ test('neural voice is limited to French and carried to workflow input',()=>{
   assert.equal(validateDraft({...valid,voice:undefined}).voice,'espeak');
 });
 
+
+test('optional CLIP is validated, dispatched, and forbidden without Commons',()=>{
+  assert.equal(dispatchBody({...valid, visual_ai:'clip'}, uid).inputs.visual_ai, 'clip');
+  assert.equal(validateDraft({...valid, visual_ai:undefined}).visual_ai, 'off');
+  assert.throws(() => validateDraft({...valid, visual_ai:'paid-cloud'}), /Comparaison visuelle IA/);
+  assert.throws(() => validateDraft({...valid, visual_ai:'clip', visuals:'abstract'}), /Commons/);
+});
 
 test('visual style is validated and dispatched',()=>{
   assert.equal(validateDraft({...valid,visual_style:'cinematic'}).visual_style,'cinematic');
