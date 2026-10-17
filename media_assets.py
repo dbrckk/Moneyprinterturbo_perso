@@ -6,7 +6,7 @@ public domain. Every selected asset carries provenance into the output.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import html
 import json
 import math
@@ -646,7 +646,11 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             existing = {item.source_url for item in assets}
             for item in alternatives:
                 if item.source_url not in existing and len(assets) < limit:
-                    assets.append(item)
+                    # Evidence for a broadened search describes THAT search,
+                    # not necessarily the original narrated scene. Do not
+                    # report it as original-query coverage in video QA.
+                    assets.append(replace(item, query_term_count=None,
+                                          query_term_coverage=None))
                     existing.add(item.source_url)
             if assets:
                 notices = [notice for notice in notices
