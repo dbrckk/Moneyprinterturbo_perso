@@ -67,6 +67,16 @@
           <details class="advanced" id="advanced"><summary>Mots-clés visuels par scène <span>OPTIONNEL</span></summary>
             <div class="field"><label for="scene_queries">Une recherche par scène, séparée par |</label><textarea id="scene_queries" name="scene_queries" rows="2" placeholder="montagne | forêt | océan"></textarea><small>Renseigne d'abord la narration : chaque phrase donne une scène. Disponible avec Wikimedia Commons.</small></div>
           </details>
+          <details class="advanced" id="portable-backup">
+            <summary>Transférer mon scénario vers une autre version</summary>
+            <div class="field">
+              <p class="backup-help">Copie uniquement le scénario et les réglages. Ni jeton GitHub, ni historique des rendus ne sont inclus.</p>
+              <button id="copy-draft" type="button" class="subtle-button">Copier mon brouillon</button>
+              <label for="backup-data">Restaurer un brouillon copié</label>
+              <textarea id="backup-data" rows="3" placeholder="Colle ici ton texte de sauvegarde JSON"></textarea>
+              <button id="restore-draft" type="button" class="subtle-button">Restaurer le brouillon</button>
+            </div>
+          </details>
           <div class="scene-preview"><div class="scene-title"><strong>Découpage des scènes</strong><span id="scene-count">Scénario automatique</span></div><ol id="scenes" class="scenes"><li>Ajoute une narration pour prévisualiser tes scènes.</li></ol></div>
           <div id="form-feedback" role="alert" class="feedback" hidden></div>
           <button id="launch" class="primary-button" type="submit"><span>Générer ma vidéo</span><span aria-hidden="true">↗</span></button>

@@ -2,6 +2,7 @@ import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
   runTitle, safeError, segmentsOf, validateDraft, workflowRunLink } from './core.mjs';
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, directMp4Url } from './downloads.mjs';
+import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -194,6 +195,35 @@ $('video-form').addEventListener('input', () => { saveDraft();showScenes();clear
 $('video-form').addEventListener('change', saveDraft);
 $('forget-token').addEventListener('click',()=>{ $('token').value='';$('token').focus(); });
 $('clear-history').addEventListener('click',()=>{historySave([]);showHistory();});
+$('copy-draft').addEventListener('click', async () => {
+  try {
+    const backup = exportPortableDraft(formValues());
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(backup);
+    notify('Brouillon copié. Colle-le dans le champ « Restaurer » de la nouvelle version du studio.', 'success');
+  } catch {
+    // Android browsers may restrict clipboard access; manual copy is available.
+    $('backup-data').value = exportPortableDraft(formValues());
+    $('backup-data').focus();$('backup-data').select();
+    notify('Copie manuelle : le texte de sauvegarde est sélectionné ci-dessous.', 'success');
+  }
+});
+$('restore-draft').addEventListener('click', () => {
+  try {
+    const draft = importPortableDraft($('backup-data').value);
+    for (const key of controls) {
+      const element = $(key);
+      if (element.tagName === 'SELECT' && !Array.from(element.options).some(
+          option => option.value === draft[key])) {
+        throw new Error('Option non reconnue : ' + key);
+      }
+    }
+    for (const key of controls) $(key).value = draft[key];
+    document.querySelector('input[name="visuals"][value="' + draft.visuals + '"]').checked = true;
+    saveDraft();showScenes();
+    notify('Scénario et réglages restaurés sur cet appareil. Aucun jeton GitHub n’a été importé.', 'success');
+  } catch (error) { notify('Impossible de restaurer : ' + error.message); }
+});
 $('refresh').addEventListener('click',()=>{lastPoll=0;void lookupRun();});
 $('video-form').addEventListener('submit', async event => {
   event.preventDefault();clearNotice();

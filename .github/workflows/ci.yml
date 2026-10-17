@@ -67,8 +67,9 @@ jobs:
           node --check remote/main.mjs
           node --check remote/downloads.mjs
           node --check remote/offline_cache.mjs
+          node --check remote/draft_backup.mjs
           node --check remote/sw.mjs
-          node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs
+          node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs
       - name: Static compilation
         run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax

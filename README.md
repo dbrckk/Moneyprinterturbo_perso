@@ -368,3 +368,5 @@ Outre le MP4 et la planche PNG, le studio Android propose désormais l'ouverture
 ### Application Android utilisable hors ligne pour préparer les scénarios
 
 Le studio hébergé est maintenant installable comme une application web : un **service worker** met en cache uniquement les fichiers publics HTML/CSS/JS/SVG du site. Lors d'une coupure, le scénario et les réglages déjà enregistrés dans le navigateur restent consultables et modifiables, avec un indicateur hors connexion. Le déclenchement d'un rendu, son suivi et le téléchargement des MP4 nécessitent toujours Internet et GitHub Actions. Le cache **n'inclut jamais** les jetons GitHub, réponses de l'API, vidéos générées ou données personnelles ; le jeton d'accès reste uniquement dans le champ en mémoire. L'interface utilise le réseau en priorité lorsqu'il est disponible afin de récupérer les mises à jour.
+
+Les boutons **Copier mon brouillon** et **Restaurer le brouillon** transfèrent volontairement un scénario entre différentes URL ShipStatic. Le JSON n'inclut ni jeton GitHub ni historique des rendus ; une copie manuelle reste disponible lorsque l'accès au presse-papiers est limité.

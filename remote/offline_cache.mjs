@@ -1,8 +1,8 @@
 /** Public static-shell cache policy. Never cache API calls or authentication data. */
-export const SHELL_CACHE = 'mpt-android-shell-v1';
+export const SHELL_CACHE = 'mpt-android-shell-v2';
 export const SHELL_FILES = Object.freeze([
   './', './index.html', './style.css', './main.mjs',
-  './core.mjs', './downloads.mjs', './offline_cache.mjs',
+  './core.mjs', './downloads.mjs', './draft_backup.mjs', './offline_cache.mjs',
   './manifest.webmanifest', './icon.svg',
 ]);
 

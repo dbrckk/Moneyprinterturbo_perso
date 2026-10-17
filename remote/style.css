@@ -7,3 +7,9 @@
 
 /* Offline Android startup: unobtrusive connectivity notice, no external assets. */
 .offline-banner{margin-top:12px;padding:12px 15px;border:1px solid #695b33;background:#272418;color:#ffe6aa;border-radius:10px;font-size:12px;line-height:1.55}
+
+/* Portable backups exclude tokens, history and private API data. */
+.backup-help{font-size:12px;line-height:1.5;color:var(--muted);margin:0 0 8px}
+#portable-backup .field{display:grid;justify-items:start;gap:11px;padding-top:10px}
+#portable-backup textarea{width:100%;min-height:75px;resize:vertical}
+#portable-backup button{max-width:100%}
