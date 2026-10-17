@@ -4,3 +4,6 @@
 .run-actions #download-video[hidden]{display:none!important}
 .run-actions .download-primary{background:var(--accent,#69f1d3);color:#08131c;border-color:transparent;font-weight:800}
 .run-actions .download-primary:hover{filter:brightness(1.06)}
+
+/* Offline Android startup: unobtrusive connectivity notice, no external assets. */
+.offline-banner{margin-top:12px;padding:12px 15px;border:1px solid #695b33;background:#272418;color:#ffe6aa;border-radius:10px;font-size:12px;line-height:1.55}

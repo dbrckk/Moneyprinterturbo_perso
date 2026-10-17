@@ -219,6 +219,22 @@ $('video-form').addEventListener('submit', async event => {
   finally{launch.disabled=false;launch.querySelector('span').textContent='Générer ma vidéo';}
 });
 
-restoreDraft();showScenes();showHistory();
+// Installable Android shell: store only public frontend assets in Cache Storage.
+// Drafts/history are already in localStorage; the GitHub PAT is never persisted.
+function startOfflineShell() {
+  const banner = $('offline-banner');
+  const updateStatus = () => { banner.hidden = navigator.onLine !== false; };
+  updateStatus();
+  window.addEventListener('online', updateStatus);
+  window.addEventListener('offline', updateStatus);
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.mjs', { scope: './', type: 'module' })
+        .catch(() => { /* Offline support is optional; online rendering still works. */ });
+    }, { once: true });
+  }
+}
+
+restoreDraft();showScenes();showHistory();startOfflineShell();
 const previous=loadHistory()[0];
 if(previous){active=previous;$('run-actions').hidden=false;$('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;setStatus('',previous.state||'Dernière demande','Clique sur « Actualiser » pour vérifier le statut de cette exécution.');if(previous.state==='Réussi'&&previous.runId)void resolveDirectVideo({id:previous.runId},previous.id);}

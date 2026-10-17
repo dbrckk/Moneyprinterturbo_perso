@@ -364,3 +364,7 @@ Les narrations françaises eSpeak/Piper sont désormais harmonisées sur la band
 Outre le MP4 et la planche PNG, le studio Android propose désormais l'ouverture directe des **sous-titres SRT** et du **rapport JSON** contenant les contrôles de rendu et les mesures audio. Les liens n'apparaissent que si GitHub confirme les artefacts, sans incorporer de jeton dans l'URL. Les anciens rendus restent compatibles.
 
 **Sécurité audio :** le contrôle de livraison refuse désormais les pistes AAC silencieuses lorsque la vidéo est annoncée comme narrée ; il repère aussi les scènes dont la voix est presque entièrement absente. Les détails sont enregistrés dans le rapport qualité. Les vidéos volontairement muettes restent autorisées.
+
+### Application Android utilisable hors ligne pour préparer les scénarios
+
+Le studio hébergé est maintenant installable comme une application web : un **service worker** met en cache uniquement les fichiers publics HTML/CSS/JS/SVG du site. Lors d'une coupure, le scénario et les réglages déjà enregistrés dans le navigateur restent consultables et modifiables, avec un indicateur hors connexion. Le déclenchement d'un rendu, son suivi et le téléchargement des MP4 nécessitent toujours Internet et GitHub Actions. Le cache **n'inclut jamais** les jetons GitHub, réponses de l'API, vidéos générées ou données personnelles ; le jeton d'accès reste uniquement dans le champ en mémoire. L'interface utilise le réseau en priorité lorsqu'il est disponible afin de récupérer les mises à jour.

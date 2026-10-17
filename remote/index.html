@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#080c17">
   <meta name="description" content="MoneyPrinterTurbo Perso — studio vidéo gratuit, sans serveur de rendu payant, piloté depuis Android.">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.github.com; font-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://api.github.com; font-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./style.css">
@@ -18,6 +18,7 @@
     <div class="brand"><div class="brand-icon" aria-hidden="true">M</div><div><strong>MoneyPrinter<span>Turbo</span></strong><small>REMOTE STUDIO <span class="free-pill">100% logiciel gratuit</span></small></div></div>
     <a id="repo-link" class="top-action" href="https://github.com/dbrckk/Moneyprinterturbo_perso" target="_blank" rel="noopener noreferrer">Voir GitHub ↗</a>
   </header>
+  <div id="offline-banner" class="offline-banner shell" role="status" aria-live="polite" hidden>Mode hors ligne : le scénario et les réglages enregistrés restent accessibles sur cet appareil. Une connexion Internet est nécessaire pour lancer ou suivre un rendu GitHub.</div>
   <main class="shell">
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> STUDIO CONNECTÉ À GITHUB ACTIONS</div>
