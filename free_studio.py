@@ -346,7 +346,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            piper_model: Path | None = None, speech_rate: int = 145,
            visual_style: str = "cinematic", transition: str = "auto",
            caption_style: str = "kinetic", word_alignment: str = "estimated",
-           use_fused_xfade: bool = True, use_media_onepass: bool = True) -> dict[str, object]:
+           use_fused_xfade: bool = True, use_media_onepass: bool = True,
+           visual_ai: str = "off") -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -365,6 +366,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     sentences = split_script(script)
     if scene_queries is not None and not commons:
         raise ValueError("Scene search queries require --commons")
+    if visual_ai not in ("off", "clip") or (visual_ai == "clip" and not commons):
+        raise ValueError("CLIP visual comparison requires --commons")
     if tts not in ("espeak", "piper") or (tts == "espeak" and piper_model is not None):
         raise ValueError("Invalid voice engine or model combination")
     if tts == "piper" and piper_model is None and not mute:
@@ -408,8 +411,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         if commons:
             queries = scene_search_queries(topic, sentences, scene_queries)
             missing = [i for i, item in enumerate(slots) if item is None]
-            remote, notices = commons_scene_assets(queries, work, indices=missing,
-                                                  target_aspect=width/height, stats=commons_stats)
+            remote, notices = commons_scene_assets(
+                queries, work, indices=missing,
+                target_aspect=width/height, stats=commons_stats,
+                **({"semantic_ranking": True} if visual_ai == "clip" else {}))
             for i, item in remote.items():
                 slots[i] = item
             warnings.extend(notices)
@@ -543,6 +548,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "crop_retention_estimate": asset.crop_retention_estimate,
                                "query_term_count": asset.query_term_count,
                                "query_term_coverage": asset.query_term_coverage,
+                               "semantic_score": asset.semantic_score,
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
@@ -595,6 +601,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                   "audio_encoding": "aac-160k-48kHz-stream-copy"}
                                  if audio else None),
             "commons_fetch": commons_stats if commons else None,
+            "visual_ai": visual_ai,
             "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (
                 "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else
@@ -631,6 +638,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mute", action="store_true", help="Render without synthetic voice")
     parser.add_argument("--media-dir", type=Path, help="Directory of licensed local images or videos")
     parser.add_argument("--commons", action="store_true", help="Search Wikimedia Commons per scene for CC0/public-domain photos")
+    parser.add_argument("--visual-ai", choices=["off", "clip"], default="off",
+                        help="Optional CPU-only quantized CLIP comparison of licensed Commons thumbnails")
     parser.add_argument("--scene-queries", help="Optional pipe-separated search words, one per narration segment")
     parser.add_argument("--tts", choices=["espeak", "piper"], default="espeak", help="Speech engine; Piper requires a preinstalled local voice")
     parser.add_argument("--piper-model", type=Path, help="Offline Piper voice .onnx path (matching .onnx.json required)")
@@ -656,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Script mode: {mode}", flush=True)
         info = render(args.topic, text, args.output, lang=args.lang, aspect=args.aspect,
                       resolution=args.resolution, fps=args.fps, mute=args.mute,
-                      media_dir=args.media_dir, commons=args.commons,
+                      media_dir=args.media_dir, commons=args.commons, visual_ai=args.visual_ai,
                       scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
