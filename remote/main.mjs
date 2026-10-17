@@ -4,6 +4,7 @@ import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
+import { shouldAutoResume, shouldVerifyCompletedRun } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -13,6 +14,7 @@ const statusLabels = {queued:'En attente', in_progress:'Rendu en cours', complet
 let active = null;
 let pollTimer = null;
 let lastPoll = 0;
+let lookupInFlight = null;
 
 function storageRead(key, fallback) {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
@@ -79,8 +81,14 @@ function showHistory() {
     li.append(link, date);
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
-    button.addEventListener('click', () => { active = item; $('download-video').hidden = true; $('preview-storyboard').hidden = true;
-      $('download-subtitles').hidden = true; $('download-quality').hidden = true; lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href; setStatus('running', 'Suivi', 'Recherche de la demande dans GitHub Actions…'); void lookupRun(); });
+    button.addEventListener('click', () => {
+      stopPoll(); active = item;
+      for (const id of ['download-video','preview-storyboard','download-subtitles','download-quality']) $(id).hidden = true;
+      lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href;
+      setStatus('running','Suivi','Recherche de la demande dans GitHub Actions…');
+      if (shouldAutoResume(item) && navigator.onLine !== false) startPoll();
+      else void lookupRun();
+    });
     li.append(' · ',button);
     list.append(li);
   }
@@ -158,6 +166,12 @@ async function api(url, options = {}) {
 async function lookupRun() {
   if (!active || Date.now() - lastPoll < 1500) return;
   const lookupFor=active.id;
+  if (lookupInFlight === lookupFor) return;
+  if (navigator.onLine === false) {
+    setStatus('running','Connexion nécessaire','Le rendu GitHub continue. Le suivi reprendra au retour du réseau.');
+    return;
+  }
+  lookupInFlight = lookupFor;
   lastPoll = Date.now();
   try {
     // Known historical runs can fall outside the most recent 30 workflow runs.
@@ -179,6 +193,8 @@ async function lookupRun() {
     else if (!active.runId) setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
   } catch (error) {
     if (active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
+  } finally {
+    if (lookupInFlight === lookupFor) lookupInFlight = null;
   }
 }
 function stopPoll() { if (pollTimer !== null) { clearInterval(pollTimer); pollTimer=null; } }
@@ -187,6 +203,7 @@ function startPoll() {
   void lookupRun();
   const start=Date.now();
   pollTimer=setInterval(() => {
+    if (document.visibilityState === 'hidden' || navigator.onLine === false) return;
     if (Date.now()-start > 20*60*1000) {
       stopPoll();
       if (active) setStatus('running','Suivi interrompu','Le suivi automatique s’arrête après 20 minutes. Le rendu GitHub continue : actualise ou ouvre la page du workflow.');
@@ -268,8 +285,15 @@ function startOfflineShell() {
   const banner = $('offline-banner');
   const updateStatus = () => { banner.hidden = navigator.onLine !== false; };
   updateStatus();
-  window.addEventListener('online', updateStatus);
-  window.addEventListener('offline', updateStatus);
+  window.addEventListener('online', () => {
+    updateStatus();
+    if (shouldAutoResume(active) && pollTimer === null) startPoll();
+  });
+  window.addEventListener('offline', () => { updateStatus(); stopPoll(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') stopPoll();
+    else if (shouldAutoResume(active) && navigator.onLine !== false && pollTimer === null) startPoll();
+  });
   if ('serviceWorker' in navigator && window.isSecureContext) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.mjs', { scope: './', type: 'module' })
@@ -280,4 +304,12 @@ function startOfflineShell() {
 
 restoreDraft();showScenes();showHistory();startOfflineShell();
 const previous=loadHistory()[0];
-if(previous){active=previous;$('run-actions').hidden=false;$('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;setStatus('',previous.state||'Dernière demande','Clique sur « Actualiser » pour vérifier le statut de cette exécution.');if(previous.state==='Réussi'&&previous.runId)void resolveDirectVideo({id:previous.runId},previous.id);}
+if (previous) {
+  active=previous;
+  $('run-actions').hidden=false;
+  $('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;
+  setStatus('',previous.state||'Dernière demande','Demande restaurée. Le suivi peut reprendre automatiquement.');
+  // Always verify the saved run via GitHub before advertising an artifact.
+  if (shouldAutoResume(previous) && navigator.onLine !== false) startPoll();
+  else if (shouldVerifyCompletedRun(previous) && navigator.onLine !== false) void lookupRun();
+}

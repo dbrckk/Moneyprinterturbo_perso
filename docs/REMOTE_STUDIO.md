@@ -91,3 +91,10 @@ la branche et le type de déclenchement : un numéro erroné ne peut pas
 être interprété comme une vidéo appartenant à cette demande. Les demandes
 n'ayant pas encore de numéro utilisent toujours la recherche récente.
 Le jeton GitHub n'est jamais inclus dans les liens de téléchargement.
+
+
+## Récupération automatique après fermeture Android
+
+Les demandes de rendu en cours datant de moins de 48 heures sont suivies automatiquement lorsque le navigateur revient au premier plan, à la réouverture ou au retour du réseau. Le suivi s'interrompt quand la page est masquée pour préserver les appels GitHub. Le jeton GitHub reste en mémoire du formulaire uniquement ; aucun secret n'est enregistré dans l'historique.
+
+Un état local « Réussi » n'autorise plus directement l'affichage des fichiers. Le studio lit d'abord l'exécution GitHub correspondante et contrôle son identifiant, son titre, son type, sa branche, ainsi que le dépôt et le chemin du workflow lorsqu'ils sont fournis. Les fichiers n'apparaissent qu'après validation du résultat par GitHub. Le suivi actif s'arrête toujours après 20 minutes, sans interrompre la création côté GitHub.

@@ -110,7 +110,10 @@ export function knownRunEndpoint(runId) {
 export function isExpectedRun(run, requestId) {
   return !!run && run.event === 'workflow_dispatch' &&
     run.display_title === runTitle(requestId) && run.head_branch === 'main' &&
-    Number.isSafeInteger(Number(run.id)) && Number(run.id) > 0;
+    Number.isSafeInteger(Number(run.id)) && Number(run.id) > 0 &&
+    (run.repository == null || run.repository.full_name === REPOSITORY) &&
+    (run.path == null || run.path === '.github/workflows/free-video.yml' ||
+     run.path === `${REPOSITORY}/.github/workflows/free-video.yml@refs/heads/main`);
 }
 
 export function workflowRunLink(run) {

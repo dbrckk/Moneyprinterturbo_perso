@@ -370,3 +370,8 @@ Outre le MP4 et la planche PNG, le studio Android propose désormais l'ouverture
 Le studio hébergé est maintenant installable comme une application web : un **service worker** met en cache uniquement les fichiers publics HTML/CSS/JS/SVG du site. Lors d'une coupure, le scénario et les réglages déjà enregistrés dans le navigateur restent consultables et modifiables, avec un indicateur hors connexion. Le déclenchement d'un rendu, son suivi et le téléchargement des MP4 nécessitent toujours Internet et GitHub Actions. Le cache **n'inclut jamais** les jetons GitHub, réponses de l'API, vidéos générées ou données personnelles ; le jeton d'accès reste uniquement dans le champ en mémoire. L'interface utilise le réseau en priorité lorsqu'il est disponible afin de récupérer les mises à jour.
 
 Les boutons **Copier mon brouillon** et **Restaurer le brouillon** transfèrent volontairement un scénario entre différentes URL ShipStatic. Le JSON n'inclut ni jeton GitHub ni historique des rendus ; une copie manuelle reste disponible lorsque l'accès au presse-papiers est limité.
+
+
+### Suivi Android au retour dans le studio
+
+La création continue sur GitHub même après fermeture de l'onglet. Au retour sur Android, le studio récupère automatiquement les demandes récentes en attente et vérifie les anciens rendus terminés avant d'afficher leurs fichiers. Les requêtes de suivi s'arrêtent hors ligne et en arrière-plan ; aucun jeton GitHub n'est sauvegardé.

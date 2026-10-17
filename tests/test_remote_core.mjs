@@ -98,3 +98,13 @@ test('saved GitHub runs can be resumed directly after leaving recent history', (
     assert.throws(()=>knownRunEndpoint(bad));
   }
 });
+
+
+test('run validation refuses mismatched repo and workflow on saved IDs',()=>{
+  const base={id:234,event:'workflow_dispatch',display_title:runTitle(uid),head_branch:'main',
+   repository:{full_name:'dbrckk/Moneyprinterturbo_perso'},path:'.github/workflows/free-video.yml'};
+  assert.equal(isExpectedRun(base,uid),true);
+  assert.equal(isExpectedRun({...base,path:'other.yml'},uid),false);
+  assert.equal(isExpectedRun({...base,repository:{full_name:'attacker/other'}},uid),false);
+  assert.equal(isExpectedRun({...base,path:'dbrckk/Moneyprinterturbo_perso/.github/workflows/free-video.yml@refs/heads/main'},uid),true);
+});
