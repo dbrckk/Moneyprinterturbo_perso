@@ -1,0 +1,9 @@
+{
+  "name": "moneyprinter-clip-ranker",
+  "private": true,
+  "type": "module",
+  "description": "Optional CPU-only zero-shot image relevance inference; installed only when selected",
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  }
+}
