@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {shouldAutoResume,shouldVerifyCompletedRun,createRunSelection,
-        isUncertainDispatchFailure,recentUnconfirmedRequest,classifyTrackingError} from '../remote/run_lifecycle.mjs';
+        isUncertainDispatchFailure,recentUnconfirmedRequest,classifyTrackingError,
+        isGithubRateLimited} from '../remote/run_lifecycle.mjs';
 const now=Date.parse('2026-10-17T08:00:00Z');
 const base={id:'studio-12345678-1234-1234-1234-123456789abc',
   createdAt:new Date(now-3600_000).toISOString(),state:'Demande envoyée'};
@@ -74,4 +75,27 @@ test('rate limits and temporary GitHub failures never masquerade as video failur
  assert.equal(classifyTrackingError({httpStatus:503}).kind,'temporary');
  assert.equal(classifyTrackingError({name:'AbortError'}).kind,'temporary');
  assert.equal(classifyTrackingError(null).kind,'unknown');
+});
+
+
+test('GitHub 403 quota detection uses raw server data, never translated authorization text',()=>{
+  assert.equal(isGithubRateLimited(429,''),true);
+  assert.equal(isGithubRateLimited(403,'API rate limit exceeded for user.'),true);
+  assert.equal(isGithubRateLimited(403,'You have exceeded a secondary rate limit.'),true);
+  assert.equal(isGithubRateLimited(403,'abuse detection mechanism'),true);
+  assert.equal(isGithubRateLimited(403,'Resource not accessible by integration'),false);
+  assert.equal(isGithubRateLimited(403,'Secondary authentication required'),false);
+  assert.equal(isGithubRateLimited(401,'API rate limit exceeded'),false);
+  assert.equal(isGithubRateLimited(422,'quota'),false);
+  assert.equal(isGithubRateLimited(403,'',new Headers({'x-ratelimit-remaining':'0'})),true);
+  assert.equal(isGithubRateLimited(403,'',new Headers({'Retry-After':'60'})),true);
+  assert.equal(isGithubRateLimited(403,'',new Headers({'x-ratelimit-remaining':'42'})),false);
+  assert.equal(isGithubRateLimited(403,'',{ 'x-ratelimit-remaining':'0' }),true);
+});
+
+test('structured quota response stays temporary after GitHub message translation',()=>{
+  const translated='Autorisation refusée ou limite GitHub atteinte. Le jeton doit avoir Actions.';
+  assert.equal(classifyTrackingError({httpStatus:403,rateLimited:true,message:translated}).kind,'rate-limit');
+  assert.equal(classifyTrackingError({httpStatus:403,rateLimited:false,message:translated}).kind,'auth');
+  assert.equal(classifyTrackingError({httpStatus:403,message:'Secondary authentication required'}).kind,'auth');
 });
