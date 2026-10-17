@@ -33,6 +33,66 @@ class MediaAssetsTests(unittest.TestCase):
         self.assertFalse(media._trusted_url("https://commons.wikimedia.org/w/api.php"))
         self.assertTrue(media._trusted_url(media.API, api=True))
 
+    def test_cross_host_redirect_blocked_before_any_followup_request(self):
+        from urllib import request
+        image = request.Request("https://upload.wikimedia.org/wikipedia/commons/test.jpg")
+        api = request.Request("https://commons.wikimedia.org/w/api.php")
+        media_redirects = media._TrustedRedirectHandler(api=False)
+        api_redirects = media._TrustedRedirectHandler(api=True)
+        for target in (
+            "https://example.org/collect", "http://upload.wikimedia.org/file.jpg",
+            "https://upload.wikimedia.org.evil.test/file.jpg",
+            "file:///etc/passwd", "https://commons.wikimedia.org/w/api.php",
+            "https://upload.wikimedia.org:8443/file.jpg",
+        ):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(ValueError, "Cross-host redirect"):
+                    media_redirects.redirect_request(image, None, 302, "Found", {}, target)
+        with self.assertRaises(ValueError):
+            api_redirects.redirect_request(api, None, 302, "Found", {},
+                "https://upload.wikimedia.org/test.jpg")
+        approved = media_redirects.redirect_request(image, None, 302, "Found", {},
+            "https://upload.wikimedia.org/wikipedia/commons/other.jpg")
+        self.assertEqual(approved.full_url,
+            "https://upload.wikimedia.org/wikipedia/commons/other.jpg")
+        api_approved = api_redirects.redirect_request(api, None, 302, "Found", {},
+            "https://commons.wikimedia.org/w/api.php?query=ok")
+        self.assertIn("query=ok", api_approved.full_url)
+
+    def test_limited_download_installs_a_redirect_guard(self):
+        from unittest.mock import Mock
+        opener = Mock()
+        response = Mock()
+        response.geturl.return_value = "https://upload.wikimedia.org/media.jpg"
+        response.headers = {}
+        response.read.return_value = b"image"
+        opener.open.return_value.__enter__ = Mock(return_value=response)
+        opener.open.return_value.__exit__ = Mock(return_value=False)
+        with patch.object(media.request, "build_opener", return_value=opener) as factory:
+            result = media._read_limited(
+                "https://upload.wikimedia.org/media.jpg", 20, timeout=3)
+        self.assertEqual(result, b"image")
+        self.assertIsInstance(factory.call_args.args[0], media._TrustedRedirectHandler)
+        self.assertFalse(factory.call_args.args[0].api)
+        self.assertEqual(opener.open.call_args.kwargs["timeout"], 3)
+
+    def test_malformed_commons_page_records_are_skipped(self):
+        payload = {"query": {"pages": {
+            "0": None,
+            "1": {"title": "File:Bad.jpg", "imageinfo": [None]},
+            "2": {"title": "File:Wrong.jpg", "imageinfo": {"value": "broken"}},
+            "3": {"title": "File:Unknown.jpg", "imageinfo": [{
+                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Unknown.jpg",
+                "thumburl": "https://upload.wikimedia.org/unknown.jpg",
+                "extmetadata": []
+            }]}
+        }}}
+        with tempfile.TemporaryDirectory() as name, patch.object(
+                media, "_read_limited", return_value=json.dumps(payload).encode()):
+            assets, notices = media.commons_assets("landscape", Path(name))
+        self.assertEqual(assets, [])
+        self.assertTrue(any("No relevant" in notice for notice in notices))
+
     @unittest.skipUnless(FFMPEG, "FFmpeg required")
     def test_local_media_validation_and_symlinks(self):
         with tempfile.TemporaryDirectory() as name:
@@ -211,6 +271,20 @@ class ScenicCandidateSafetyTests(unittest.TestCase):
             "File:River landscape photographed.jpg", "Rivière au bord des arbres"), 0)
         self.assertGreater(media.safe_scenic_score("océan",
             "File:Ocean coastal seascape.jpg", "Côte et plage"), 0)
+
+    def test_two_word_landscape_query_rejects_surname_false_positive(self):
+        self.assertEqual(media.safe_scenic_score("rivière paysage",
+            "File:Henri Rivière.jpg", "Portrait du peintre"), 0)
+        self.assertEqual(media.safe_scenic_score("montagne panorama",
+            "File:Camille Montagne.jpg", "Biography of a botanist"), 0)
+        self.assertGreater(media.safe_scenic_score("rivière paysage",
+            "File:Rivière panorama.jpg", "Landscape with trees and water"), 0)
+        # A named person is still a valid explicit subject.
+        self.assertGreater(media.safe_scenic_score("Henri Rivière",
+            "File:Henri Rivière.jpg", "Portrait of a painter"), 0)
+        # A non-scenic request has the original scoring semantics.
+        self.assertGreater(media.safe_scenic_score("architecture paris",
+            "File:Architecture Paris.jpg", "Old building"), 0)
 
     def test_explicit_person_query_is_not_blocked_by_landscape_filter(self):
         self.assertGreater(media.safe_scenic_score("Henri Rivière",
