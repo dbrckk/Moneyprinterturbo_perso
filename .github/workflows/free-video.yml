@@ -126,6 +126,10 @@ jobs:
           fi
           ffmpeg -hide_banner -version | head -1
           espeak --version | head -1
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.visual_ai == 'clip' && inputs.visuals == 'commons' }}
+        with:
+          node-version: '22'
       - name: Restore optional CLIP weights cache
         if: ${{ inputs.visual_ai == 'clip' && inputs.visuals == 'commons' }}
         uses: actions/cache@v4
