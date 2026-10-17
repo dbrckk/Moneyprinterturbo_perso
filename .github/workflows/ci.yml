@@ -122,6 +122,34 @@ jobs:
           archive: false
           retention-days: 1
           if-no-files-found: error
+      - name: Verify provenance and scene manifest exist for Android publishing
+        run: |
+          test -s outputs/ci-preview.credits.txt
+          test -s outputs/ci-preview.json
+          grep -q 'ASSET & VOICE CREDITS' outputs/ci-preview.credits.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('outputs/ci-preview.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          assert len(data['segments']) >= 1
+          assert data['audio_mastering'] is not None
+          assert data['speech'] is True
+          PY
+      - name: Verify unzipped TXT credits upload on GitHub Actions v7
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/ci-preview.credits.txt
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
+      - name: Verify unzipped JSON scene manifest upload on GitHub Actions v7
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/ci-preview.json
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
       - name: Attach real preview video for visual review
         uses: actions/upload-artifact@v4
         with:
