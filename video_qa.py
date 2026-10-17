@@ -132,6 +132,19 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
             scene = item.get("segment", "?")
             if item.get("visual_medium") == "artwork-likely":
                 warnings.append(f"Scene {scene}: selected medium may be artwork, not photography")
+            # Only score licensed Commons images that carry explicit evidence.
+            # Older manifests and locally supplied media are not guessed.
+            coverage = item.get("query_term_coverage")
+            term_count = item.get("query_term_count")
+            source = item.get("source")
+            if (isinstance(source, str) and
+                    source.startswith("https://commons.wikimedia.org/wiki/") and
+                    isinstance(term_count, int) and not isinstance(term_count, bool) and
+                    term_count >= 2 and isinstance(coverage, (int, float)) and
+                    not isinstance(coverage, bool) and math.isfinite(coverage) and
+                    0 <= coverage < 0.5):
+                warnings.append(
+                    f"Scene {scene}: fewer than half the search concepts match Wikimedia text; review visual relevance")
             retained = item.get("crop_retention_estimate")
             if (_positive(retained) and retained <= 1 and retained < 0.34
                     and item.get("render_framing") != "soft-matte-full-image"):
@@ -152,6 +165,62 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
                    "scene_count": len(segments),
                    "bytes": video.stat().st_size},
         "errors": errors, "warnings": warnings,
+    }
+
+
+def inspect_midpoint_frames(video: Path, segments: list[dict]) -> dict:
+    """Sample actual rendered pixels, not labels in the storyboard PNG.
+
+    Midpoint sampling can flag very dark or nearly uniform frames, but cannot
+    establish artistic merit, correct subject matter, or scene motion.
+    All findings are non-blocking prompts for human storyboard review.
+    """
+    scenes: list[dict[str, object]] = []
+    warnings: list[str] = []
+    unreadable = 0
+    for index, segment in enumerate(segments):
+        try:
+            start, end = float(segment["start"]), float(segment["end"])
+            midpoint = (start + end) / 2
+            if not math.isfinite(midpoint) or not 0 <= midpoint <= 3600:
+                raise ValueError("Invalid scene time")
+            process = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+                 "-ss", f"{midpoint:.3f}", "-i", str(video),
+                 "-vf", "scale=16:16:flags=area,format=gray",
+                 "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
+                capture_output=True, timeout=20, check=False,
+            )
+            if process.returncode or len(process.stdout) != 256:
+                raise RuntimeError("Missing frame sample")
+            pixels = sorted(process.stdout)
+            median = (pixels[127] + pixels[128]) / 2
+            dark_share = sum(pixel <= 18 for pixel in pixels) / 256
+            flat_share = sum(abs(pixel - median) <= 4 for pixel in pixels) / 256
+            findings: list[str] = []
+            if dark_share >= 0.90:
+                findings.append("mostly-dark")
+                warnings.append(
+                    f"Scene {index+1}: midpoint preview is almost entirely dark; review storyboard")
+            elif flat_share >= 0.97:
+                findings.append("near-uniform")
+                warnings.append(
+                    f"Scene {index+1}: midpoint preview is nearly uniform; review storyboard")
+            scenes.append({
+                "scene": index + 1, "median_luma": round(median, 1),
+                "dark_pixel_share": round(dark_share, 3),
+                "near_median_pixel_share": round(flat_share, 3),
+                "findings": findings,
+            })
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError,
+                subprocess.SubprocessError):
+            unreadable += 1
+    if unreadable:
+        warnings.append(
+            f"Visual midpoint sampling unavailable for {unreadable} scene(s); review storyboard")
+    return {
+        "method": "rendered-midpoint-16x16-luma", "scenes": scenes,
+        "samples_unavailable": unreadable, "warnings": warnings,
     }
 
 
@@ -300,6 +369,11 @@ def audit(video: Path, *, metadata_path: Path | None = None,
     if result["checks"]["video_codec"] == "h264":
         try:
             result["storyboard"] = contact_sheet(video, metadata, sheet_path)
+            review = inspect_midpoint_frames(video, metadata["segments"])
+            result["visual_review"] = {
+                key: value for key, value in review.items() if key != "warnings"
+            }
+            result["warnings"].extend(review["warnings"])
         except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             result["errors"].append(f"Storyboard unavailable: {exc}")
             result["ok"] = False

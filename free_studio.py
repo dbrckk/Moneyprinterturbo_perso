@@ -541,6 +541,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "source": asset.source_url, "license": asset.license,
                                "author": asset.author, "visual_medium": asset.visual_medium,
                                "crop_retention_estimate": asset.crop_retention_estimate,
+                               "query_term_count": asset.query_term_count,
+                               "query_term_coverage": asset.query_term_coverage,
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})

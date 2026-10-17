@@ -35,3 +35,34 @@ Unit tests exercise actual FFmpeg JPEG quality changes and controlled candidate
 rotation. For a complete live test, use Commons imagery in the Android studio
 and inspect the storyboard: a real human review remains essential before
 publishing generated videos.
+
+
+## French/English visual keywords and scene review
+
+The Commons candidate scorer can now match a deliberately small set of
+French/English **visual nouns** (for example forêt/forest, montagne/mountain,
+pont/bridge and château/castle) without a model download, network translation,
+paid key or fuzzy matching of names and claims. This improves ranking **only
+among images already returned by Wikimedia's search API**; it cannot guarantee
+that Commons finds all translations or that the pixels depict the topic.
+Title matches still count more than description matches, and the existing
+landscape/person disambiguation and CC0/public-domain filter are retained.
+
+For new primary-search Commons assets, the scene manifest now includes
+`query_term_count` and `query_term_coverage` (0–1) based on textual filename
+and Commons-description evidence. Two or more requested visual terms with
+fewer than half matched produce a **non-blocking** publication-review warning
+in `video.quality.json`. Locally supplied files, images returned by broadened secondary searches and
+older manifests without comparable measurements are not assigned fabricated scores.
+
+The video QA pass also samples the **rendered MP4**, not Wikimedia thumbnails:
+at the midpoint of each scene, FFmpeg extracts 16×16 grayscale pixels.
+`visual_review` in the quality JSON reports median luma, proportion of very
+dark pixels, near-uniform pixel proportion, and an explicit unavailable count.
+Mostly dark and near-uniform midpoint frames are flagged for human review
+of `video.storyboard.png`, not treated as encoding failures. This is a
+bounded heuristic; bright captions, legitimate dark scenes, animation,
+relevance and visual aesthetics cannot be certified by these measurements.
+
+No user images or model prompts are uploaded for analysis; the additional
+image checks run locally on the rendered video with the existing FFmpeg tool.

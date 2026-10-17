@@ -6,7 +6,7 @@ public domain. Every selected asset carries provenance into the output.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import html
 import json
 import math
@@ -39,6 +39,9 @@ class MediaAsset:
     visual_medium: str = "unspecified"
     crop_retention_estimate: float | None = None
     visual_fingerprint: int | None = None
+    # Deterministic lexical evidence only; not image-content verification.
+    query_term_count: int | None = None
+    query_term_coverage: float | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -145,19 +148,55 @@ def _words(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{3,}", ascii_text))
 
 
-def relevance_score(query: str, title: str, description: str = "") -> int:
-    """Transparent filename/description keyword score, not AI similarity.
+# Conservative visual nouns only. This is NOT machine translation or a
+# visual-semantic model: named people, locations and abstract claims must still
+# match literally. Concept matching helps French narration find English titles.
+_VISUAL_CONCEPT_GROUPS = (
+    ("forest", "forests", "foret", "forets"),
+    ("mountain", "mountains", "montagne", "montagnes"),
+    ("river", "rivers", "riviere", "rivieres"),
+    ("lake", "lakes", "lac", "lacs"),
+    ("beach", "beaches", "plage", "plages"),
+    ("waterfall", "waterfalls", "cascade", "cascades"),
+    ("snow", "neige", "neiges"),
+    ("bridge", "bridges", "pont", "ponts"),
+    ("castle", "castles", "chateau", "chateaux"),
+    ("garden", "gardens", "jardin", "jardins"),
+    ("flower", "flowers", "fleur", "fleurs"),
+    ("tree", "trees", "arbre", "arbres"),
+    ("bird", "birds", "oiseau", "oiseaux"),
+    ("street", "streets", "rue", "rues"),
+    ("solar", "solaire"),
+)
+_VISUAL_CONCEPTS = {
+    term: group[0] for group in _VISUAL_CONCEPT_GROUPS for term in group
+}
 
-    Zero score means we cannot justify using this image for the scene.
-    Exact words are preferred over guessed semantics; users can override
-    scene search terms for improved Wikimedia matching.
-    """
+
+def _concepts(words: set[str]) -> set[str]:
+    return {_VISUAL_CONCEPTS.get(word, word) for word in words}
+
+
+def lexical_evidence(query: str, title: str, description: str = "") -> dict[str, int | float]:
+    """Explainable, bounded lexical evidence. Never certifies image contents."""
     wanted = _words(query) - _words(" ".join(_SEARCH_STOPWORDS))
     if not wanted:
         wanted = _words(query)
-    title_words = _words(title.replace("File:", ""))
-    desc_words = _words(description[:400])
-    return 3 * len(wanted & title_words) + len(wanted & desc_words)
+    targets = _concepts(wanted)
+    title_terms = _concepts(_words(title.replace("File:", "")))
+    description_terms = _concepts(_words(description[:400]))
+    matches = targets & (title_terms | description_terms)
+    return {
+        "score": 3 * len(targets & title_terms) + len(targets & description_terms),
+        "query_terms": len(targets),
+        "matched_terms": len(matches),
+        "coverage": round(len(matches) / len(targets), 3) if targets else 0.0,
+    }
+
+
+def relevance_score(query: str, title: str, description: str = "") -> int:
+    """Deterministic weighted title/description match with limited FR/EN nouns."""
+    return int(lexical_evidence(query, title, description)["score"])
 
 
 # An ambiguous landscape noun can also be a person's family name, a
@@ -216,7 +255,15 @@ def safe_scenic_score(query: str, title: str, description: str = "") -> int:
     content_words = _words(title + " " + description)
     if content_words & _NON_SCENIC_SUBJECT_WORDS:
         return 0
-    if not ((content_words - scenic_words) & _SCENIC_CONTEXT_WORDS):
+    # A translated alias of the requested subject is NOT independent scenic
+    # context: 'Jean Forest' must not satisfy a request for 'forêt' merely
+    # because 'forest' is both an English alias and a context word.
+    scenic_concepts = _concepts(scenic_words)
+    independent_context = {
+        word for word in content_words
+        if _VISUAL_CONCEPTS.get(word, word) not in scenic_concepts
+    }
+    if not (independent_context & _SCENIC_CONTEXT_WORDS):
         return 0
     return score
 
@@ -425,9 +472,13 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         if timings is not None:
             timings["fingerprint_seconds"] = (timings.get("fingerprint_seconds", 0)
                                               + time.perf_counter() - hash_started)
+        evidence = lexical_evidence(query, title, _plain(_field(info, "ObjectName"))
+                                    + " " + _plain(_field(info, "ImageDescription")))
         assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
                                  visual_medium=medium, crop_retention_estimate=retention,
-                                 visual_fingerprint=fingerprint))
+                                 visual_fingerprint=fingerprint,
+                                 query_term_count=int(evidence["query_terms"]),
+                                 query_term_coverage=float(evidence["coverage"])))
         if medium == "artwork-likely":
             warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
     if not assets:
@@ -595,7 +646,11 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             existing = {item.source_url for item in assets}
             for item in alternatives:
                 if item.source_url not in existing and len(assets) < limit:
-                    assets.append(item)
+                    # Evidence for a broadened search describes THAT search,
+                    # not necessarily the original narrated scene. Do not
+                    # report it as original-query coverage in video QA.
+                    assets.append(replace(item, query_term_count=None,
+                                          query_term_coverage=None))
                     existing.add(item.source_url)
             if assets:
                 notices = [notice for notice in notices
