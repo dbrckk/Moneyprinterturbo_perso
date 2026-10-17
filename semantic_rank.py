@@ -44,6 +44,15 @@ def english_visual_prompt(query: str) -> str | None:
     normalized = unicodedata.normalize("NFKD", query.lower())
     normalized = "".join(c for c in normalized if not unicodedata.combining(c))
     words = re.findall(r"[a-z]{3,}", normalized[:110])
+    # Never turn a person's name such as "Henri Rivière" into a claim that
+    # their portrait is a river. Unrecognized meaningful words are ambiguous;
+    # leave their candidate ordering to the already-tested Commons heuristics.
+    neutral = {"le", "la", "les", "des", "de", "du", "the", "and", "et",
+               "avec", "with", "un", "une", "a", "an", "paysage",
+               "landscape", "panorama", "photo", "photograph", "nature",
+               "scenery", "scene", "vue", "view"}
+    if any(w not in VISUAL_PROMPTS and w not in neutral for w in words):
+        return None
     nouns = list(dict.fromkeys(VISUAL_PROMPTS[w] for w in words if w in VISUAL_PROMPTS))
     prompt = " ".join(nouns[:3])
     return prompt if len(prompt) >= 3 else None
@@ -69,8 +78,9 @@ def choose_with_clip(assets: list, scores: list[float | None]) -> tuple[list, bo
     for i, (asset, score) in enumerate(zip(assets, scores, strict=True)):
         if score is None or score < 0.45 or score - initial < 0.12:
             continue
-        if (top_coverage is not None and asset.query_term_coverage is not None
-                and asset.query_term_coverage < top_coverage - 0.34):
+        if (top_coverage is not None and
+                (asset.query_term_coverage is None or
+                 asset.query_term_coverage < top_coverage - 0.34)):
             continue
         if score > (scores[best_index] or 0.0):
             best_index = i
