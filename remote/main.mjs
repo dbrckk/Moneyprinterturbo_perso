@@ -10,7 +10,7 @@ import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
   isGithubRateLimited } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
-const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
+const controls = ['visual_ai', 'word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
 const DRAFT_KEY = 'mpt-remote-draft-v1';
 const HISTORY_KEY = 'mpt-remote-jobs-v1';
 const statusLabels = {queued:'En attente', in_progress:'Rendu en cours', completed:'Terminé', waiting:'En attente', requested:'Demande envoyée'};

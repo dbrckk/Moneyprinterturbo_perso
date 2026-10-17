@@ -1,7 +1,7 @@
 /** Portable, opt-in scenario export. Never serialize GitHub tokens or history. */
 export const BACKUP_VERSION = 'mpt-draft-v1';
 export const BACKUP_FIELDS = Object.freeze([
-  'word_alignment','caption_style','transition','visual_style',
+  'visual_ai','word_alignment','caption_style','transition','visual_style',
   'topic','script','script_mode','scene_queries','lang','aspect',
   'resolution','speech_rate','voice','visuals',
 ]);
@@ -15,12 +15,16 @@ function filteredDraft(values) {
   }
   const draft = {};
   for (const key of BACKUP_FIELDS) {
-    const value = values[key];
+    // Backward-compatible: v1 backups created before CLIP had no such field.
+    const value = key === 'visual_ai' && !values[key] ? 'off' : values[key];
     const max = MAX_SIZES[key] || 100;
     if (typeof value !== 'string' || value.length > max) {
       throw new Error('Champ de brouillon invalide : ' + key);
     }
     draft[key] = value;
+  }
+  if (!['off','clip'].includes(draft.visual_ai)) {
+    throw new Error('Comparaison visuelle IA du brouillon invalide.');
   }
   if (!['commons','abstract'].includes(draft.visuals)) {
     throw new Error('Mode visuel du brouillon invalide.');

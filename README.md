@@ -9,6 +9,21 @@ Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depui
 
 > Note importante : les logiciels n'ont pas de frais de licence, mais le matériel, l'électricité, le stockage et un serveur disponible en permanence peuvent avoir un coût. GitHub Actions a des règles et quotas d'utilisation ; ne l'utilisez pas comme un service de rendu continu illimité.
 
+## Comparaison visuelle IA gratuite — option expérimentale
+
+Le studio Android propose maintenant un choix facultatif **CLIP (CPU)** pour
+comparer des images Commons **déjà vérifiées CC0/domaine public** avec les
+sujets visuels simples de la narration (forêt, montagne, pont, neige…).
+Le calcul est réalisé sur le runner GitHub Actions via un modèle ONNX quantifié,
+sans service d'inférence payant ni calcul neuronal sur Android. Le mode par
+défaut reste **Rapide**, avec sélection lexicale, et les erreurs CLIP reviennent
+automatiquement à ce classement. Les premiers rendus CLIP téléchargent un
+modèle et peuvent être sensiblement plus longs. Les résultats restent
+indicatifs et nécessitent une revue du storyboard.
+
+Détails techniques, commandes locales et limites :
+[docs/SEMANTIC_CLIP.md](docs/SEMANTIC_CLIP.md).
+
 ## Utilisation gratuite sur Android (sans ordinateur)
 
 1. Ouvrir **Actions → Générer une vidéo gratuite → Run workflow** dans ce dépôt.

@@ -14,6 +14,7 @@ export const VISUAL_STYLES = Object.freeze(['cinematic', 'classic']);
 export const CAPTION_STYLES = Object.freeze(['kinetic', 'classic']);
 export const WORD_ALIGNMENTS = Object.freeze(['estimated', 'forced']);
 export const TRANSITIONS = Object.freeze(['auto', 'fade', 'wipeleft', 'cut']);
+export const VISUAL_AIS = Object.freeze(['off', 'clip']);
 
 export function segmentsOf(script) {
   if (typeof script !== 'string') return [];
@@ -47,6 +48,7 @@ export function validateDraft(values) {
   const scriptMode = String(values.script_mode ?? 'template');
   const voice = String(values.voice ?? 'espeak');
   const visualStyle = String(values.visual_style ?? 'cinematic');
+  const visualAi = String(values.visual_ai ?? 'off');
   const captionStyle = String(values.caption_style ?? 'kinetic');
   const wordAlignment = String(values.word_alignment ?? 'estimated');
   const transition = String(values.transition ?? 'auto');
@@ -55,6 +57,8 @@ export function validateDraft(values) {
   if (!SCRIPT_MODES.includes(scriptMode)) throw new Error('Mode de scénario invalide.');
   if (!VOICES.includes(voice)) throw new Error('Moteur vocal invalide.');
   if (!VISUAL_STYLES.includes(visualStyle)) throw new Error('Habillage visuel invalide.');
+  if (!VISUAL_AIS.includes(visualAi)) throw new Error('Comparaison visuelle IA invalide.');
+  if (visualAi === 'clip' && values.visuals !== 'commons') throw new Error('CLIP nécessite des images Wikimedia Commons.');
   if (!CAPTION_STYLES.includes(captionStyle)) throw new Error('Style de sous-titres invalide.');
   if (!WORD_ALIGNMENTS.includes(wordAlignment)) throw new Error('Mode d’alignement des mots invalide.');
   if (wordAlignment === 'forced' && captionStyle !== 'kinetic') throw new Error('L’alignement audio exige les sous-titres progressifs.');
@@ -75,7 +79,7 @@ export function validateDraft(values) {
       || !SPEECH_RATES.includes(values.speech_rate) || !['commons', 'abstract'].includes(values.visuals)) {
     throw new Error('Configuration vidéo invalide.');
   }
-  return { topic, script, script_mode: scriptMode, voice, visual_style: visualStyle, caption_style: captionStyle, word_alignment: wordAlignment, transition, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
+  return { topic, script, script_mode: scriptMode, voice, visual_style: visualStyle, visual_ai: visualAi, caption_style: captionStyle, word_alignment: wordAlignment, transition, scene_queries: sceneQueries, lang: values.lang, aspect: values.aspect,
     resolution: values.resolution, speech_rate: values.speech_rate, visuals: values.visuals };
 }
 

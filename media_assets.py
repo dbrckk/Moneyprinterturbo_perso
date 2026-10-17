@@ -18,6 +18,7 @@ import unicodedata
 from urllib import parse, request
 
 from visual_hash import near_duplicate, visual_signature
+from semantic_rank import english_visual_prompt, rerank as semantic_rerank
 
 API = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "MoneyPrinterTurboPerso-FreeStudio/0.2 (+https://github.com/dbrckk/Moneyprinterturbo_perso)"
@@ -42,6 +43,7 @@ class MediaAsset:
     # Deterministic lexical evidence only; not image-content verification.
     query_term_count: int | None = None
     query_term_coverage: float | None = None
+    semantic_score: float | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -566,7 +568,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                          indices: list[int] | None = None, max_searches: int = 8,
                          max_workers: int = 3,
                          target_aspect: float | None = None,
-                         stats: dict[str, float | int] | None = None
+                         stats: dict[str, float | int | str] | None = None,
+                         semantic_ranking: bool = False
                          ) -> tuple[dict[int, MediaAsset], list[str]]:
     """Fetch varied CC0/PD pictures for repeated topics without extra API searches.
 
@@ -579,6 +582,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         raise ValueError("Commons scene search limit out of range")
     if not isinstance(max_workers, int) or not 1 <= max_workers <= 3:
         raise ValueError("Commons concurrency must be between 1 and 3")
+    if not isinstance(semantic_ranking, bool):
+        raise ValueError("Semantic ranking must be a boolean")
     if target_aspect is not None and (
             isinstance(target_aspect, bool) or not isinstance(target_aspect, (int, float))
             or not math.isfinite(target_aspect) or not 0.2 <= target_aspect <= 5):
@@ -608,6 +613,15 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         for query, occurrences in query_indices.items():
             if extra_budget and len(occurrences) > limits[query]:
                 limits[query] += 1
+                extra_budget -= 1
+
+    # Opt-in CLIP needs at least two licensed thumbnail candidates for a
+    # meaningful comparison. Keep the existing global four-extra-image budget.
+    # Repeated-topic diversity keeps priority over unique-scene reranking.
+    if semantic_ranking:
+        for query in query_indices:
+            if extra_budget and limits[query] == 1 and english_visual_prompt(query):
+                limits[query] = 2
                 extra_budget -= 1
 
     available_secondary = min(2, max_searches - len(query_indices))
@@ -681,8 +695,13 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 except Exception as exc:
                     results[query] = ([], [f"Wikimedia scene lookup failed: {type(exc).__name__}"], {})
 
+    semantic_metrics: dict[str, float | int | str] = {}
+    semantic_warnings: list[str] = []
+    if semantic_ranking and results:
+        results, semantic_metrics, semantic_warnings = semantic_rerank(results, work)
+
     selected: dict[int, MediaAsset] = {}
-    warnings: list[str] = []
+    warnings: list[str] = list(semantic_warnings)
     used_urls: set[str] = set()
     used_signatures: list[int] = []
     duplicate_candidates_avoided = 0
@@ -782,5 +801,6 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                                      for t in request_stats),
             "fingerprint_seconds_sum": round(sum(
                 float(t.get("fingerprint_seconds", 0)) for t in request_stats), 4),
+            **semantic_metrics,
         })
     return selected, warnings

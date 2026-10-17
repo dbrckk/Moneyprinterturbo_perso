@@ -7,3 +7,8 @@ outputs/
 *.partial.mp4
 .DS_Store
 .pytest_cache/
+
+# Optional CLIP model caches and npm runtime never belong in Git.
+node_modules/
+.clip-cache/
+.cache/
