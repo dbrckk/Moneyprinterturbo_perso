@@ -18,7 +18,7 @@ import unicodedata
 from urllib import parse, request
 
 from visual_hash import near_duplicate, visual_signature
-from semantic_rank import rerank as semantic_rerank
+from semantic_rank import english_visual_prompt, rerank as semantic_rerank
 
 API = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "MoneyPrinterTurboPerso-FreeStudio/0.2 (+https://github.com/dbrckk/Moneyprinterturbo_perso)"
@@ -620,7 +620,7 @@ def commons_scene_assets(queries: list[str], work: Path, *,
     # Repeated-topic diversity keeps priority over unique-scene reranking.
     if semantic_ranking:
         for query in query_indices:
-            if extra_budget and limits[query] == 1:
+            if extra_budget and limits[query] == 1 and english_visual_prompt(query):
                 limits[query] = 2
                 extra_budget -= 1
 
