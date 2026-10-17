@@ -4,6 +4,7 @@ on:
     paths:
       - free_studio.py
       - tests/test_audio_mastering.py
+      - tests/test_audio_activity.py
       - xfade_final.py
       - fast_abstract.py
       - fast_media.py

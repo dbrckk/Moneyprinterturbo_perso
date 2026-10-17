@@ -44,3 +44,17 @@ projects should still be auditioned on a real phone.
 ## Silent sources and safety
 
 When all source WAVs contain digitally silent PCM, the renderer explicitly skips loudnorm because the FFmpeg filter may otherwise feed NaN/Infinity values into the AAC encoder. It still produces a valid silent AAC stream for compatibility tests and records `audio_mastering.method=skipped-silent-input` with **no claim of a target LUFS**. The video metadata also contains an explicit warning that the TTS source is silent, requiring review; non-silent production voices retain mastering. This safeguard does not suppress FFmpeg errors on non-silent input.
+
+## Audibility guard — no silent narrated exports
+
+The final `video_qa.audit()` now performs FFmpeg EBU R128 loudness analysis
+and a `silencedetect` pass together, **without re-encoding the audio**.
+An otherwise valid AAC track fails QA if it is effectively silent
+(measured integrated LUFS or true peak at/below −55 dB), or if a narrated
+scene lasting at least one second is 97% or more below −48 dBFS. This
+prevents a missing TTS voice from being mislabeled as a successful delivery.
+The `audio_loudness.quiet_intervals_seconds` data makes failures inspectable.
+On unsupported FFmpeg builds, missing mandatory narration verification now
+fails QA rather than passing it silently; a genuinely muted video skips the
+audio inspection. Synthetic tests use real FFmpeg H.264/AAC and check silent,
+partially silent and audible scene cases.

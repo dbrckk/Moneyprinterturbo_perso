@@ -362,3 +362,5 @@ Les narrations françaises eSpeak/Piper sont désormais harmonisées sur la band
 ### Export mobile : fichiers SRT et rapport qualité sans ZIP
 
 Outre le MP4 et la planche PNG, le studio Android propose désormais l'ouverture directe des **sous-titres SRT** et du **rapport JSON** contenant les contrôles de rendu et les mesures audio. Les liens n'apparaissent que si GitHub confirme les artefacts, sans incorporer de jeton dans l'URL. Les anciens rendus restent compatibles.
+
+**Sécurité audio :** le contrôle de livraison refuse désormais les pistes AAC silencieuses lorsque la vidéo est annoncée comme narrée ; il repère aussi les scènes dont la voix est presque entièrement absente. Les détails sont enregistrés dans le rapport qualité. Les vidéos volontairement muettes restent autorisées.

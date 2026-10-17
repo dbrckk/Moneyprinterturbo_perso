@@ -155,7 +155,16 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
     }
 
 
-def audio_loudness(video: Path) -> dict[str, float | None]:
+def silence_share(start: float, end: float, intervals: list[list[float]]) -> float:
+    """Estimate fraction of scene covered by quiet audio; works across gaps."""
+    if not all(math.isfinite(v) for v in (start, end)) or end <= start:
+        return 0.0
+    overlap = sum(max(0.0, min(end, finish) - max(start, begin))
+                  for begin, finish in intervals)
+    return min(1.0, overlap / (end - start))
+
+
+def audio_loudness(video: Path) -> dict[str, object]:
     """Analyze AAC loudness independently of its intended mastering target.
 
     FFmpeg reports measured LUFS/true peak; these are objective audio metrics,
@@ -164,7 +173,8 @@ def audio_loudness(video: Path) -> dict[str, float | None]:
     process = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "info",
          "-i", str(video), "-map", "0:a:0",
-         "-af", "ebur128=peak=true", "-f", "null", "-"],
+         "-af", "ebur128=peak=true,silencedetect=noise=-48dB:d=0.4",
+         "-f", "null", "-"],
         capture_output=True, text=True, timeout=100,
     )
     if process.returncode:
@@ -177,9 +187,21 @@ def audio_loudness(video: Path) -> dict[str, float | None]:
         raise RuntimeError("FFmpeg did not report integrated audio loudness")
     lufs = float(integrated[-1])
     true_peak = float(peak[-1]) if peak else None
+    quiet: list[list[float]] = []
+    beginning: float | None = None
+    # FFmpeg can report silence_end at EOF, even for a fully silent track.
+    for event in re.finditer(r"silence_(start|end):\\s*([0-9]+(?:\\.[0-9]+)?)",
+                             process.stderr):
+        position = float(event.group(2))
+        if event.group(1) == "start":
+            beginning = position
+        elif beginning is not None and position >= beginning:
+            quiet.append([round(beginning, 4), round(position, 4)])
+            beginning = None
     return {"integrated_lufs": round(lufs, 2) if math.isfinite(lufs) else None,
             "true_peak_dbfs": (round(true_peak, 2) if true_peak is not None
-                               and math.isfinite(true_peak) else None)}
+                               and math.isfinite(true_peak) else None),
+            "quiet_intervals_seconds": quiet}
 
 
 def contact_sheet(video: Path, metadata: dict, output: Path, *, columns: int = 3) -> dict:
@@ -238,14 +260,31 @@ def audit(video: Path, *, metadata_path: Path | None = None,
             result["audio_loudness"] = audio_loudness(video)
             measured = result["audio_loudness"]["integrated_lufs"]
             peak = result["audio_loudness"]["true_peak_dbfs"]
+            # Valid AAC packets do not imply an audible narration. A silent
+            # audio stream used to pass technical QA despite missing voice.
+            if measured is None or measured <= -55 or peak is None or peak <= -55:
+                result["errors"].append(
+                    "Narrated MP4 contains no detectable voice audio (silent AAC track)")
+                result["ok"] = False
+            for index, scene in enumerate(metadata.get("segments", [])):
+                try:
+                    start, end = float(scene["start"]), float(scene["end"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+                if end - start >= 1.0 and silence_share(
+                        start, end, result["audio_loudness"]["quiet_intervals_seconds"]) >= 0.97:
+                    result["errors"].append(
+                        f"Scene {index+1}: narration is almost entirely silent")
+                    result["ok"] = False
             if measured is not None and (measured < -21 or measured > -11):
                 result["warnings"].append(
                     f"Measured audio loudness {measured} LUFS may be unsuitable for mobile")
             if peak is not None and peak > -0.1:
                 result["warnings"].append("Audio true peak is very close to 0 dBFS; review clipping")
         except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
-            result["warnings"].append(
-                f"Audio loudness inspection unavailable: {type(exc).__name__}")
+            result["errors"].append(
+                f"Narrated MP4 audio activity could not be verified: {type(exc).__name__}")
+            result["ok"] = False
     sheet_path = sheet_path or video.with_suffix(".storyboard.png")
     if result["checks"]["video_codec"] == "h264":
         try:
