@@ -8,7 +8,7 @@ Object.assign(valid, {
   topic: 'Paysages naturels', script:'La forêt. La rivière.',
   script_mode:'template', voice:'espeak',lang:'fr', visuals:'commons',
   aspect:'9:16', resolution:'720', speech_rate:'145', caption_style:'kinetic',
-  word_alignment:'estimated',visual_style:'cinematic', transition:'fade'
+  word_alignment:'estimated',visual_style:'cinematic', transition:'fade', visual_ai:'off'
 });
 
 test('portable backups round-trip all fields without GitHub secrets', () => {
@@ -19,6 +19,13 @@ test('portable backups round-trip all fields without GitHub secrets', () => {
   assert.ok(!json.includes('other-secret'));
   assert.ok(!json.includes('run_history'));
   assert.deepEqual(importPortableDraft(json), valid);
+});
+
+test('old portable backup gains the safe disabled CLIP default', () => {
+  const old = {...valid}; delete old.visual_ai;
+  const text = JSON.stringify({format:'mpt-draft-v1', draft:old});
+  assert.equal(importPortableDraft(text).visual_ai, 'off');
+  assert.equal(exportPortableDraft(old).includes('"visual_ai": "off"'), true);
 });
 
 test('malformed and oversized backups are refused', () => {
