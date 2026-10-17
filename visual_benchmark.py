@@ -249,6 +249,7 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
         "warnings": problems,
         "cases": rows,
     }
+    summary["contact_sheet_ready"] = bool(make_sheet(summary, images, output / "contact-sheet.png"))
     (output / "metrics.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output / "report.html").write_text(render_report(summary), encoding="utf-8")
@@ -259,14 +260,87 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
         for case in valid:
             writer.writerow([case["query"], case["baseline"]["source"],
                              case["clip"]["source"], "", ""])
-    summary["contact_sheet_ready"] = bool(make_sheet(summary, images, output / "contact-sheet.png"))
     return summary
+
+
+def score_human_reviews(metrics: dict, review_csv: Path) -> dict:
+    """Aggregate *actual* human preferences; never infer votes from CLIP scores.
+
+    On unchanged candidates, a preference for either algorithm is invalid:
+    they showed exactly the same source image.
+    """
+    cases = {
+        item["query"]: item
+        for item in metrics.get("cases", [])
+        if item.get("status") == "evaluated"
+    }
+    if (len(cases) != metrics.get("evaluated_cases") or
+            not isinstance(metrics.get("evaluated_cases"), int)):
+        raise ValueError("Invalid benchmark metrics or incomplete case list")
+    if not review_csv.is_file() or review_csv.stat().st_size > 2_000_000:
+        raise ValueError("Missing or oversized human review CSV")
+    expected_fields = [
+        "query", "baseline_url", "clip_url",
+        "human_choice_baseline_clip_tie_both_bad", "reviewer_notes",
+    ]
+    outcomes = {"baseline": 0, "clip": 0, "tie": 0, "both_bad": 0}
+    answered = 0
+    changed_reviewed = 0
+    seen = set()
+    with review_csv.open(newline="", encoding="utf-8-sig") as fp:
+        reader = csv.DictReader(fp)
+        if reader.fieldnames != expected_fields:
+            raise ValueError("Human review CSV header does not match benchmark template")
+        for item in reader:
+            query = item["query"]
+            if query not in cases or query in seen or len(seen) >= MAX_CASES:
+                raise ValueError("Review contains duplicate, missing or unknown scene")
+            case = cases[query]
+            if (item["baseline_url"] != case["baseline"]["source"] or
+                    item["clip_url"] != case["clip"]["source"]):
+                raise ValueError("Review CSV sources do not match original benchmark")
+            seen.add(query)
+            choice = item["human_choice_baseline_clip_tie_both_bad"].strip().lower()
+            if not choice:
+                continue
+            if choice not in outcomes:
+                raise ValueError("Allowed human ratings: baseline, clip, tie, both_bad")
+            if not case["changed"] and choice in ("baseline", "clip"):
+                raise ValueError("Identical photos cannot be assigned different winners")
+            outcomes[choice] += 1
+            answered += 1
+            if case["changed"]:
+                changed_reviewed += 1
+    if seen != set(cases):
+        raise ValueError("Human review CSV does not contain exactly the benchmark pairs")
+    decided = outcomes["clip"] + outcomes["baseline"]
+    return {
+        "human_reviews_completed": answered,
+        "human_reviews_pending": len(cases) - answered,
+        "changed_cases_reviewed": changed_reviewed,
+        "human_choices": outcomes,
+        "clip_wins_over_baseline": outcomes["clip"] - outcomes["baseline"],
+        "clip_share_of_decisive_votes": round(outcomes["clip"] / decided, 3) if decided else None,
+        "disclaimer": "Small voluntary visual review; not an objective quality certification, no automatic default switch",
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("outputs/clip-ab-benchmark"))
+    parser.add_argument("--score-reviews", type=Path,
+                        help="Score completed human-review.csv with existing metrics; no model/network")
     args = parser.parse_args(argv)
+    if args.score_reviews is not None:
+        metrics_path = args.output / "metrics.json"
+        if not metrics_path.is_file() or metrics_path.stat().st_size > 2_000_000:
+            parser.error("Missing benchmark metrics.json")
+        ratings = score_human_reviews(
+            json.loads(metrics_path.read_text(encoding="utf-8")), args.score_reviews)
+        (args.output / "human-score.json").write_text(
+            json.dumps(ratings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(ratings, ensure_ascii=False, indent=2))
+        return 0
     report = run_benchmark(args.output)
     print(json.dumps({key: report[key] for key in (
         "semantic_status", "requested_cases", "evaluated_cases",
