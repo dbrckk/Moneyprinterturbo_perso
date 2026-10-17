@@ -5,7 +5,8 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, findDirectCredits, findDirectManifest,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
-import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection } from './run_lifecycle.mjs';
+import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
+  isUncertainDispatchFailure, recentUnconfirmedRequest } from './run_lifecycle.mjs';
 
 const $ = id => document.getElementById(id);
 const controls = ['word_alignment', 'caption_style', 'transition', 'visual_style', 'topic', 'script', 'script_mode', 'scene_queries', 'lang', 'aspect', 'resolution', 'speech_rate', 'voice'];
@@ -164,7 +165,9 @@ async function api(url, options = {}) {
   if (!response.ok) {
     let data = {};
     try { data = await response.json(); } catch { /* non-json GitHub response */ }
-    throw new Error(safeError(response.status, data));
+    const err = new Error(safeError(response.status, data));
+    err.httpStatus = response.status;
+    throw err;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -198,7 +201,12 @@ async function lookupRun() {
     }
     if (!runSelection.isCurrent(generation)) return;
     if (matched) updateRun(matched);
-    else if (!active.runId) setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
+    else if (!active.runId) {
+      if (active.state === 'Envoi non confirmé')
+        setStatus('running', 'Confirmation en attente', 'La connexion a coupé la réponse de GitHub. Aucun second envoi automatique : vérifie les exécutions avant de relancer.');
+      else
+        setStatus('running', 'En attente', 'Demande envoyée, mais GitHub ne l’affiche pas encore. Clique sur « Actualiser » ou ouvre GitHub Actions.');
+    }
   } catch (error) {
     if (runSelection.isCurrent(generation) && active?.id === lookupFor) setStatus('failed', 'Suivi indisponible', `${error.message} Tu peux retrouver ton rendu directement dans GitHub Actions.`);
   } finally {
@@ -263,31 +271,67 @@ $('restore-draft').addEventListener('click', () => {
   } catch (error) { notify('Impossible de restaurer : ' + error.message); }
 });
 $('refresh').addEventListener('click',()=>{lastPoll=0;void lookupRun();});
+/** A single correlation ID persists even when a POST's response is lost. */
+function trackDispatchedRequest(record, statusTitle, statusCopy) {
+  runSelection.select();
+  active=record;
+  for (const name of ['download-video','preview-storyboard','download-subtitles',
+                      'download-quality','download-credits','download-manifest'])
+    $(name).hidden=true;
+  replaceHistory(active);
+  $('run-actions').hidden=false;
+  $('run-link').href=ACTIONS_URL;
+  setStatus('running',statusTitle,statusCopy);
+  startPoll();
+}
+
 $('video-form').addEventListener('submit', async event => {
   event.preventDefault();clearNotice();
-  let values, id;
+  let values,id;
   try { values=validateDraft(formValues());id=requestId(); }
   catch(error){notify(error.message);return;}
-  if (!$('token').value.trim()) { notify('Un jeton GitHub « Actions : Read and write » est nécessaire pour lancer un rendu. Utilise le lien de création à droite.'); $('token').focus();return; }
-  const launch=$('launch');launch.disabled=true;launch.querySelector('span').textContent='Envoi vers GitHub…';
+  const prior=recentUnconfirmedRequest(loadHistory(),values.topic);
+  if(prior){
+    trackDispatchedRequest(prior,'Vérification en cours',
+      'Une demande identique par sujet a peut-être déjà été acceptée par GitHub. Recherche de son identifiant : aucun nouveau rendu n’a été envoyé.');
+    notify('Envoi précédent non confirmé : vérifie sa demande avant d’en créer une autre. Pour forcer une nouvelle génération, efface cet historique.');
+    return;
+  }
+  if (!$('token').value.trim()) {
+    notify('Un jeton GitHub « Actions : Read and write » est nécessaire pour lancer un rendu. Utilise le lien de création à droite.');
+    $('token').focus();return;
+  }
+  const launch=$('launch');
+  launch.disabled=true;
+  launch.querySelector('span').textContent='Envoi vers GitHub…';
+  const createdAt=new Date().toISOString();
   try {
-    await api(`${API_ROOT}/actions/workflows/free-video.yml/dispatches`,{method:'POST',body:JSON.stringify(dispatchBody(values,id))});
-    runSelection.select();
-    active={id,topic:values.topic,createdAt:new Date().toISOString(),state:'Demande envoyée'};
-    $('download-video').hidden = true;
-    $('preview-storyboard').hidden = true;
-    $('download-subtitles').hidden = true;
-    $('download-quality').hidden = true;
-    $('download-credits').hidden = true;
-    $('download-manifest').hidden = true;
-    replaceHistory(active);
-    $('run-actions').hidden=false;
-    $('run-link').href=ACTIONS_URL;
-    setStatus('running','Demande acceptée',`GitHub a accepté ${runTitle(id)}. Recherche du rendu en cours…`);
+    await api(`${API_ROOT}/actions/workflows/free-video.yml/dispatches`,{
+      method:'POST',body:JSON.stringify(dispatchBody(values,id))
+    });
+    trackDispatchedRequest(
+      {id,topic:values.topic,createdAt,state:'Demande envoyée'},
+      'Demande acceptée',
+      `GitHub a accepté ${runTitle(id)}. Recherche du rendu en cours…`
+    );
     notify('Demande acceptée par GitHub. Le rendu est lancé ; suis sa progression dans le panneau Production.', 'success');
-    startPoll();
-  } catch(error){notify(`Impossible de lancer le rendu : ${error.name==='AbortError'?'délai réseau dépassé (vérifie sur GitHub avant de réessayer)':error.message}`);}
-  finally{launch.disabled=false;launch.querySelector('span').textContent='Générer ma vidéo';}
+  } catch(error){
+    if(isUncertainDispatchFailure(error)){
+      // A network timeout/5xx does not prove the dispatch was rejected.
+      // Retain the exact request ID and LOOK IT UP; never issue a retry POST.
+      trackDispatchedRequest(
+        {id,topic:values.topic,createdAt,state:'Envoi non confirmé'},
+        'Confirmation en attente',
+        'La réponse de GitHub a été interrompue. Le studio recherche le rendu existant sans refaire de demande.'
+      );
+      notify('Envoi non confirmé : GitHub a peut-être déjà démarré la vidéo. Aucun nouvel envoi automatique. Consulte le suivi et les exécutions GitHub.');
+    } else {
+      notify('GitHub a refusé le lancement : '+error.message);
+    }
+  } finally {
+    launch.disabled=false;
+    launch.querySelector('span').textContent='Générer ma vidéo';
+  }
 });
 
 // Installable Android shell: store only public frontend assets in Cache Storage.

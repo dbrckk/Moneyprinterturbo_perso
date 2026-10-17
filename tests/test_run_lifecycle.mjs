@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shouldAutoResume,shouldVerifyCompletedRun,createRunSelection} from '../remote/run_lifecycle.mjs';
+import {shouldAutoResume,shouldVerifyCompletedRun,createRunSelection,
+        isUncertainDispatchFailure,recentUnconfirmedRequest} from '../remote/run_lifecycle.mjs';
 const now=Date.parse('2026-10-17T08:00:00Z');
 const base={id:'studio-12345678-1234-1234-1234-123456789abc',
   createdAt:new Date(now-3600_000).toISOString(),state:'Demande envoyée'};
@@ -38,4 +39,28 @@ test('stale history replies cannot update a newly selected run',()=>{
  const next=session.select();assert.equal(session.isCurrent(first),false);
  assert.equal(session.isCurrent(next),true);
  assert.equal(session.current(),next);
+});
+
+test('uncertain POST failures never result in automatic retry',()=>{
+  for(const error of [{name:'AbortError'},{name:'TypeError'},
+                      {httpStatus:408},{httpStatus:429},
+                      {httpStatus:500},{httpStatus:502},{httpStatus:503}])
+    assert.equal(isUncertainDispatchFailure(error),true);
+  for(const error of [null,{name:'ValidationError'},{httpStatus:401},
+                      {httpStatus:403},{httpStatus:404},
+                      {httpStatus:422},{httpStatus:400},{httpStatus:204}])
+    assert.equal(isUncertainDispatchFailure(error),false);
+  assert.equal(isUncertainDispatchFailure({name:'TypeError',httpStatus:422}),false);
+});
+
+test('ambiguous dispatch is resumable and blocks only fresh same-topic duplicates',()=>{
+  const active={...base,state:'Envoi non confirmé',topic:'Montagne',
+    createdAt:new Date(now-45_000).toISOString()};
+  assert.equal(shouldAutoResume(active,now),true);
+  assert.equal(recentUnconfirmedRequest([active],'Montagne',now),active);
+  assert.equal(recentUnconfirmedRequest([active],'Océan',now),null);
+  assert.equal(recentUnconfirmedRequest([active],'Montagne',now+6*60_000),null);
+  assert.equal(recentUnconfirmedRequest([{...active,state:'Réussi'}],'Montagne',now),null);
+  assert.equal(recentUnconfirmedRequest(null,'Montagne',now),null);
+  assert.equal(recentUnconfirmedRequest([active],'Montagne',NaN),null);
 });

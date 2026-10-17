@@ -113,3 +113,21 @@ Le suivi et les téléchargements ignorent maintenant les réponses réseau arri
 ### Crédits et fiche technique accessibles directement depuis Android
 
 Chaque nouveau rendu publie désormais **six fichiers individuels sans ZIP** : MP4, planche PNG, sous-titres SRT, rapport de qualité JSON, **crédits TXT** et **métadonnées des scènes JSON**. Les crédits sont générés même pour une vidéo muette sur fonds animés originaux : ce fichier indique explicitement qu'aucune image externe et aucune voix n'ont été utilisées. Les sorties eSpeak précisent la source de synthèse vocale sans attribuer à tort la licence SIWIS de Piper. Les liens n'apparaissent que si GitHub confirme que l'artefact est présent, non vide et non expiré. Les anciens rendus restent compatibles.
+
+
+## Reprise automatique après coupure pendant l'envoi (Android)
+
+Une réponse de GitHub interrompue pendant `workflow_dispatch` ne garantit **ni**
+que la demande a été reçue, **ni** qu'elle a été rejetée. Le studio ne refait
+donc jamais automatiquement un POST. Sur expiration du délai réseau, erreur
+de connexion ou HTTP 408/429/5xx, il mémorise *uniquement* l'identifiant
+aléatoire de la demande, son sujet et son état « Envoi non confirmé » (jamais
+le jeton GitHub). Il lance la recherche sur les exécutions existantes et
+reprend après une reconnexion. Une tentative identique portant sur le même
+sujet dans les cinq minutes relance la **recherche**, pas la génération.
+L'utilisateur peut effacer l'historique pour forcer une nouvelle demande.
+Une réponse explicite 401/403/404/422 n'est pas présentée comme acceptée.
+
+Cette protection évite certains doublons de rendus et les frais de temps de
+calcul, mais ne prouve pas qu'un workflow a démarré tant que l'API GitHub
+n'a pas renvoyé le nom exact `Free Studio · studio-…`.

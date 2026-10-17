@@ -384,3 +384,9 @@ Le workflow [Pages](.github/workflows/pages.yml) peut désormais publier automat
 ### Publication sur mobile avec crédits et fiche de montage
 
 Le panneau Android propose maintenant les crédits des sources et de la voix (`video.credits.txt`) ainsi que les scènes, paramètres et avertissements (`video.json`) **en fichiers individuels sans ZIP**. Chaque rendu génère un fichier de crédits, même quand toutes les images sont originales ou la vidéo est muette. Cette piste de provenance facilite la publication responsable des contenus.
+
+
+La page Android conserve maintenant la référence d'une demande GitHub en
+cas de timeout ou de coupure réseau au moment de son envoi. Elle retrouve
+l'exécution existante au lieu de relancer automatiquement une génération,
+pour éviter les vidéos doublonnées. Aucun secret GitHub n'est enregistré.
