@@ -33,7 +33,7 @@ class BenchmarkTests(unittest.TestCase):
                 self.assertEqual(limit, 2)
                 self.assertAlmostEqual(target_aspect, 9 / 16)
                 return [
-                    fixture(folder, "Landscape <script>alert(1)</script>"),
+                    fixture(folder, "Landscape <img src=x onerror=alert(1)>"),
                     fixture(folder, "Mountain-B"),
                 ], []
             def compare(results, folder):
@@ -55,8 +55,8 @@ class BenchmarkTests(unittest.TestCase):
             summary = json.loads((root / "metrics.json").read_text())
             self.assertIn("not measured", summary["description"])
             report = (root / "report.html").read_text()
-            self.assertNotIn("<script>alert(1)</script>", report)
-            self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", report)
+            self.assertNotIn("<img src=x onerror=alert(1)>", report)
+            self.assertIn("&lt;img src=x onerror=alert(1)&gt;", report)
             self.assertNotIn("<Artist>", report)
             self.assertIn("&lt;Artist&gt;", report)
             self.assertIn("Choix modifié", report)
