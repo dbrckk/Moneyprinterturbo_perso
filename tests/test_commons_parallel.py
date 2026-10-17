@@ -211,6 +211,26 @@ class CommonsSecondarySearchTests(unittest.TestCase):
         self.assertEqual(stats["download_bytes"],500)
         self.assertEqual(warnings,[])
 
+    def test_secondary_search_does_not_claim_original_query_coverage(self):
+        def search(query, directory, *, limit, timings):
+            results = [media.MediaAsset(
+                directory / f"{query.replace(' ', '-')}-{n}.jpg", "image",
+                f"https://commons.wikimedia.org/wiki/File:{query}-{n}.jpg",
+                "CC0", "Author", query,
+                query_term_count=len(query.split()),
+                query_term_coverage=1.0)
+                for n in range(1 if query == "montagne" else limit)]
+            return results, []
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                media, "commons_assets", side_effect=search):
+            found, _ = media.commons_scene_assets(
+                ["montagne"] * 3, Path(tmp), max_searches=3)
+        self.assertEqual(found[0].query_term_count, 1)
+        self.assertEqual(found[0].query_term_coverage, 1.0)
+        self.assertIsNone(found[1].query_term_count)
+        self.assertIsNone(found[1].query_term_coverage)
+        self.assertIsNone(found[2].query_term_coverage)
+
     def test_secondary_never_bypasses_total_search_budget(self):
         calls=[]
         def mocked(query, directory, *, limit, timings):
