@@ -60,14 +60,13 @@ class MediaAssetsTests(unittest.TestCase):
         self.assertIn("query=ok", api_approved.full_url)
 
     def test_limited_download_installs_a_redirect_guard(self):
-        from unittest.mock import Mock
-        opener = Mock()
-        response = Mock()
+        from unittest.mock import MagicMock
+        opener = MagicMock()
+        response = MagicMock()
         response.geturl.return_value = "https://upload.wikimedia.org/media.jpg"
         response.headers = {}
         response.read.return_value = b"image"
-        opener.open.return_value.__enter__ = Mock(return_value=response)
-        opener.open.return_value.__exit__ = Mock(return_value=False)
+        opener.open.return_value.__enter__.return_value = response
         with patch.object(media.request, "build_opener", return_value=opener) as factory:
             result = media._read_limited(
                 "https://upload.wikimedia.org/media.jpg", 20, timeout=3)
