@@ -126,11 +126,17 @@ The workflow exports:
 - **`clip-ab-human-review` archive:** additional detailed HTML provenance
   report with original images, authors, licences and `human-review.csv` template.
 
-The first actual workflow run on **17 October 2026** evaluated two of five
-topics and CLIP changed **zero** selected source images. That is a
-*coverage/decision observation*, **not evidence of a visual-quality gain**.
-Other topics had fewer than two verified licensed candidate files, so they
-are not scored. The default therefore remains **off**.
+The initial real workflow run on **17 October 2026** evaluated **2/5**
+topics and CLIP changed **0** selections. After widening the bounded,
+license-checked discovery, the
+[18 October 2026 real run](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/39123201187)
+evaluated **5/5** topics, with **7 Commons API queries** (2 alternative
+lookups), **6 additional eligible candidates**, and **0** CLIP ranking
+changes. Commons media retrieval took **4.21 s** and cached local CLIP
+inference **2.192 s** on that GitHub runner. These are observations from
+one live run, not promises about fluctuating Commons availability or a
+measured semantic accuracy gain. The default CLIP mode therefore remains
+**off** until independent blind reviewer ratings establish improvement.
 
 For a local comparison after `npm install --prefix semantic`, FFmpeg and
 FFprobe are installed:
