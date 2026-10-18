@@ -147,12 +147,14 @@ class VideoQualityTests(unittest.TestCase):
              'crop_retention_estimate':0.25},
             {'segment':2,'title':'A recent photo','visual_medium':'photograph-likely',
              'crop_retention_estimate':0.92}]
-        self.metadata['commons_fetch']={'scenes_reusing_image':1}
+        self.metadata['commons_fetch']={'scenes_reusing_image':1,
+                                        'adjacent_visual_reuses':1}
         result=video_qa.validate(self.video,self.metadata,self.subtitle,video_qa.probe(self.video))
         self.assertTrue(result['ok'],result['errors'])
         self.assertTrue(any('artwork' in w for w in result['warnings']))
         self.assertTrue(any('two thirds' in w for w in result['warnings']))
         self.assertTrue(any('reuse' in w for w in result['warnings']))
+        self.assertTrue(any('consecutive Commons' in w for w in result['warnings']))
         self.assertFalse(any('Scene 2: source framing' in w for w in result['warnings']))
 
     def test_weak_commons_text_evidence_warns_without_failing_delivery(self):
