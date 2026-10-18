@@ -17,8 +17,8 @@ import tempfile
 
 MAX_METADATA_BYTES = 2_000_000
 MAX_SCENES = 18
-SRT_TIME = r"(\\d{2}:\\d{2}:\\d{2},\\d{3})"
-SRT_CUE_LINE = re.compile(rf"^{SRT_TIME}\\s+-->\\s+{SRT_TIME}$")
+SRT_TIME = r"(\d{2}:\d{2}:\d{2},\d{3})"
+SRT_CUE_LINE = re.compile(rf"^{SRT_TIME}\s+-->\s+{SRT_TIME}$")
 
 
 def execute(argv: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -48,12 +48,12 @@ def parse_srt_cues(path: Path) -> list[tuple[int, float, float, str]]:
     Do not accept partial regex matches that skip malformed entries.
     """
     content = path.read_text(encoding="utf-8-sig")
-    normalized = content.replace("\\r\\n", "\\n").replace("\\r", "\\n").strip()
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not normalized:
         raise ValueError("Empty SRT subtitles")
     cues: list[tuple[int, float, float, str]] = []
-    for block in re.split(r"\\n[ \\t]*\\n", normalized):
-        lines = block.split("\\n")
+    for block in re.split(r"\n[ \t]*\n", normalized):
+        lines = block.split("\n")
         if len(lines) < 3 or not re.fullmatch(r"[0-9]+", lines[0].strip()):
             raise ValueError("Malformed SRT cue header")
         match = SRT_CUE_LINE.fullmatch(lines[1].strip())
