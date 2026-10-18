@@ -183,23 +183,33 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
 
     collected: dict[str, tuple] = {}
     notices: dict[str, list[str]] = {}
+    query_diagnostics: dict[str, dict[str, float | int]] = {}
     started = time.perf_counter()
-    def retrieve(entry: tuple[int, str]) -> tuple[str, list, list[str]]:
+    def retrieve(entry: tuple[int, str]) -> tuple[str, list, list[str], dict]:
         index, query = entry
         folder = work / f"case_{index:02}"
         folder.mkdir(parents=True, exist_ok=True)
+        details: dict[str, float | int] = {}
         try:
-            assets, warnings = fetch(query, folder, limit=2, target_aspect=9 / 16)
+            # The production Commons fetcher provides real search telemetry.
+            # Injected fixture fetchers retain their older strict signature.
+            if fetch is commons_assets:
+                assets, warnings = fetch(
+                    query, folder, limit=2, target_aspect=9 / 16,
+                    timings=details)
+            else:
+                assets, warnings = fetch(query, folder, limit=2, target_aspect=9 / 16)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
             assets, warnings = [], [f"Source lookup failed: {type(exc).__name__}"]
-        return query, assets, warnings
+        return query, assets, warnings, details
 
     # Media downloads are independent and bounded to three parallel Commons
     # requests; model inference still happens once after all lookups finish.
     with ThreadPoolExecutor(max_workers=min(3, len(queries))) as pool:
-        for query, assets, warnings in pool.map(retrieve, enumerate(queries)):
+        for query, assets, warnings, details in pool.map(retrieve, enumerate(queries)):
             collected[query] = (assets, warnings, {})
             notices[query] = warnings
+            query_diagnostics[query] = details
     commons_seconds = round(time.perf_counter() - started, 3)
 
     # One model initialization for the full comparison, no per-scene reloading.
@@ -247,6 +257,14 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
         "changed_cases": changed,
         "retained_cases": len(valid) - changed,
         "human_reviews_completed": 0,
+        "licensed_pair_coverage": round(len(valid) / len(queries), 3),
+        "commons_api_queries": sum(int(d.get("api_queries", 0))
+                                   for d in query_diagnostics.values()),
+        "fallback_queries_attempted": sum(int(d.get("fallback_search_attempted", 0))
+                                           for d in query_diagnostics.values()),
+        "fallback_candidates_added": sum(int(d.get("fallback_search_added", 0))
+                                         for d in query_diagnostics.values()),
+        "search_diagnostics": query_diagnostics,
         "warnings": problems,
         "cases": rows,
     }
@@ -356,8 +374,13 @@ def main(argv: list[str] | None = None) -> int:
     report = run_benchmark(args.output)
     print(json.dumps({key: report[key] for key in (
         "semantic_status", "requested_cases", "evaluated_cases",
-        "changed_cases", "retained_cases", "commons_seconds",
+        "changed_cases", "retained_cases", "licensed_pair_coverage",
+        "commons_api_queries", "fallback_queries_attempted",
+        "fallback_candidates_added", "commons_seconds",
         "semantic_seconds", "contact_sheet_ready")}, indent=2))
+    for case in report["cases"]:
+        suffix = "paired" if case["status"] == "evaluated" else case.get("reason", "insufficient licensed photos")
+        print(f"  {case['query']}: {suffix}")
     # Exit non-zero when there is no usable A/B evaluation. It must not be
     # misrepresented as success if the network or model was unavailable.
     return 0 if report["semantic_status"] == "ok" and report["evaluated_cases"] >= 2 else 2

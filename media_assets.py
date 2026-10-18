@@ -354,6 +354,32 @@ def crop_retention(width: object, height: object,
                      target_aspect / source_aspect), 4)
 
 
+def alternative_commons_search_query(query: str) -> str | None:
+    """One bounded lexical search alternative for *unambiguous visual nouns*.
+
+    Search expansion affects discovery only. Every candidate must still pass
+    original-query scenic relevance, source-host and license verification.
+    Person names, multi-concept scenes and unfamiliar modifiers are excluded.
+    """
+    if not isinstance(query, str):
+        return None
+    words = _words(query[:110])
+    context = {"landscape", "paysage", "panorama", "photo", "photograph",
+               "photography", "scenery", "nature", "vue", "view"}
+    concepts = {_VISUAL_CONCEPTS[word] for word in words if word in _VISUAL_CONCEPTS}
+    if len(concepts) != 1 or words - set(_VISUAL_CONCEPTS) - context:
+        return None
+    concept = next(iter(concepts))
+    if concept == "castle":
+        search = "chateau" if "castle" in words else "castle"
+    elif concept == "waterfall":
+        search = "cascade" if "waterfall" in words else "waterfall"
+    else:
+        search = concept
+    # Avoid issuing the same API search twice.
+    return search if search != expand_scenic_search_query(query) else None
+
+
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
                    timings: dict[str, float | int] | None = None,
                    target_aspect: float | None = None
@@ -370,74 +396,119 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         raise ValueError("Unsupported target aspect ratio")
     query = re.sub(r"\s+", " ", topic).strip()[:110]
     search_phrase = expand_scenic_search_query(query)
-    params = parse.urlencode({
-        "action": "query", "format": "json", "generator": "search", "gsrsearch": search_phrase,
-        "gsrnamespace": "6", "gsrlimit": "30", "prop": "imageinfo|categories",
-        "cllimit": "max", "clshow": "!hidden",
-        "iiprop": "url|extmetadata|size", "iiurlwidth": "1440",
-    })
+    # Wikimedia can return many CC BY files before finding CC0 / public
+    # domain candidates. Read up to 45 search hits in one request (below the
+    # MediaWiki 50 scaled-image limit) and request only metadata we consume.
+    def query_pages(phrase: str) -> dict:
+        params = parse.urlencode({
+            "action": "query", "format": "json", "generator": "search",
+            "gsrsearch": phrase, "gsrnamespace": "6", "gsrlimit": "45",
+            "prop": "imageinfo|categories", "cllimit": "max", "clshow": "!hidden",
+            "iiprop": "url|extmetadata|size", "iiurlwidth": "1440",
+            "iiextmetadatafilter": "LicenseShortName|Artist|ObjectName|ImageDescription|Categories",
+        })
+        if timings is not None:
+            timings["api_queries"] += 1
+        response = json.loads(_read_limited(API + "?" + params, 2 * 1024 * 1024, timeout=14))
+        if not isinstance(response, dict):
+            raise ValueError("Wikimedia Commons returned invalid JSON")
+        pages = response.get("query", {}).get("pages", {})
+        if not isinstance(pages, dict):
+            raise ValueError("Wikimedia Commons returned invalid results")
+        return pages
+
     lookup_started = time.perf_counter()
     if timings is not None:
-        timings.update({"api_seconds": 0.0, "download_seconds": 0.0,
-                        "verification_seconds": 0.0, "download_bytes": 0,
+        timings.update({"api_seconds": 0.0, "api_queries": 0,
+                        "api_pages_examined": 0,
+                        "licensed_relevant_candidates": 0,
+                        "fallback_search_attempted": 0,
+                        "fallback_search_added": 0,
+                        "download_seconds": 0.0,
+                        "verification_seconds": 0.0,
+                        "download_bytes": 0,
                         "download_attempts": 0})
     try:
-        payload = json.loads(_read_limited(API + "?" + params, 2 * 1024 * 1024, timeout=14))
+        pages = query_pages(search_phrase)
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
         return [], [f"Wikimedia Commons lookup failed: {type(exc).__name__}"]
     finally:
         if timings is not None:
             timings["api_seconds"] = round(time.perf_counter() - lookup_started, 4)
+
     assets: list[MediaAsset] = []
     warnings: list[str] = []
-    pages = payload.get("query", {}).get("pages", {})
-    if not isinstance(pages, dict):
-        return [], ["Wikimedia Commons returned invalid results"]
-    # Rank licensed candidates *before downloading*; the Wikimedia result order
-    # is not a guarantee that a photo depicts this particular narrated scene.
+    # Rank licensed candidates *before downloading*. Never trust Commons
+    # search ranking, and never treat broader fallback terms as relevance.
     ranked: list[tuple[int, int, float, int, dict, dict, str, str, str, str,
                        float | None]] = []
-    for page in pages.values():
-        if not isinstance(page, dict):
-            continue
-        title = str(page.get("title", ""))
-        if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
-            continue
-        info_list = page.get("imageinfo") or []
-        if not isinstance(info_list, list) or not info_list or not isinstance(info_list[0], dict):
-            continue
-        info = info_list[0]
-        license_name = _plain(_field(info, "LicenseShortName"))
-        if license_name.lower() not in ALLOWED_LICENSES:
-            continue
-        url = str(info.get("thumburl") or info.get("url") or "")
-        page_url = str(info.get("descriptionurl") or "")
-        if not _trusted_url(url) or not _trusted_url(page_url, api=True):
-            continue
-        description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
-        score = safe_scenic_score(query, title, description)
-        if score:
-            categories = " ".join(
-                str(c.get("title", "")) for c in page.get("categories", [])
-                if isinstance(c, dict)
-            )
-            categories += " " + _plain(_field(info, "Categories"))
-            medium = visual_medium_hint(title, description, categories)
-            # A positive photo signal must also be relevant by title; generic
-            # descriptions alone should not beat accurately titled scenery.
-            medium_rank = _MEDIUM_PRIORITY[medium]
-            if medium == "photograph-likely" and score < 3:
-                medium_rank = _MEDIUM_PRIORITY["unspecified"]
-            retention = crop_retention(
-                info.get("thumbwidth", info.get("width")),
-                info.get("thumbheight", info.get("height")), target_aspect)
-            # Relevance must outrank a weak text-only media-class guess:
-            # a barely related photograph must not beat a clearly described
-            # artwork. Break relevance ties by medium and then crop suitability.
-            ranking_retention = retention if retention is not None else 0.5
-            ranked.append((-score, medium_rank, -ranking_retention,
-                           int(page.get("index", 100000)), page, info,
-                           license_name, url, page_url, medium, retention))
+    seen_titles: set[str] = set()
+
+    def append_pages(pages: dict) -> None:
+        if timings is not None:
+            timings["api_pages_examined"] += len(pages)
+        for page in pages.values():
+            if not isinstance(page, dict):
+                continue
+            title = str(page.get("title", ""))
+            if Path(title).suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            if title.casefold() in seen_titles:
+                continue
+            info_list = page.get("imageinfo") or []
+            if not isinstance(info_list, list) or not info_list or not isinstance(info_list[0], dict):
+                continue
+            info = info_list[0]
+            license_name = _plain(_field(info, "LicenseShortName"))
+            if license_name.lower() not in ALLOWED_LICENSES:
+                continue
+            url = str(info.get("thumburl") or info.get("url") or "")
+            page_url = str(info.get("descriptionurl") or "")
+            if not _trusted_url(url) or not _trusted_url(page_url, api=True):
+                continue
+            description = _plain(_field(info, "ObjectName")) + " " + _plain(_field(info, "ImageDescription"))
+            score = safe_scenic_score(query, title, description)
+            if score:
+                categories = " ".join(
+                    str(c.get("title", "")) for c in page.get("categories", [])
+                    if isinstance(c, dict)
+                )
+                categories += " " + _plain(_field(info, "Categories"))
+                medium = visual_medium_hint(title, description, categories)
+                # A positive photo signal must also be relevant by title; generic
+                # descriptions alone should not beat accurately titled scenery.
+                medium_rank = _MEDIUM_PRIORITY[medium]
+                if medium == "photograph-likely" and score < 3:
+                    medium_rank = _MEDIUM_PRIORITY["unspecified"]
+                retention = crop_retention(
+                    info.get("thumbwidth", info.get("width")),
+                    info.get("thumbheight", info.get("height")), target_aspect)
+                # Relevance must outrank a weak text-only media-class guess:
+                # a barely related photograph must not beat a clearly described
+                # artwork. Break relevance ties by medium and then crop suitability.
+                ranking_retention = retention if retention is not None else 0.5
+                seen_titles.add(title.casefold())
+                ranked.append((-score, medium_rank, -ranking_retention,
+                               int(page.get("index", 100000)), page, info,
+                               license_name, url, page_url, medium, retention))
+
+    append_pages(pages)
+    # Extra network work is opt-in to a shortage of verified matches in a
+    # multi-candidate search, never used for default one-image render scenes.
+    alternate = alternative_commons_search_query(query) if limit > 1 and len(ranked) < limit else None
+    if alternate:
+        if timings is not None:
+            timings["fallback_search_attempted"] = 1
+        before = len(ranked)
+        try:
+            append_pages(query_pages(alternate))
+        except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            warnings.append(f"Alternative Commons lookup unavailable: {type(exc).__name__}")
+        if timings is not None:
+            timings["fallback_search_added"] = len(ranked) - before
+            timings["api_seconds"] = round(time.perf_counter() - lookup_started, 4)
+    if timings is not None:
+        timings["licensed_relevant_candidates"] = len(ranked)
     ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
     for _negscore, _, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
         if len(assets) >= limit:

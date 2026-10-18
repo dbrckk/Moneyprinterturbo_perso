@@ -9,6 +9,8 @@ on:
       - main
     paths:
       - visual_benchmark.py
+      - media_assets.py
+      - tests/test_commons_coverage.py
       - review_mobile.py
       - review_mobile.js
       - tests/test_review_mobile.py
@@ -18,6 +20,8 @@ on:
   pull_request:
     paths:
       - visual_benchmark.py
+      - media_assets.py
+      - tests/test_commons_coverage.py
       - review_mobile.py
       - review_mobile.js
       - tests/test_visual_benchmark.py
@@ -51,6 +55,7 @@ jobs:
       - name: Verify benchmark safety and non-ML fallback tests
         run: |
           python -m unittest discover -s tests -p 'test_visual_benchmark.py' -v
+          python -m unittest discover -s tests -p 'test_commons_coverage.py' -v
           python -m unittest discover -s tests -p 'test_review_mobile.py' -v
           node --check review_mobile.js
           node --test tests/test_review_mobile.mjs
@@ -75,6 +80,9 @@ jobs:
           assert metrics['semantic_status']=='ok', metrics['warnings']
           assert metrics['evaluated_cases']>=2
           assert metrics['human_reviews_completed']==0
+          assert 0 <= metrics['licensed_pair_coverage'] <= 1
+          assert metrics['commons_api_queries'] >= metrics['requested_cases']
+          assert 0 <= metrics['fallback_candidates_added'] <= 45 * metrics['fallback_queries_attempted']
           assert metrics['changed_cases']+metrics['retained_cases']==metrics['evaluated_cases']
           assert 'accuracy' not in metrics
           assert (base/'contact-sheet.png').stat().st_size>1000
@@ -96,6 +104,11 @@ jobs:
               fp.write('## Commons lexical vs CLIP — A/B review\n\n')
               fp.write(f"Evaluated pairs: **{m['evaluated_cases']}**; decisions changed: "
                        f"**{m['changed_cases']}**; unchanged: **{m['retained_cases']}**.\n\n")
+              fp.write(f"Licensed two-image coverage: **{m['evaluated_cases']}/{m['requested_cases']}** "
+                       f"({m['licensed_pair_coverage']:.0%}); "
+                       f"Commons API searches: {m['commons_api_queries']}, "
+                       f"bounded alternative attempts: {m['fallback_queries_attempted']}, "
+                       f"additional eligible candidates: {m['fallback_candidates_added']}.\n\n")
               fp.write(f"Commons downloads: {m['commons_seconds']}s; local CLIP inference: "
                        f"{m['semantic_seconds']}s.\n\n")
               fp.write('**Not an accuracy score.** Review the direct contact sheet and '
