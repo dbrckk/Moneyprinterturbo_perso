@@ -3,6 +3,10 @@ on:
   push:
     paths:
       - visual_benchmark.py
+      - review_mobile.py
+      - review_mobile.js
+      - tests/test_review_mobile.py
+      - tests/test_review_mobile.mjs
       - tests/test_visual_benchmark.py
       - .github/workflows/clip-ab-benchmark.yml
   workflow_dispatch:
@@ -30,7 +34,11 @@ jobs:
           ffmpeg -version | head -1
           ffprobe -version | head -1
       - name: Verify benchmark safety and non-ML fallback tests
-        run: python -m unittest discover -s tests -p 'test_visual_benchmark.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_visual_benchmark.py' -v
+          python -m unittest discover -s tests -p 'test_review_mobile.py' -v
+          node --check review_mobile.js
+          node --test tests/test_review_mobile.mjs
       - name: Install local optional CLIP runtime
         run: npm install --prefix semantic --no-audit --no-fund
       - name: Restore pinned model weights cache
@@ -56,6 +64,9 @@ jobs:
           assert 'accuracy' not in metrics
           assert (base/'contact-sheet.png').stat().st_size>1000
           assert (base/'human-review.csv').stat().st_size>40
+          assert metrics['mobile_review_ready'] is True, metrics.get('warnings')
+          assert metrics['mobile_review_pairs']==metrics['evaluated_cases']
+          assert (base/'review-mobile.html').stat().st_size>1000
           print('A/B comparisons and human-review assets validated:', {
               k: metrics[k] for k in ('evaluated_cases','changed_cases','retained_cases',
                                       'commons_seconds','semantic_seconds')})
@@ -96,12 +107,20 @@ jobs:
           archive: false
           retention-days: 7
           if-no-files-found: error
+      - name: Standalone blinded review HTML for Android (no ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/clip-ab-benchmark/review-mobile.html
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Full review report, images and human annotations
         uses: actions/upload-artifact@v4
         with:
           name: clip-ab-human-review
           path: |
             outputs/clip-ab-benchmark/report.html
+            outputs/clip-ab-benchmark/review-mobile.html
             outputs/clip-ab-benchmark/images/**
             outputs/clip-ab-benchmark/metrics.json
             outputs/clip-ab-benchmark/human-review.csv

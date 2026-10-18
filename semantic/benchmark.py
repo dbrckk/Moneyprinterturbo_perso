@@ -8,6 +8,13 @@ running the comparison. Results contain both selection rates and timing.
 import argparse
 import json
 from pathlib import Path
+import sys
+
+# The documented `python semantic/benchmark.py ...` entry point starts with
+# semantic/ on sys.path, not the repository root. Resolve the repository's
+# own modules reliably regardless of the calling working directory.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import statistics
 import tempfile
 from time import perf_counter

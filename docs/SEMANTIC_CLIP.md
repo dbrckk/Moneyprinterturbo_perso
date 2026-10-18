@@ -87,8 +87,15 @@ The workflow exports:
 - **Direct `metrics.json`:** number of eligible pairs, whether CLIP changed
   the selected source, individual provenance and timings; no claim of
   objective accuracy.
-- **`clip-ab-human-review` archive:** offline HTML with original images,
-  authors and licenses, and `human-review.csv` for explicit ratings.
+- **Direct `review-mobile.html` for Android, without ZIP:** independent blind
+  A/B comparison. Both candidates appear side by side with algorithm identities
+  concealed and reproducibly shuffled. Tap left/right/tie/both unsuitable,
+  optionally add notes, then export an offline, validated CSV matching the
+  scorer format. Thumbnail previews are embedded in the single HTML file:
+  opening it requires no service or extra assets, and browser network access
+  is disabled by its content security policy.
+- **`clip-ab-human-review` archive:** additional detailed HTML provenance
+  report with original images, authors, licences and `human-review.csv` template.
 
 The first actual workflow run on **17 October 2026** evaluated two of five
 topics and CLIP changed **zero** selected source images. That is a
@@ -103,7 +110,14 @@ FFprobe are installed:
 python visual_benchmark.py --output outputs/clip-ab-benchmark
 ```
 
-Open the HTML and PNG review artifacts. In the CSV template, fill the
+On Android, open the directly downloadable `review-mobile.html` from a
+benchmark workflow run, rate each image pair, and export the CSV on the
+device. Copy that CSV next to the benchmark metrics before scoring. An
+unchanged pair only accepts `tie` or `both_bad`, and exporting incomplete
+ratings is allowed (unrated rows stay blank). Preview thumbnails are limited
+in size; a preview failure is reported without inventing human votes.
+
+Alternatively, open the detailed HTML and PNG review artifacts. In the CSV template, fill the
 `human_choice_baseline_clip_tie_both_bad` column with one of `baseline`,
 `clip`, `tie`, or `both_bad`; leave undecided cases blank. Then aggregate
 only actual human votes (no download or model is needed):
