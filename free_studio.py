@@ -347,11 +347,13 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            visual_style: str = "cinematic", transition: str = "auto",
            caption_style: str = "kinetic", word_alignment: str = "estimated",
            use_fused_xfade: bool = True, use_media_onepass: bool = True,
-           visual_ai: str = "off") -> dict[str, object]:
+           visual_ai: str = "off", script_mode: str | None = None) -> dict[str, object]:
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
         raise ValueError("Frame rate must be 1–60")
+    if script_mode not in (None, "user-script", "local-ollama-ai", "deterministic-template-not-ai"):
+        raise ValueError("Unsupported scripting provenance")
     if visual_style not in ("cinematic", "classic"):
         raise ValueError("Unsupported visual style")
     if caption_style not in ("kinetic", "classic"):
@@ -591,7 +593,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
         metrics["total_seconds"] = round(time.perf_counter() - render_started, 3)
         info: dict[str, object] = {
-            "output": str(output), "duration_seconds": round(total, 3), "size": [width, height],
+            "output": str(output), "script_mode": script_mode or "provided-script",
+            "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
             "audio_mastering": ({"method": diagnostics.get("audio_mastering"),
@@ -679,11 +682,10 @@ def main(argv: list[str] | None = None) -> int:
                       scene_queries=args.scene_queries.split("|") if args.scene_queries is not None else None,
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
-                      caption_style=args.caption_style, word_alignment=args.word_alignment)
-        info["script_mode"] = mode
-        Path(info["output"]).with_suffix(".json").write_text(
-            json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+                      caption_style=args.caption_style, word_alignment=args.word_alignment,
+                      script_mode=mode)
+        # The manifest was staged and published alongside the MP4 by render().
+        # Do not perform a second unguarded post-publication write.
         print(json.dumps(info, ensure_ascii=False, indent=2))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"Generation failed: {exc}\n")
