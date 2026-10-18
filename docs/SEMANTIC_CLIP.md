@@ -133,8 +133,11 @@ license-checked discovery, the
 evaluated **5/5** topics, with **7 Commons API queries** (2 alternative
 lookups), **6 additional eligible candidates**, and **0** CLIP ranking
 changes. Commons media retrieval took **4.21 s** and cached local CLIP
-inference **2.192 s** on that GitHub runner. These are observations from
-one live run, not promises about fluctuating Commons availability or a
+inference **2.192 s** on that GitHub runner. In the independent
+[post-merge run](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/39123342065),
+coverage was **4/5**, with **8 Commons queries** and **3 alternatives**,
+illustrating that live inventory and search results can vary between runs.
+These are coverage observations, not a guaranteed success rate or a
 measured semantic accuracy gain. The default CLIP mode therefore remains
 **off** until independent blind reviewer ratings establish improvement.
 
