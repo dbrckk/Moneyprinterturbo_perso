@@ -136,7 +136,7 @@ test('non-AI storyboard templates are translated in all six supported languages'
   assert.match(outlineFor('Oceano','pt'),/fontes confiáveis/);
   assert.throws(() => outlineFor('Sujet','unrecognized'),/Langue/);
   assert.throws(() => outlineFor('X','fr'),/2 à 140/);
-  assert.throws(() => outlineFor('ligne\\nsuivante','fr'),/une seule ligne/);
+  assert.throws(() => outlineFor('ligne\nsuivante','fr'),/une seule ligne/);
 });
 
 test('Android workflow lookup checks at most three pages only when needed', async () => {
