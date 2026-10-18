@@ -135,6 +135,96 @@ class CommonsCoverageTests(unittest.TestCase):
         self.assertEqual(timings["fallback_search_attempted"], 0)
         self.assertEqual(len(observed), 1)
 
+    def test_second_search_recovers_when_licensed_primary_photos_are_duplicates(self):
+        observed = []
+        data = {
+            "forest landscape": api_payload(
+                commons_page("Forest trail panorama first.jpg", index=1),
+                commons_page("Forest trail panorama second.jpg", index=2)),
+            "forest": api_payload(
+                commons_page("Forest trail panorama first.jpg", index=3),
+                commons_page("Forest river panorama third.jpg", index=4)),
+        }
+        # Primary files are different uploads of the same visual photo.
+        # Secondary photo is genuinely different and already CC0.
+        fingerprints = iter((0, 0, 18446744073709551615))
+        with TemporaryDirectory() as folder:
+            timings = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, observed)), \
+                 patch.object(media, "media_dimensions", return_value=(900, 1600)), \
+                 patch.object(media, "visual_signature",
+                              side_effect=lambda path: next(fingerprints)):
+                assets, warnings = media.commons_assets(
+                    "forest landscape", Path(folder), limit=2, timings=timings)
+        self.assertEqual([a.title for a in assets], [
+            "File:Forest trail panorama first.jpg",
+            "File:Forest river panorama third.jpg"])
+        self.assertEqual([p["gsrsearch"][0] for p in observed],
+                         ["forest landscape", "forest"])
+        self.assertEqual(timings["near_duplicate_downloads_skipped"], 1)
+        self.assertEqual(timings["fallback_search_attempted"], 1)
+        self.assertEqual(timings["fallback_after_verification"], 1)
+        self.assertEqual(timings["api_queries"], 2)
+        self.assertEqual(timings["download_attempts"], 3)
+        self.assertEqual(warnings, [])
+
+    def test_secondary_query_recovers_after_corrupt_primary_candidate(self):
+        attempts = []
+        data = {
+            "forest landscape": api_payload(
+                commons_page("Forest trail panorama first.jpg", index=1),
+                commons_page("Forest trail panorama second.jpg", index=2)),
+            "forest": api_payload(
+                commons_page("Forest river panorama third.jpg", index=3)),
+        }
+        dimensions = iter((None, (900, 1600), (900, 1600)))
+        signatures = iter((0, 18446744073709551615))
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            stats = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, attempts)), \
+                 patch.object(media, "media_dimensions",
+                              side_effect=lambda path: next(dimensions)), \
+                 patch.object(media, "visual_signature",
+                              side_effect=lambda path: next(signatures)):
+                assets, warnings = media.commons_assets(
+                    "forest landscape", root, limit=2, timings=stats)
+            remaining = sorted(item.name for item in root.iterdir())
+        self.assertEqual(len(assets), 2)
+        self.assertEqual(stats["api_queries"], 2)
+        self.assertEqual(stats["download_attempts"], 3)
+        self.assertEqual(stats["fallback_after_verification"], 1)
+        self.assertEqual(remaining, ["commons_00.jpg", "commons_01.jpg"])
+        self.assertEqual(warnings, [])
+
+    def test_post_download_alternative_never_accepts_unlicensed_or_off_topic(self):
+        observed = []
+        data = {
+            "forest landscape": api_payload(
+                commons_page("Forest trail panorama first.jpg", index=1),
+                commons_page("Forest trail panorama second.jpg", index=2)),
+            "forest": api_payload(
+                commons_page("Forest mountain panorama third.jpg",
+                             license_name="CC BY-SA 4.0", index=3),
+                commons_page("Portrait of Forest explorer.jpg",
+                             description="Portrait of a person", index=4)),
+        }
+        with TemporaryDirectory() as folder:
+            stats = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, observed)), \
+                 patch.object(media, "media_dimensions", return_value=(900, 1600)), \
+                 patch.object(media, "visual_signature", return_value=1):
+                assets, _ = media.commons_assets(
+                    "forest landscape", Path(folder), limit=2, timings=stats)
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(stats["api_queries"], 2)
+        self.assertEqual(stats["fallback_after_verification"], 1)
+        self.assertEqual(stats["fallback_search_added"], 0)
+        self.assertEqual(stats["near_duplicate_downloads_skipped"], 1)
+
     def test_default_one_image_search_never_uses_fallback(self):
         observed = []
         data = {"mountain panorama": api_payload(
