@@ -424,6 +424,7 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
                         "licensed_relevant_candidates": 0,
                         "fallback_search_attempted": 0,
                         "fallback_search_added": 0,
+                        "fallback_after_verification": 0,
                         "download_seconds": 0.0,
                         "verification_seconds": 0.0,
                         "download_bytes": 0,
@@ -494,80 +495,117 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
                                license_name, url, page_url, medium, retention))
 
     append_pages(pages)
-    # Extra network work is opt-in to a shortage of verified matches in a
-    # multi-candidate search, never used for default one-image render scenes.
-    alternate = alternative_commons_search_query(query) if limit > 1 and len(ranked) < limit else None
-    if alternate:
+    # At most one extra Commons API lookup, only when multiple distinct
+    # images were requested. The primary metadata count cannot predict
+    # decoding failures or perceptual duplicates after the thumbnails arrive.
+    alternate = alternative_commons_search_query(query) if limit > 1 else None
+    fallback_attempted = False
+
+    def fetch_alternative() -> bool:
+        nonlocal fallback_attempted
+        if fallback_attempted or alternate is None:
+            return False
+        fallback_attempted = True
         if timings is not None:
             timings["fallback_search_attempted"] = 1
         before = len(ranked)
+        # Measure the secondary request separately: a post-decode retry must
+        # not accidentally charge download/FFmpeg time to the Commons API.
+        fallback_started = time.perf_counter()
         try:
             append_pages(query_pages(alternate))
         except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
             warnings.append(f"Alternative Commons lookup unavailable: {type(exc).__name__}")
+        finally:
+            if timings is not None:
+                timings["api_seconds"] = round(
+                    float(timings["api_seconds"]) + time.perf_counter() - fallback_started, 4)
         if timings is not None:
             timings["fallback_search_added"] = len(ranked) - before
-            timings["api_seconds"] = round(time.perf_counter() - lookup_started, 4)
+        return True
+
+    # Preserve the existing early recovery for sparse licensed metadata.
+    if len(ranked) < limit:
+        fetch_alternative()
+
+    attempted_titles: set[str] = set()
+
+    def collect_distinct_candidates() -> None:
+        ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
+        for _negscore, _, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
+            if len(assets) >= limit:
+                break
+            title = str(page.get("title", ""))
+            # Never download the same title twice, including if the first
+            # thumbnail was corrupted or rejected as a visual duplicate.
+            if title.casefold() in attempted_titles:
+                continue
+            attempted_titles.add(title.casefold())
+            suffix = Path(title).suffix.lower()
+            target = work / f"commons_{len(assets):02}{suffix}"
+            if timings is not None:
+                timings["download_attempts"] += 1
+            downloaded = time.perf_counter()
+            try:
+                data = _read_limited(url, MAX_IMAGE_BYTES, timeout=25)
+                if timings is not None:
+                    timings["download_bytes"] += len(data)
+                target.write_bytes(data)
+                if timings is not None:
+                    timings["download_seconds"] += time.perf_counter() - downloaded
+                checked = time.perf_counter()
+                valid = media_dimensions(target)
+                if timings is not None:
+                    timings["verification_seconds"] += time.perf_counter() - checked
+                if not valid:
+                    target.unlink(missing_ok=True)
+                    continue
+            except (OSError, ValueError, subprocess.SubprocessError):
+                if timings is not None and not target.is_file():
+                    timings["download_seconds"] += time.perf_counter() - downloaded
+                target.unlink(missing_ok=True)
+                warnings.append(f"Could not use Wikimedia image: {title[:90]}")
+                continue
+            author = _plain(_field(info, "Artist")) or "unknown"
+            hash_started = time.perf_counter()
+            fingerprint = visual_signature(target)
+            if timings is not None:
+                timings["fingerprint_seconds"] = (timings.get("fingerprint_seconds", 0)
+                                                  + time.perf_counter() - hash_started)
+            # A/B testing and multi-candidate scene selection require genuinely
+            # distinct images. Commons titles and page IDs alone are insufficient:
+            # different uploads may be the same photograph. Keep scanning already
+            # licensed, relevant candidates without changing the default one-image
+            # network budget. Unknown signatures are not treated as duplicates.
+            if (limit > 1 and fingerprint is not None and any(
+                    prior.visual_fingerprint is not None
+                    and near_duplicate(fingerprint, prior.visual_fingerprint)
+                    for prior in assets)):
+                target.unlink(missing_ok=True)
+                if timings is not None:
+                    timings["near_duplicate_downloads_skipped"] += 1
+                continue
+            evidence = lexical_evidence(query, title, _plain(_field(info, "ObjectName"))
+                                        + " " + _plain(_field(info, "ImageDescription")))
+            assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
+                                     visual_medium=medium, crop_retention_estimate=retention,
+                                     visual_fingerprint=fingerprint,
+                                     query_term_count=int(evidence["query_terms"]),
+                                     query_term_coverage=float(evidence["coverage"])))
+            if medium == "artwork-likely":
+                warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
+
+    collect_distinct_candidates()
+    # A query can return enough *licensed* titles that are in fact the same
+    # picture (or failed decoding). Retry the curated secondary search only
+    # after the first verified distinct-image pass, and at most once. Default
+    # one-image render scenes never pay for a second search.
+    if len(assets) < limit and not fallback_attempted and fetch_alternative():
+        if timings is not None:
+            timings["fallback_after_verification"] = 1
+        collect_distinct_candidates()
     if timings is not None:
         timings["licensed_relevant_candidates"] = len(ranked)
-    ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
-    for _negscore, _, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
-        if len(assets) >= limit:
-            break
-        title = str(page.get("title", ""))
-        suffix = Path(title).suffix.lower()
-        target = work / f"commons_{len(assets):02}{suffix}"
-        if timings is not None:
-            timings["download_attempts"] += 1
-        downloaded = time.perf_counter()
-        try:
-            data = _read_limited(url, MAX_IMAGE_BYTES, timeout=25)
-            if timings is not None:
-                timings["download_bytes"] += len(data)
-            target.write_bytes(data)
-            if timings is not None:
-                timings["download_seconds"] += time.perf_counter() - downloaded
-            checked = time.perf_counter()
-            valid = media_dimensions(target)
-            if timings is not None:
-                timings["verification_seconds"] += time.perf_counter() - checked
-            if not valid:
-                target.unlink(missing_ok=True)
-                continue
-        except (OSError, ValueError, subprocess.SubprocessError):
-            if timings is not None and not target.is_file():
-                timings["download_seconds"] += time.perf_counter() - downloaded
-            target.unlink(missing_ok=True)
-            warnings.append(f"Could not use Wikimedia image: {title[:90]}")
-            continue
-        author = _plain(_field(info, "Artist")) or "unknown"
-        hash_started = time.perf_counter()
-        fingerprint = visual_signature(target)
-        if timings is not None:
-            timings["fingerprint_seconds"] = (timings.get("fingerprint_seconds", 0)
-                                              + time.perf_counter() - hash_started)
-        # A/B testing and multi-candidate scene selection require genuinely
-        # distinct images. Commons titles and page IDs alone are insufficient:
-        # different uploads may be the same photograph. Keep scanning already
-        # licensed, relevant candidates without changing the default one-image
-        # network budget. Unknown signatures are not treated as duplicates.
-        if (limit > 1 and fingerprint is not None and any(
-                prior.visual_fingerprint is not None
-                and near_duplicate(fingerprint, prior.visual_fingerprint)
-                for prior in assets)):
-            target.unlink(missing_ok=True)
-            if timings is not None:
-                timings["near_duplicate_downloads_skipped"] += 1
-            continue
-        evidence = lexical_evidence(query, title, _plain(_field(info, "ObjectName"))
-                                    + " " + _plain(_field(info, "ImageDescription")))
-        assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
-                                 visual_medium=medium, crop_retention_estimate=retention,
-                                 visual_fingerprint=fingerprint,
-                                 query_term_count=int(evidence["query_terms"]),
-                                 query_term_coverage=float(evidence["coverage"])))
-        if medium == "artwork-likely":
-            warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
     if not assets:
         warnings.append("No relevant verified public-domain/CC0 images found; using graphic backgrounds")
     return assets, warnings
