@@ -264,6 +264,9 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
                                            for d in query_diagnostics.values()),
         "fallback_candidates_added": sum(int(d.get("fallback_search_added", 0))
                                          for d in query_diagnostics.values()),
+        "near_duplicate_downloads_skipped": sum(
+            int(d.get("near_duplicate_downloads_skipped", 0))
+            for d in query_diagnostics.values()),
         "search_diagnostics": query_diagnostics,
         "warnings": problems,
         "cases": rows,
