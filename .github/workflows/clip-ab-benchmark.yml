@@ -84,6 +84,7 @@ jobs:
           assert metrics['commons_api_queries'] >= metrics['requested_cases']
           assert 0 <= metrics['fallback_candidates_added'] <= 45 * metrics['fallback_queries_attempted']
           assert metrics['changed_cases']+metrics['retained_cases']==metrics['evaluated_cases']
+          assert 0 <= metrics['near_duplicate_downloads_skipped'] <= sum(d.get('download_attempts', 0) for d in metrics['search_diagnostics'].values())
           assert 'accuracy' not in metrics
           assert (base/'contact-sheet.png').stat().st_size>1000
           assert (base/'human-review.csv').stat().st_size>40

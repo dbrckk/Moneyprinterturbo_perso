@@ -427,7 +427,8 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
                         "download_seconds": 0.0,
                         "verification_seconds": 0.0,
                         "download_bytes": 0,
-                        "download_attempts": 0})
+                        "download_attempts": 0,
+                        "near_duplicate_downloads_skipped": 0})
     try:
         pages = query_pages(search_phrase)
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
@@ -545,6 +546,19 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         if timings is not None:
             timings["fingerprint_seconds"] = (timings.get("fingerprint_seconds", 0)
                                               + time.perf_counter() - hash_started)
+        # A/B testing and multi-candidate scene selection require genuinely
+        # distinct images. Commons titles and page IDs alone are insufficient:
+        # different uploads may be the same photograph. Keep scanning already
+        # licensed, relevant candidates without changing the default one-image
+        # network budget. Unknown signatures are not treated as duplicates.
+        if (limit > 1 and fingerprint is not None and any(
+                prior.visual_fingerprint is not None
+                and near_duplicate(fingerprint, prior.visual_fingerprint)
+                for prior in assets)):
+            target.unlink(missing_ok=True)
+            if timings is not None:
+                timings["near_duplicate_downloads_skipped"] += 1
+            continue
         evidence = lexical_evidence(query, title, _plain(_field(info, "ObjectName"))
                                     + " " + _plain(_field(info, "ImageDescription")))
         assets.append(MediaAsset(target, "image", page_url, license_name, author, title,
