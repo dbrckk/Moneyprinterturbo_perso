@@ -1,6 +1,6 @@
 # MoneyPrinterTurbo Perso — Free Studio
 
-**Studio Android actuel : https://cyber-nanobot-g5pbj9v.shipstatic.com** — MP4 sans ZIP, alignement Whisper et caches facultatifs.
+**Studio Android actuel : https://turbo-gate-h3jnc94.shipstatic.com** — MP4 sans ZIP, alignement Whisper et caches facultatifs.
 
 Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depuis GitHub Actions sur Android**. Le projet comporte deux chemins complémentaires :
 
@@ -171,7 +171,7 @@ Les tests web utilisent de vraies requêtes HTTP et vérifient la validation des
 
 ## Studio distant Android — interface web gratuite
 
-**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://cyber-nanobot-g5pbj9v.shipstatic.com**
+**Version actuelle (IA Qwen + voix française Piper optionnelle) : https://turbo-gate-h3jnc94.shipstatic.com**
 
 Une interface HTTPS indépendante du serveur Python local est disponible dans [`remote/`](remote/), avec édition du scénario, choix des formats et des voix eSpeak, découpage des scènes, recherche d'images libres et suivi des rendus GitHub Actions.
 
@@ -419,3 +419,10 @@ La page Android conserve maintenant la référence d'une demande GitHub en
 cas de timeout ou de coupure réseau au moment de son envoi. Elle retrouve
 l'exécution existante au lieu de relancer automatiquement une génération,
 pour éviter les vidéos doublonnées. Aucun secret GitHub n'est enregistré.
+
+
+### Mise à jour du studio Android (octobre 2026)
+
+**[Ouvrir le studio Android mis à jour](https://turbo-gate-h3jnc94.shipstatic.com)** — hébergement HTTPS statique gratuit et permanent, avec canevas disponibles en six langues, récupération des demandes sur plusieurs pages GitHub et téléchargement direct des artefacts vidéo.
+
+L'[ancien studio](https://cyber-nanobot-g5pbj9v.shipstatic.com) reste disponible. Les navigateurs Android isolent les données locales par nom de domaine : pour récupérer la narration et les réglages d'un ancien studio, utiliser **Copier mon brouillon** sur l'ancien site, puis **Restaurer mon brouillon** sur le nouveau. Le jeton GitHub n'est jamais inclus dans cette sauvegarde et doit être saisi à nouveau. Les historiques ne sont pas importés entre domaines ; les anciens rendus restent consultables dans [GitHub Actions](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml) tant que leurs artefacts n'ont pas expiré.
