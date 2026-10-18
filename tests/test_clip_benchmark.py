@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest import TestCase
@@ -5,6 +7,13 @@ from unittest.mock import patch
 from semantic.benchmark import evaluate
 
 class BenchmarkTests(TestCase):
+    def test_documented_cli_is_directly_executable_from_repository_root(self):
+        root = Path(__file__).resolve().parents[1]
+        command = [sys.executable, str(root / "semantic" / "benchmark.py"), "--help"]
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--output", result.stdout)
+
     def test_paired_scores_count_improvement_without_using_clip_as_ground_truth(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
