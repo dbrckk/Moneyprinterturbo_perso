@@ -29,8 +29,7 @@ export function runArtifactsEndpoint(runId) {
 
 export function findDirectMp4(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === MP4_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, MP4_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectStoryboard(artifacts) {
