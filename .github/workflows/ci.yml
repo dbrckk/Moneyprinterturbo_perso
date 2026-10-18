@@ -1,6 +1,12 @@
 name: Free Studio CI
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 on:
   push:
+    branches:
+      - main
     paths:
       - free_studio.py
       - tests/test_audio_mastering.py

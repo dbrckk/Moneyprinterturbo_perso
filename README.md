@@ -24,6 +24,14 @@ indicatifs et nécessitent une revue du storyboard.
 Détails techniques, commandes locales et limites :
 [docs/SEMANTIC_CLIP.md](docs/SEMANTIC_CLIP.md).
 
+**Comparer les images depuis Android :** lancer le workflow
+[CLIP A/B Visual Benchmark](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/clip-ab-benchmark.yml)
+puis ouvrir le fichier direct `review-mobile.html` dans les artefacts de
+l'exécution. La page permet de noter les images à l'aveugle, consulter le
+bilan seulement après toutes les réponses et exporter les votes en CSV
+sans ordinateur, sans API payante et sans connexion après téléchargement.
+Cette expérience ne démontre pas une meilleure qualité CLIP à elle seule.
+
 ## Utilisation gratuite sur Android (sans ordinateur)
 
 1. Ouvrir **Actions → Générer une vidéo gratuite → Run workflow** dans ce dépôt.

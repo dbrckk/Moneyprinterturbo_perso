@@ -1,6 +1,12 @@
 name: CLIP Local CPU Inference Smoke
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 on:
   push:
+    branches:
+      - main
     paths:
       - semantic/**
       - semantic_rank.py
