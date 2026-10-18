@@ -85,7 +85,7 @@ class CommonsCoverageTests(unittest.TestCase):
             commons_page("Forest scene B.jpg", index=2),
             commons_page("Forest scene C.jpg", index=3),
         )}
-        fingerprints = iter((11, 11, 99))
+        fingerprints = iter((0, 0, 18446744073709551615))
         with TemporaryDirectory() as folder:
             timings = {}
             with patch.object(media, "_read_limited",
