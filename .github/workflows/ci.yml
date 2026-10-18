@@ -5,6 +5,8 @@ concurrency:
 
 on:
   push:
+    branches:
+      - main
     paths:
       - free_studio.py
       - tests/test_audio_mastering.py

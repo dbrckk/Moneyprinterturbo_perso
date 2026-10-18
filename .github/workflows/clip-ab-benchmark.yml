@@ -5,6 +5,8 @@ concurrency:
 
 on:
   push:
+    branches:
+      - main
     paths:
       - visual_benchmark.py
       - review_mobile.py
@@ -12,6 +14,15 @@ on:
       - tests/test_review_mobile.py
       - tests/test_review_mobile.mjs
       - tests/test_visual_benchmark.py
+      - .github/workflows/clip-ab-benchmark.yml
+  pull_request:
+    paths:
+      - visual_benchmark.py
+      - review_mobile.py
+      - review_mobile.js
+      - tests/test_visual_benchmark.py
+      - tests/test_review_mobile.py
+      - tests/test_review_mobile.mjs
       - .github/workflows/clip-ab-benchmark.yml
   workflow_dispatch:
 permissions:
