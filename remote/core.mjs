@@ -41,8 +41,8 @@ export function outlineFor(topic, language) {
   if (typeof topic !== 'string' || typeof language !== 'string') {
     throw new Error('Sujet ou langue invalide.');
   }
-  const subject = topic.trim().replace(/\\s+/g, ' ');
-  if (subject.length < 2 || subject.length > 140 || /[\\r\\n]/.test(topic)) {
+  const subject = topic.trim().replace(/\s+/g, ' ');
+  if (subject.length < 2 || subject.length > 140 || /[\r\n]/.test(topic)) {
     throw new Error('Le sujet doit contenir 2 à 140 caractères sur une seule ligne.');
   }
   switch (language) {
