@@ -17,7 +17,8 @@ import tempfile
 
 MAX_METADATA_BYTES = 2_000_000
 MAX_SCENES = 18
-SRT_CUE = re.compile(r"(?m)^\s*\d+\s*\r?\n(\d\d:\d\d:\d\d,\d{3})\s*-->\s*(\d\d:\d\d:\d\d,\d{3})")
+SRT_TIME = r"(\\d{2}:\\d{2}:\\d{2},\\d{3})"
+SRT_CUE_LINE = re.compile(rf"^{SRT_TIME}\\s+-->\\s+{SRT_TIME}$")
 
 
 def execute(argv: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -37,6 +38,46 @@ def srt_seconds(stamp: str) -> float:
     h, m, sec = stamp.split(":")
     s, milliseconds = sec.split(",")
     return 3600 * int(h) + 60 * int(m) + int(s) + int(milliseconds) / 1000
+
+
+def parse_srt_cues(path: Path) -> list[tuple[int, float, float, str]]:
+    """Parse the full editable SRT, including the actual subtitle text.
+
+    FFmpeg can render a video successfully while a corrupt SRT sidecar contains
+    identical timestamps but wrong narration, duplicate cue numbers or garbage.
+    Do not accept partial regex matches that skip malformed entries.
+    """
+    content = path.read_text(encoding="utf-8-sig")
+    normalized = content.replace("\\r\\n", "\\n").replace("\\r", "\\n").strip()
+    if not normalized:
+        raise ValueError("Empty SRT subtitles")
+    cues: list[tuple[int, float, float, str]] = []
+    for block in re.split(r"\\n[ \\t]*\\n", normalized):
+        lines = block.split("\\n")
+        if len(lines) < 3 or not re.fullmatch(r"[0-9]+", lines[0].strip()):
+            raise ValueError("Malformed SRT cue header")
+        match = SRT_CUE_LINE.fullmatch(lines[1].strip())
+        if not match:
+            raise ValueError("Malformed SRT cue timing")
+        start, end = srt_seconds(match.group(1)), srt_seconds(match.group(2))
+        subtitle = " ".join(" ".join(lines[2:]).split())
+        if not subtitle or not 0 <= start < end:
+            raise ValueError("Empty or invalid SRT subtitle")
+        cues.append((int(lines[0].strip()), start, end, subtitle))
+    return cues
+
+
+def stream_duration(stream: dict) -> float | None:
+    """Read stream-specific time, not MP4 container length (which can be AAC).
+
+    Some malformed MP4s contain three seconds of AAC and only two seconds of
+    H.264. ffprobe format.duration says three seconds, hiding the cut-off video.
+    """
+    try:
+        value = float(stream.get("duration", float("nan")))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def read_metadata(path: Path) -> dict:
@@ -76,6 +117,22 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
         errors.append(f"Video length drift: {duration:.3f}s vs narration {expected:.3f}s")
     if len(video_streams) != 1 or video_stream.get("codec_name") != "h264":
         errors.append("Expected exactly one H.264 video stream")
+    # MP4 format.duration follows the longest track. A full-length AAC track
+    # can mask an early-ended H.264 track in that container. Check them
+    # independently rather than trusting the apparent final MP4 duration.
+    video_time = stream_duration(video_stream)
+    if video_time is None:
+        errors.append("Video stream duration unavailable or invalid")
+    elif _positive(expected) and abs(video_time - expected) > 0.30:
+        errors.append(
+            f"Video stream length drift: {video_time:.3f}s vs narration {expected:.3f}s")
+    if metadata.get("speech") is True and len(audio_streams) == 1:
+        audio_time = stream_duration(audio_streams[0])
+        if audio_time is None:
+            errors.append("Audio stream duration unavailable or invalid")
+        elif _positive(expected) and abs(audio_time - expected) > 0.35:
+            errors.append(
+                f"Audio stream length drift: {audio_time:.3f}s vs narration {expected:.3f}s")
     if video_stream.get("pix_fmt") != "yuv420p":
         errors.append("Video must be yuv420p for mobile playback")
     expected_size = metadata.get("size")
@@ -103,17 +160,25 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
     if _positive(expected) and abs(previous - expected) > 0.025:
         errors.append("Last scene does not end at narrated duration")
     if subtitle_path.is_file() and subtitle_path.stat().st_size <= MAX_METADATA_BYTES:
-        cues = [(srt_seconds(a), srt_seconds(b)) for a, b in SRT_CUE.findall(subtitle_path.read_text(encoding="utf-8-sig"))]
-        if len(cues) != len(segments):
-            errors.append(f"Subtitle cue count {len(cues)} differs from scenes {len(segments)}")
+        try:
+            cues = parse_srt_cues(subtitle_path)
+        except (OSError, ValueError, UnicodeError):
+            errors.append("Invalid or malformed editable SRT subtitles")
         else:
-            for index, (start, end) in enumerate(cues):
-                scene = segments[index]
-                try:
-                    if abs(start - float(scene["start"])) > 0.025 or abs(end - float(scene["end"])) > 0.025:
-                        errors.append(f"Subtitle cue {index + 1} is not aligned with its scene")
-                except (TypeError, ValueError, KeyError):
-                    errors.append(f"Subtitle cue {index + 1} has invalid scene timestamps")
+            if len(cues) != len(segments):
+                errors.append(f"Subtitle cue count {len(cues)} differs from scenes {len(segments)}")
+            else:
+                for index, (number, start, end, subtitle) in enumerate(cues):
+                    scene = segments[index]
+                    if number != index + 1:
+                        errors.append(f"Subtitle cue {index + 1} has an invalid sequence number")
+                    try:
+                        if abs(start - float(scene["start"])) > 0.025 or abs(end - float(scene["end"])) > 0.025:
+                            errors.append(f"Subtitle cue {index + 1} is not aligned with its scene")
+                        if subtitle != " ".join(str(scene["text"]).split()):
+                            errors.append(f"Subtitle cue {index + 1} text differs from narration")
+                    except (TypeError, ValueError, KeyError):
+                        errors.append(f"Subtitle cue {index + 1} has invalid scene metadata")
     else:
         errors.append("Missing or oversized editable SRT subtitles")
     if video.stat().st_size < 1000:
