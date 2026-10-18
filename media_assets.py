@@ -509,13 +509,19 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
         if timings is not None:
             timings["fallback_search_attempted"] = 1
         before = len(ranked)
+        # Measure the secondary request separately: a post-decode retry must
+        # not accidentally charge download/FFmpeg time to the Commons API.
+        fallback_started = time.perf_counter()
         try:
             append_pages(query_pages(alternate))
         except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
             warnings.append(f"Alternative Commons lookup unavailable: {type(exc).__name__}")
+        finally:
+            if timings is not None:
+                timings["api_seconds"] = round(
+                    float(timings["api_seconds"]) + time.perf_counter() - fallback_started, 4)
         if timings is not None:
             timings["fallback_search_added"] = len(ranked) - before
-            timings["api_seconds"] = round(time.perf_counter() - lookup_started, 4)
         return True
 
     # Preserve the existing early recovery for sparse licensed metadata.
