@@ -19,6 +19,7 @@ import subprocess
 import time
 
 from media_assets import ALLOWED_LICENSES, commons_assets
+from review_mobile import build_mobile_review
 from semantic_rank import MODEL_NAME, rerank
 
 # Fixed, bounded visual topics. Keep searches representative yet generic:
@@ -249,6 +250,17 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
         "warnings": problems,
         "cases": rows,
     }
+    # Generate a single-file offline Android review. A preview failure must
+    # never fabricate completed human votes or suppress the normal A/B report.
+    try:
+        summary["mobile_review_pairs"] = build_mobile_review(
+            summary, images, output / "review-mobile.html")
+    except (OSError, ValueError, RuntimeError, UnicodeError,
+            subprocess.SubprocessError) as exc:
+        summary["mobile_review_pairs"] = 0
+        summary["warnings"].append(
+            f"Offline mobile review unavailable: {type(exc).__name__}")
+    summary["mobile_review_ready"] = summary["mobile_review_pairs"] == len(valid) and bool(valid)
     summary["contact_sheet_ready"] = bool(make_sheet(summary, images, output / "contact-sheet.png"))
     (output / "metrics.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
