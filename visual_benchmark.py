@@ -270,6 +270,14 @@ def run_benchmark(output: Path, *, queries=BENCHMARK_QUERIES,
         "near_duplicate_downloads_skipped": sum(
             int(d.get("near_duplicate_downloads_skipped", 0))
             for d in query_diagnostics.values()),
+        "commons_download_attempts": sum(
+            int(d.get("download_attempts", 0)) for d in query_diagnostics.values()),
+        "commons_download_attempt_budget": sum(
+            int(d.get("download_attempt_budget", 0))
+            for d in query_diagnostics.values()),
+        "commons_download_budgets_exhausted": sum(
+            int(d.get("download_budget_exhausted", 0))
+            for d in query_diagnostics.values()),
         "search_diagnostics": query_diagnostics,
         "warnings": problems,
         "cases": rows,
