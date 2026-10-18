@@ -500,6 +500,16 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     # decoding failures or perceptual duplicates after the thumbnails arrive.
     alternate = alternative_commons_search_query(query) if limit > 1 else None
     fallback_attempted = False
+    # Ranked metadata can include dozens of broken thumbnail URLs or copies
+    # of one picture. Each request has a 25-second timeout. Never download
+    # all 45 primary and 45 fallback hits: keep a small deterministic budget,
+    # reserving a few attempts for a distinct secondary search when supported.
+    primary_download_budget = max(5, min(12, limit * 3))
+    secondary_download_budget = max(3, min(8, limit * 2)) if alternate else 0
+    download_attempt_budget = primary_download_budget + secondary_download_budget
+    if timings is not None:
+        timings["download_attempt_budget"] = download_attempt_budget
+        timings["download_budget_exhausted"] = 0
 
     def fetch_alternative() -> bool:
         nonlocal fallback_attempted
@@ -530,15 +540,17 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
 
     attempted_titles: set[str] = set()
 
-    def collect_distinct_candidates() -> None:
+    def collect_distinct_candidates(attempt_cap: int,
+                                    eligible_titles: set[str] | None = None) -> None:
         ranked.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
         for _negscore, _, _, _, page, info, license_name, url, page_url, medium, retention in ranked:
-            if len(assets) >= limit:
+            if len(assets) >= limit or len(attempted_titles) >= attempt_cap:
                 break
             title = str(page.get("title", ""))
             # Never download the same title twice, including if the first
             # thumbnail was corrupted or rejected as a visual duplicate.
-            if title.casefold() in attempted_titles:
+            if (title.casefold() in attempted_titles or
+                    (eligible_titles is not None and title.casefold() not in eligible_titles)):
                 continue
             attempted_titles.add(title.casefold())
             suffix = Path(title).suffix.lower()
@@ -595,17 +607,33 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
             if medium == "artwork-likely":
                 warnings.append(f"Likely artwork rather than a photograph: {title[:90]}")
 
-    collect_distinct_candidates()
-    # A query can return enough *licensed* titles that are in fact the same
-    # picture (or failed decoding). Retry the curated secondary search only
-    # after the first verified distinct-image pass, and at most once. Default
-    # one-image render scenes never pay for a second search.
-    if len(assets) < limit and not fallback_attempted and fetch_alternative():
-        if timings is not None:
-            timings["fallback_after_verification"] = 1
-        collect_distinct_candidates()
+    # An already-fetched early fallback may fill both allowance pools; when
+    # the fallback is not yet queried, primary downloads use only their share.
+    collect_distinct_candidates(
+        download_attempt_budget if fallback_attempted else primary_download_budget)
+    # If primary thumbnails were duplicates/corrupt, reserve the additional
+    # attempts exclusively for newly discovered secondary images. This avoids
+    # spending the recovery budget on more copies from the first ranked list.
+    if len(assets) < limit and not fallback_attempted:
+        known_titles = set(seen_titles)
+        if fetch_alternative():
+            if timings is not None:
+                timings["fallback_after_verification"] = 1
+            secondary_titles = seen_titles - known_titles
+            if secondary_titles:
+                collect_distinct_candidates(download_attempt_budget, secondary_titles)
     if timings is not None:
         timings["licensed_relevant_candidates"] = len(ranked)
+    # Signal only a genuine search-result shortfall caused by the cap, not
+    # simply having too few verified candidates on Wikimedia.
+    exhausted = (len(assets) < limit
+                 and len(attempted_titles) >= download_attempt_budget
+                 and any(str(entry[4].get("title", "")).casefold() not in attempted_titles
+                         for entry in ranked))
+    if exhausted:
+        warnings.append("Wikimedia thumbnail attempt budget reached; keeping verified images or graphics")
+    if timings is not None:
+        timings["download_budget_exhausted"] = int(exhausted)
     if not assets:
         warnings.append("No relevant verified public-domain/CC0 images found; using graphic backgrounds")
     return assets, warnings
