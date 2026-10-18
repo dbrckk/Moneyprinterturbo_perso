@@ -24,7 +24,8 @@ test('run API endpoint and direct link are GitHub-owned and numeric', () => {
     'https://api.github.com/repos/dbrckk/Moneyprinterturbo_perso/actions/runs/123/artifacts?per_page=100');
   assert.equal(directMp4Url(123, 456),
     'https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/123/artifacts/456');
-  for (const invalid of [0, -3, '', '1&token=abc', 'https://evil.test', Number.MAX_SAFE_INTEGER+1]) {
+  for (const invalid of [0, -3, '', '1&token=abc', 'https://evil.test', Number.MAX_SAFE_INTEGER+1,
+    true, false, null, undefined, 1.5, '1.0', '1e3', ' 1', '01', '+1', 'Infinity', {}, []]) {
     assert.throws(() => runArtifactsEndpoint(invalid));
     assert.throws(() => directMp4Url(123, invalid));
   }
@@ -77,4 +78,15 @@ test('direct publisher attribution and project manifest require valid unexpired 
   assert.equal(findDirectCredits(null),null);
   assert.equal(findDirectManifest([]),null);
   assert.equal(findDirectCredits([{id:0,name:CREDITS_ARTIFACT_NAME,expired:false,size_in_bytes:4}]),null);
+});
+
+test('artifact metadata must be a positive integer byte count, never a coerced string',()=>{
+  const valid={id:9001,name:MP4_ARTIFACT_NAME,expired:false,size_in_bytes:1024};
+  assert.equal(findDirectMp4([valid]).id,9001);
+  for(const invalid of ['1024',true,1.2,-1,Infinity,NaN,null,undefined]) {
+    assert.equal(findDirectMp4([{...valid,size_in_bytes:invalid}]),null);
+  }
+  for(const id of ['01','1e3','1.0',' 1',true,1.5]) {
+    assert.equal(findDirectMp4([{...valid,id}]),null);
+  }
 });

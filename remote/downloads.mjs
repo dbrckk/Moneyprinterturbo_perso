@@ -7,8 +7,19 @@ export const CREDITS_ARTIFACT_NAME = 'video.credits.txt';
 export const MANIFEST_ARTIFACT_NAME = 'video.json';
 export const REPO = 'dbrckk/Moneyprinterturbo_perso';
 
+/** Accept only canonical positive GitHub decimal IDs; never coerce booleans,
+ * exponent notation, whitespace, fractional strings or URL-like input.
+ */
 function positiveId(id) {
-  return Number.isSafeInteger(Number(id)) && Number(id) > 0;
+  if (typeof id === 'number') return Number.isSafeInteger(id) && id > 0;
+  if (typeof id !== 'string' || !/^[1-9][0-9]*$/.test(id)) return false;
+  return Number.isSafeInteger(Number(id));
+}
+
+function validArtifact(artifact, expectedName) {
+  return artifact && artifact.name === expectedName &&
+    artifact.expired === false && positiveId(artifact.id) &&
+    Number.isSafeInteger(artifact.size_in_bytes) && artifact.size_in_bytes > 0;
 }
 
 export function runArtifactsEndpoint(runId) {
@@ -18,38 +29,32 @@ export function runArtifactsEndpoint(runId) {
 
 export function findDirectMp4(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === MP4_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, MP4_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectStoryboard(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === STORYBOARD_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, STORYBOARD_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectSubtitles(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === SUBTITLES_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, SUBTITLES_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectQuality(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === QUALITY_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, QUALITY_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectCredits(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === CREDITS_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, CREDITS_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectManifest(artifacts) {
   if (!Array.isArray(artifacts)) return null;
-  return artifacts.find(a => a && a.name === MANIFEST_ARTIFACT_NAME &&
-    a.expired === false && positiveId(a.id) && a.size_in_bytes > 0) ?? null;
+  return artifacts.find(a => validArtifact(a, MANIFEST_ARTIFACT_NAME)) ?? null;
 }
 
 export function directMp4Url(runId, artifactId) {

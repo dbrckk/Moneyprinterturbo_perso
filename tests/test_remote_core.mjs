@@ -190,3 +190,10 @@ test('stale Android run selections stop additional GitHub API pagination',async 
   await assert.rejects(() => findRunAcrossPages(async()=>({unexpected:true}),requestId),
     /liste de rendus invalide/);
 });
+
+test('known GitHub run endpoints reject noncanonical identifiers and coercion',()=>{
+  assert.equal(knownRunEndpoint('123'),knownRunEndpoint(123));
+  for(const id of [true,false,null,undefined,{},[],1.2,'01','1e3',' 123','+123','123.0','0']) {
+    assert.throws(()=>knownRunEndpoint(id),/invalide/);
+  }
+});
