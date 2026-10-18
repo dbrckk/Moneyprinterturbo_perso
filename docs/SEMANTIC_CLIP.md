@@ -90,8 +90,11 @@ The workflow exports:
 - **Direct `review-mobile.html` for Android, without ZIP:** independent blind
   A/B comparison. Both candidates appear side by side with algorithm identities
   concealed and reproducibly shuffled. Tap left/right/tie/both unsuitable,
-  optionally add notes, then export an offline, validated CSV matching the
-  scorer format. Thumbnail previews are embedded in the single HTML file:
+  optionally add notes, then reveal the preference counts **only after all
+  scenes have been rated**, without Python on Android. The page reports CLIP,
+  classical, tie, and both-unsuitable votes while explicitly avoiding any
+  automatic quality claim or default-mode switch. Export the compatible CSV
+  locally for independently reproducible scoring. Thumbnail previews are embedded in the single HTML file:
   opening it requires no service or extra assets, and browser network access
   is disabled by its content security policy.
 - **`clip-ab-human-review` archive:** additional detailed HTML provenance
@@ -111,8 +114,8 @@ python visual_benchmark.py --output outputs/clip-ab-benchmark
 ```
 
 On Android, open the directly downloadable `review-mobile.html` from a
-benchmark workflow run, rate each image pair, and export the CSV on the
-device. Copy that CSV next to the benchmark metrics before scoring. An
+benchmark workflow run, rate each image pair, reveal the summary only after
+all comparisons have been rated, and export the CSV on the device. Copy that CSV next to the benchmark metrics before scoring. An
 unchanged pair only accepts `tie` or `both_bad`, and exporting incomplete
 ratings is allowed (unrated rows stay blank). Preview thumbnails are limited
 in size; a preview failure is reported without inventing human votes.
