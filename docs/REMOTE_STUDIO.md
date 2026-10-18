@@ -136,3 +136,20 @@ n'a pas renvoyé le nom exact `Free Studio · studio-…`.
 ### Limites API GitHub
 
 Une réponse 429 ou une erreur 403 signalant explicitement une limite de requêtes n'est plus affichée comme un échec de génération. Le suivi automatique s'arrête pour éviter de solliciter davantage GitHub et peut être relancé manuellement. Les erreurs 401/403 d'autorisation, 404 d'identifiant inaccessible et les indisponibilités réseau ont des messages distincts. Les jetons restent uniquement en mémoire.
+
+
+## Validation gratuite avant un rendu GitHub Actions
+
+Le workflow `free-video.yml` valide désormais les paramètres **avant**
+l’installation de FFmpeg, Ollama, Piper, Whisper ou CLIP. Un scénario trop long,
+plus de 18 scènes, des mots-clés mal répartis, une langue incompatible avec la
+voix française Piper, un alignement Whisper sans sous-titres progressifs ou
+un modèle CLIP sans Commons sont immédiatement refusés. Les messages d’erreur
+sont visibles dans la première étape du workflow GitHub Actions.
+
+Cette validation est hors connexion et ne traite ni jeton GitHub ni données
+personnelles externes. Elle n'affiche pas le texte de narration dans les logs.
+Une narration générée ultérieurement par Ollama ne peut pas être contrôlée
+avant l'exécution du modèle ; ses scènes restent validées ensuite par le moteur.
+Ce contrôle réduit les installations et minutes GitHub Actions inutiles, sans
+promettre une utilisation illimitée du service gratuit.
