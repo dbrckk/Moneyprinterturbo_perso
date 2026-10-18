@@ -21,7 +21,7 @@ class CommonsParallelTests(unittest.TestCase):
         barrier = threading.Barrier(3, timeout=6)
         calls = []
         lock = threading.Lock()
-        def fake_search(query, directory, *, limit, timings):
+        def fake_search(query, directory, *, limit, timings, **kwargs):
             with lock:
                 calls.append(query)
             barrier.wait()
@@ -46,7 +46,7 @@ class CommonsParallelTests(unittest.TestCase):
         self.assertAlmostEqual(stats["api_seconds_sum"], 0.45)
 
     def test_budget_and_broken_query_do_not_affect_other_scenes(self):
-        def sometimes_fails(query, directory, *, limit, timings):
+        def sometimes_fails(query, directory, *, limit, timings, **kwargs):
             if query == "river":
                 raise OSError("network unreachable")
             return [fixture(directory, query)], []
@@ -105,7 +105,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
     def test_repeated_query_uses_distinct_images_with_one_search(self):
         from collections import Counter
         requested = []
-        def fake_search(query, directory, *, limit, timings):
+        def fake_search(query, directory, *, limit, timings, **kwargs):
             requested.append((query, limit))
             assets = [media.MediaAsset(
                 directory / f"sample-{n}.jpg", "image",
@@ -132,7 +132,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
 
     def test_extra_image_budget_fairly_allocated_and_never_exceeds_four(self):
         with tempfile.TemporaryDirectory() as tmp:
-            def fake_search(query, folder, *, limit, timings):
+            def fake_search(query, folder, *, limit, timings, **kwargs):
                 return [fixture(folder, query) for _ in range(limit)], []
             with patch.object(media, "commons_assets", side_effect=fake_search) as request:
                 stats = {}
@@ -146,7 +146,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
 
     def test_source_dedup_across_different_queries_if_alternative_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
-            def fake_search(query, folder, *, limit, timings):
+            def fake_search(query, folder, *, limit, timings, **kwargs):
                 common = media.MediaAsset(
                     folder / "common.jpg", "image",
                     "https://commons.wikimedia.org/wiki/File:common.jpg",
@@ -168,7 +168,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
 
     def test_no_extra_downloads_when_every_query_is_unique(self):
         with tempfile.TemporaryDirectory() as tmp:
-            def fake_search(query, folder, *, limit, timings):
+            def fake_search(query, folder, *, limit, timings, **kwargs):
                 return [fixture(folder, query)], []
             with patch.object(media, "commons_assets", side_effect=fake_search) as request:
                 stats = {}
@@ -184,7 +184,7 @@ class CommonsSceneDiversityTests(unittest.TestCase):
 class CommonsSecondarySearchTests(unittest.TestCase):
     def test_limited_secondary_lookup_increases_distinct_scene_images(self):
         calls=[]
-        def mocked(query, directory, *, limit, timings):
+        def mocked(query, directory, *, limit, timings, **kwargs):
             calls.append((query, limit))
             timings.update({"api_seconds": 0.2, "download_seconds": 0.1,
                             "verification_seconds": 0.02, "download_bytes": 250,
@@ -212,7 +212,7 @@ class CommonsSecondarySearchTests(unittest.TestCase):
         self.assertEqual(warnings,[])
 
     def test_secondary_search_does_not_claim_original_query_coverage(self):
-        def search(query, directory, *, limit, timings):
+        def search(query, directory, *, limit, timings, **kwargs):
             results = [media.MediaAsset(
                 directory / f"{query.replace(' ', '-')}-{n}.jpg", "image",
                 f"https://commons.wikimedia.org/wiki/File:{query}-{n}.jpg",
@@ -233,7 +233,7 @@ class CommonsSecondarySearchTests(unittest.TestCase):
 
     def test_secondary_never_bypasses_total_search_budget(self):
         calls=[]
-        def mocked(query, directory, *, limit, timings):
+        def mocked(query, directory, *, limit, timings, **kwargs):
             calls.append(query)
             return [fixture(directory,query)], []
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -248,7 +248,7 @@ class CommonsSecondarySearchTests(unittest.TestCase):
         self.assertEqual(len(chosen),3)
 
     def test_secondary_failure_keeps_safe_primary_image(self):
-        def mocked(query, directory, *, limit, timings):
+        def mocked(query, directory, *, limit, timings, **kwargs):
             if query == "montagne paysage":
                 raise ConnectionError("network closed")
             return [fixture(directory,query)], []
@@ -269,7 +269,7 @@ class CommonsSecondarySearchTests(unittest.TestCase):
         self.assertEqual(media.alternate_scenic_search_query("mountain"),
                          "mountain landscape")
         calls=[]
-        def mocked(query, directory, *, limit, timings):
+        def mocked(query, directory, *, limit, timings, **kwargs):
             calls.append(query)
             return [fixture(directory,query)], []
         with tempfile.TemporaryDirectory() as tmp, patch.object(

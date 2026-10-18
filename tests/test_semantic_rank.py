@@ -91,7 +91,7 @@ class SemanticRankingTests(unittest.TestCase):
     def test_ordinary_fetch_does_not_invoke_clip_or_expand_download_budget(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
-            def lookup(query, path, *, limit, timings):
+            def lookup(query, path, *, limit, timings, **kwargs):
                 return [candidate(path, str(n)) for n in range(limit)], []
             with patch.object(media, "commons_assets", side_effect=lookup) as get, patch.object(
                     media, "semantic_rerank") as clip:
@@ -105,7 +105,7 @@ class SemanticRankingTests(unittest.TestCase):
     def test_opt_in_budget_is_bounded_and_keeps_repeated_topics_priority(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
-            def lookup(query, path, *, limit, timings):
+            def lookup(query, path, *, limit, timings, **kwargs):
                 return [candidate(path, f"{query}-{n}") for n in range(limit)], []
             with patch.object(media, "commons_assets", side_effect=lookup) as get, patch.object(
                     media, "semantic_rerank", side_effect=lambda results, work: (
