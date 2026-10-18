@@ -106,6 +106,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Validate request before costly installs and optional AI model downloads
+        env:
+          TOPIC: ${{ inputs.topic }}
+          SCRIPT_TEXT: ${{ inputs.script }}
+          SCRIPT_MODE: ${{ inputs.script_mode }}
+          SCENE_QUERIES: ${{ inputs.scene_queries }}
+          LANG: ${{ inputs.lang }}
+          ASPECT: ${{ inputs.aspect }}
+          RESOLUTION: ${{ inputs.resolution }}
+          VISUAL_MODE: ${{ inputs.visuals }}
+          VISUAL_AI: ${{ inputs.visual_ai }}
+          VOICE: ${{ inputs.voice }}
+          SPEECH_RATE: ${{ inputs.speech_rate }}
+          VISUAL_STYLE: ${{ inputs.visual_style }}
+          CAPTION_STYLE: ${{ inputs.caption_style }}
+          WORD_ALIGNMENT: ${{ inputs.word_alignment }}
+          TRANSITION: ${{ inputs.transition }}
+        run: python workflow_preflight.py
       - name: Install render tools only if missing
         shell: bash
         run: |
