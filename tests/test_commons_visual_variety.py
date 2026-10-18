@@ -34,6 +34,56 @@ class VisualDiversityTests(unittest.TestCase):
         self.assertEqual(stats["unique_images_selected"],3)
         self.assertEqual(errors,[])
 
+    def test_reuses_a_different_photo_instead_of_repeating_previous_scene(self):
+        def search(query, folder, *, limit, timings, **kwargs):
+            items = ([asset(folder, "a", 0x0000000000000000),
+                      asset(folder, "b", 0xFFFFFFFFFFFFFFFF)]
+                     if query == "mountain" else
+                     [asset(folder, "b", 0xFFFFFFFFFFFFFFFF)])
+            return items[:limit], []
+        with TemporaryDirectory() as folder, patch.object(
+                media, "commons_assets", side_effect=search):
+            stats = {}
+            chosen, warnings = media.commons_scene_assets(
+                ["mountain", "lake", "mountain"], Path(folder),
+                max_searches=2, stats=stats)
+        self.assertEqual([chosen[i].title for i in range(3)],
+                         ["a", "b", "a"])
+        self.assertEqual(stats["unique_images_selected"], 2)
+        self.assertEqual(stats["adjacent_repeats_avoided"], 1)
+        self.assertEqual(stats["adjacent_visual_reuses"], 0)
+        self.assertEqual(warnings, [])
+
+    def test_fresh_url_with_duplicate_pixels_does_not_repeat_last_image(self):
+        def search(query, folder, *, limit, timings, **kwargs):
+            items = ([asset(folder, "a", 0x0000000000000000),
+                      asset(folder, "copy-b", 0xFFFFFFFFFFFFFFFF)]
+                     if query == "mountain" else
+                     [asset(folder, "b", 0xFFFFFFFFFFFFFFFF)])
+            return items[:limit], []
+        with TemporaryDirectory() as folder, patch.object(
+                media, "commons_assets", side_effect=search):
+            stats = {}
+            chosen, _ = media.commons_scene_assets(
+                ["mountain", "lake", "mountain"], Path(folder),
+                max_searches=2, stats=stats)
+        self.assertEqual([chosen[i].title for i in range(3)],
+                         ["a", "b", "a"])
+        self.assertEqual(stats["adjacent_repeats_avoided"], 1)
+        self.assertEqual(stats["adjacent_visual_reuses"], 0)
+
+    def test_single_available_photo_reports_unavoidable_neighbor_repeats(self):
+        def search(query, folder, *, limit, timings, **kwargs):
+            return [asset(folder, "one", None)], []
+        with TemporaryDirectory() as folder, patch.object(
+                media, "commons_assets", side_effect=search):
+            stats = {}
+            chosen, _ = media.commons_scene_assets(
+                ["mountain"] * 3, Path(folder), max_searches=1, stats=stats)
+        self.assertEqual(len(chosen), 3)
+        self.assertEqual(stats["adjacent_repeats_avoided"], 0)
+        self.assertEqual(stats["adjacent_visual_reuses"], 2)
+
     def test_scene_selection_preserves_search_relevance_before_medium_and_crop(self):
         # A search result has already been ranked by Commons textual evidence.
         # Per-scene image rotation must not reverse it using weaker heuristics.

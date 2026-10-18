@@ -719,6 +719,17 @@ def alternate_scenic_search_query(query: str) -> str | None:
     return secondary
 
 
+def _same_visible_asset(left: MediaAsset | None, right: MediaAsset) -> bool:
+    """Adjacency hint, not a claim that different hashes prove new subjects."""
+    if left is None:
+        return False
+    if left.source_url == right.source_url:
+        return True
+    return (left.visual_fingerprint is not None
+            and right.visual_fingerprint is not None
+            and near_duplicate(left.visual_fingerprint, right.visual_fingerprint))
+
+
 def commons_scene_assets(queries: list[str], work: Path, *,
                          indices: list[int] | None = None, max_searches: int = 8,
                          max_workers: int = 3,
@@ -881,6 +892,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
     used_urls: set[str] = set()
     used_signatures: list[int] = []
     duplicate_candidates_avoided = 0
+    adjacent_repeats_avoided = 0
+    adjacent_visual_reuses = 0
     usage: dict[str, int] = {}
     for i in wanted:
         query = queries[i]
@@ -912,10 +925,26 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                         near_duplicate(a.visual_fingerprint, prior)
                         for prior in used_signatures)
                     for a in unique_urls[:unique_urls.index(chosen)])
-        elif unique_urls:
-            chosen = unique_urls[0]
         else:
-            chosen = ordered[0]
+            # First exhaust new Commons URLs, but do not repeat the image
+            # from the immediately preceding scene when a previously seen
+            # *different* picture is available. A new filename whose pixels
+            # duplicate the prior frame is not better visual variety.
+            previous = selected.get(i - 1)
+            nonadjacent_fresh = next(
+                (asset for asset in unique_urls
+                 if not _same_visible_asset(previous, asset)), None)
+            nonadjacent_any = next(
+                (asset for asset in ordered
+                 if not _same_visible_asset(previous, asset)), None)
+            chosen = (nonadjacent_fresh or nonadjacent_any
+                      or (unique_urls[0] if unique_urls else ordered[0]))
+        previous = selected.get(i - 1)
+        if (_same_visible_asset(previous, ordered[0])
+                and not _same_visible_asset(previous, chosen)):
+            adjacent_repeats_avoided += 1
+        if _same_visible_asset(previous, chosen):
+            adjacent_visual_reuses += 1
         selected[i] = chosen
         used_urls.add(chosen.source_url)
         if chosen.visual_fingerprint is not None:
@@ -958,6 +987,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             "scenes_with_perceptual_signature": len(used_signatures),
             "distinct_visual_patterns_estimated": len(distinct_patterns),
             "near_duplicate_candidates_avoided": duplicate_candidates_avoided,
+            "adjacent_repeats_avoided": adjacent_repeats_avoided,
+            "adjacent_visual_reuses": adjacent_visual_reuses,
             "scenes_with_crop_estimate": sum(
                 a.crop_retention_estimate is not None for a in selected.values()),
             "mean_crop_retention_estimate": round(

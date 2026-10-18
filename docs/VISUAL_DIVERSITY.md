@@ -89,3 +89,18 @@ licences or off-topic titles.
 This can improve the supply of distinct licensed images, but it does not
 prove that the selected image depicts the narrated subject. Humans should
 review the exported contact sheet before publication.
+
+## Limiting consecutive scene image repetition
+
+When all distinct licensed photographs have been used, the selector now
+prefers a photo different from the immediately previous scene. A newly
+named Commons image that is perceptually near-identical to the last frame
+will not displace an older, visually different candidate.
+
+The scene-selection reports expose adjacent_repeats_avoided and
+adjacent_visual_reuses. Remaining consecutive repeats generate a
+nonblocking warning in video.quality.json. Images are compared using
+their Commons URL and existing 64-bit difference hash, when available.
+No additional downloads, searches, models or license exceptions are made.
+This does not establish whether two different photographs have the same
+subject; final human storyboard review is still necessary.
