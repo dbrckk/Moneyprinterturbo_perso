@@ -66,3 +66,26 @@ relevance and visual aesthetics cannot be certified by these measurements.
 
 No user images or model prompts are uploaded for analysis; the additional
 image checks run locally on the rendered video with the existing FFmpeg tool.
+
+## Multi-candidate recovery after decoding or perceptual deduplication
+
+When the optional CLIP comparison or repeat-scene selector requests at least
+two Commons thumbnails, the first API search can return distinct file titles
+that do not produce distinct *usable photographs*. The selector now completes
+the primary ranked download pass before deciding whether another search is
+necessary. Only supported, unambiguous scenic topics may use a second
+lexically conservative search, **once per query at most**.
+
+The same original-query relevance, allowed CC0/public-domain licences,
+trusted Wikimedia hosts and FFprobe decoding apply to these late candidates.
+Photographs rejected as near-duplicates are removed from the temporary
+download folder. The candidate selector records
+`near_duplicate_downloads_skipped` and `fallback_after_verification` in
+its per-search statistics. A default request for only one image does **not**
+trigger a second API search because a download failed. Tests check corrupted
+images, visually identical uploads, and secondary results with unsuitable
+licences or off-topic titles.
+
+This can improve the supply of distinct licensed images, but it does not
+prove that the selected image depicts the narrated subject. Humans should
+review the exported contact sheet before publication.
