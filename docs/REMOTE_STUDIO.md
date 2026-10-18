@@ -181,3 +181,21 @@ L'[ancien studio](https://cyber-nanobot-g5pbj9v.shipstatic.com) reste disponible
 
 
 **Miroir de secours permanent :** [MoneyPrinter sur ShipStatic](https://turbo-gate-h3jnc94.shipstatic.com). Ce miroir dispose des mêmes 11 fichiers statiques du commit `b5d9d75`. Le lien GitHub Pages est désormais recommandé, car les changements ultérieurs de `remote/` y sont automatiquement déployés **à la même adresse**, sans créer de nouveau domaine à chaque version. Publication confirmée par le [workflow GitHub Pages](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/39135225026). La vérification indépendante de l'ouverture de la page sur tous les réseaux mobiles reste à effectuer.
+
+
+## Publication sécurisée des fichiers vidéo
+
+Lors d'un rendu local, le MP4, les sous-titres SRT/ASS, la fiche JSON
+et les crédits sont **préparés intégralement avant publication**. Un échec
+ordinaire de copie ou renommage restaure les fichiers du précédent rendu,
+plutôt que de laisser une nouvelle vidéo associée à un ancien sous-titre.
+
+Une nouvelle génération invalide systématiquement les anciens rapports de
+contrôle qualité (JSON) et planches de contact (PNG). Le passage de
+sous-titres progressifs à classiques supprime les anciens fichiers ASS
+et d'alignement, qui ne décrivent plus le montage.
+
+Les renommages de chaque fichier sont atomiques sur un même système de
+fichiers ; **la publication simultanée de plusieurs fichiers n'est pas
+atomique en cas de coupure brutale du système**. Le dossier de travail
+temporaire est automatiquement nettoyé après une opération normale.
