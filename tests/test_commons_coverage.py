@@ -58,7 +58,7 @@ class CommonsCoverageTests(unittest.TestCase):
             timings = {}
             with patch.object(media, "_read_limited", side_effect=self.fake_network(results, observed)), \
                  patch.object(media, "media_dimensions", return_value=(1200, 900)), \
-                 patch.object(media, "visual_signature", return_value=1):
+                 patch.object(media, "visual_signature", side_effect=[0, 18446744073709551615]):
                 assets, notices = media.commons_assets(
                     "forest landscape", Path(folder), limit=2,
                     target_aspect=9 / 16, timings=timings)
@@ -81,9 +81,9 @@ class CommonsCoverageTests(unittest.TestCase):
     def test_distinct_images_required_even_when_licensed_titles_differ(self):
         observed = []
         results = {"forest landscape": api_payload(
-            commons_page("Forest scene A.jpg", index=1),
-            commons_page("Forest scene B.jpg", index=2),
-            commons_page("Forest scene C.jpg", index=3),
+            commons_page("Forest trail A.jpg", index=1),
+            commons_page("Forest trail B.jpg", index=2),
+            commons_page("Forest trail C.jpg", index=3),
         )}
         fingerprints = iter((0, 0, 18446744073709551615))
         with TemporaryDirectory() as folder:
@@ -97,7 +97,7 @@ class CommonsCoverageTests(unittest.TestCase):
                     "forest landscape", Path(folder), limit=2, timings=timings)
             names = sorted(path.name for path in Path(folder).iterdir())
         self.assertEqual([a.title for a in assets],
-                         ["File:Forest scene A.jpg", "File:Forest scene C.jpg"])
+                         ["File:Forest trail A.jpg", "File:Forest trail C.jpg"])
         self.assertEqual(names, ["commons_00.jpg", "commons_01.jpg"])
         self.assertEqual(timings["near_duplicate_downloads_skipped"], 1)
         self.assertEqual(timings["download_attempts"], 3)
@@ -107,7 +107,7 @@ class CommonsCoverageTests(unittest.TestCase):
     def test_unknown_fingerprint_does_not_block_licensed_candidates(self):
         observed = []
         results = {"forest landscape": api_payload(
-            commons_page("Forest A.jpg"), commons_page("Forest B.jpg", index=2))}
+            commons_page("Forest trail A.jpg"), commons_page("Forest trail B.jpg", index=2))}
         with TemporaryDirectory() as folder:
             with patch.object(media, "_read_limited",
                               side_effect=self.fake_network(results, observed)), \
@@ -127,7 +127,7 @@ class CommonsCoverageTests(unittest.TestCase):
             timings = {}
             with patch.object(media, "_read_limited", side_effect=self.fake_network(results, observed)), \
                  patch.object(media, "media_dimensions", return_value=(900, 1600)), \
-                 patch.object(media, "visual_signature", return_value=2):
+                 patch.object(media, "visual_signature", side_effect=[0, 18446744073709551615]):
                 assets, _ = media.commons_assets(
                     "forest landscape", Path(folder), limit=2, timings=timings)
         self.assertEqual(len(assets), 2)
