@@ -132,3 +132,36 @@ The separate `video_qa.py` quality report now surfaces **reviewable visual risks
 The real 9:16 Commons smoke test surfaced a valid but **extremely wide image** whose original center crop would preserve only **12.27%** of its source area. For Commons images with `crop_retention_estimate < 0.34`, the renderer now uses **a composed soft matte**: the entire source image is centered crisply over a softly defocused and color-matched extension of that same image. Motion is restrained to a 4% frame zoom. This occurs in both one-pass and legacy transition engines, requires only FFmpeg, and does not trigger additional downloads, CPU vision models or paid APIs. `media[].render_framing` records `soft-matte-full-image` or `cover-center-crop`.
 
 The blur is applied to a 1/16-resolution intermediate for CPU efficiency. It is a design fallback for severely incompatible aspect ratios, not AI inpainting: background edges are derived from source pixels and are intentionally blurred. The video quality audit no longer issues a severe-crop warning for a successfully preserved image. Pixel-based FFmpeg regressions check that both horizontal extremes are retained after encoding in the one-pass and legacy renderers.
+
+## Hard cap on thumbnail download attempts
+
+Wikimedia search metadata can contain up to 45 candidate files in one API
+response, even if they are all broken thumbnails or perceptual copies of one
+picture. Previous selection scanned every eligible file until the requested
+number of usable images was obtained; dozens of requests at **25 seconds
+maximum each** could exhaust free GitHub Actions render minutes.
+
+The selector now enforces a **per-query attempt budget**, independent of the
+number of Commons metadata results:
+
+| Distinct images requested | First search thumbnail attempts | Extra attempts if a curated alternative exists |
+|---|---:|---:|
+| 1 | 5 | 0 |
+| 2 | 6 | 4 |
+| 3 | 9 | 6 |
+| 4 or more | 12 | up to 8 |
+
+An alternative Commons API search remains limited to once for an eligible
+multi-image request. Late alternative results get their reserved attempts,
+instead of being crowded out by dozens of rejected primary duplicates.
+When insufficient images survive the cap, existing verified photos are kept
+and missing scenes receive the original animated graphic fallback; there is
+no unlicensed or unrelated replacement.
+
+The per-search metrics `download_attempt_budget` and
+`download_budget_exhausted` make this limitation explicit. Video manifest
+`commons_fetch` aggregates actual attempts, maximum allocated attempts and
+exhausted budgets. The Android CLIP benchmark separately exports these counts.
+
+The bound is on **attempt count**, not a guarantee of fixed wall-clock render
+duration: each request still has a timeout and Wikimedia latency varies.
