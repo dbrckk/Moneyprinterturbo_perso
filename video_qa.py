@@ -74,7 +74,10 @@ def stream_duration(stream: dict) -> float | None:
     H.264. ffprobe format.duration says three seconds, hiding the cut-off video.
     """
     try:
-        value = float(stream.get("duration", float("nan")))
+        raw = stream.get("duration", float("nan"))
+        if isinstance(raw, bool):
+            return None
+        value = float(raw)
     except (TypeError, ValueError, AttributeError):
         return None
     return value if math.isfinite(value) and value > 0 else None
@@ -126,6 +129,7 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
     elif _positive(expected) and abs(video_time - expected) > 0.30:
         errors.append(
             f"Video stream length drift: {video_time:.3f}s vs narration {expected:.3f}s")
+    audio_time = None
     if metadata.get("speech") is True and len(audio_streams) == 1:
         audio_time = stream_duration(audio_streams[0])
         if audio_time is None:
@@ -228,6 +232,8 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
                    "pixel_format": video_stream.get("pix_fmt"),
                    "audio_codec": audio_streams[0].get("codec_name") if audio_streams else None,
                    "scene_count": len(segments),
+                   "video_stream_duration": round(video_time, 3) if video_time is not None else None,
+                   "audio_stream_duration": round(audio_time, 3) if audio_time is not None else None,
                    "bytes": video.stat().st_size},
         "errors": errors, "warnings": warnings,
     }
