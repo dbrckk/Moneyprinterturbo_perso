@@ -54,7 +54,11 @@ async function simulate(items, choices, notes = []) {
   vm.runInNewContext(executable, runtime, { timeout: 1000 });
   notes.forEach((text, i) => { elements.get('notes-' + i).value = text; });
   elements.get('export').listeners.get('click')();
-  return { csv: await exportedBlob.text(), filename: clickedName,
+  // Blob.text() strips a UTF-8 BOM during decoding. Verify its raw bytes.
+  const raw = Buffer.from(await exportedBlob.arrayBuffer());
+  return { csv: await exportedBlob.text(),
+    hasUtf8Bom: raw.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])),
+    filename: clickedName,
     visibleText: String(elements.get('review-cases').children.length) };
 }
 
@@ -88,7 +92,7 @@ test('reviewer notes starting with CSV formulas are neutralized', async () => {
   const formula = '=HYPERLINK("https://attacker.invalid","click")';
   const result = await simulate([pair], ['right'], [formula]);
   assert.match(result.csv, /"baseline","'=HYPERLINK\(""https:\/\/attacker.invalid"",""click""\)"/);
-  assert.equal(result.csv.codePointAt(0), 0xfeff);
+  assert.equal(result.hasUtf8Bom, true);
 });
 
 test('explicit both_bad remains distinct from tie', async () => {
