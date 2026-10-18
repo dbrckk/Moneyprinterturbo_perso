@@ -107,6 +107,8 @@ label.choice{border:1px solid #627790;border-radius:8px;padding:10px;min-height:
 label.choice:has(input:checked){border-color:#95c7ff;background:#223955}
 .notes{display:block;width:100%;padding:12px;background:#142235;color:#fff;border:1px solid #6e8199;border-radius:8px;font:inherit}
 button{min-height:48px;border:0;border-radius:10px;padding:12px 18px;background:#a7d1ff;color:#0c2036;font-weight:bold;font:inherit;cursor:pointer}
+button:disabled{opacity:.55;cursor:not-allowed}
+#summary{white-space:pre-line;overflow-wrap:anywhere;background:#182b3b}
 .actions{position:sticky;bottom:0;background:#0d1422;padding:12px 0;border-top:1px solid #34465c}
 @media(max-width:520px){img{height:175px}body{padding:12px}.pair{gap:8px}section{padding:12px}}
 </style></head><body>
@@ -114,7 +116,9 @@ button{min-height:48px;border:0;border-radius:10px;padding:12px 18px;background:
 <p>Choisissez uniquement l’image qui illustre le mieux le sujet. La méthode de sélection est masquée et l’ordre gauche/droite est mélangé de façon reproductible. Les images proviennent de Wikimedia Commons après vérification de leur licence.</p>
 <p><strong>Fonctionne hors connexion.</strong> Aucune photo, note ou donnée personnelle n’est envoyée à un serveur. Le CSV est téléchargé sur votre appareil.</p></header>
 <main id="review-cases"></main>
+<section id="summary" role="status" aria-live="polite" hidden></section>
 <div class="actions"><p id="progress" role="status" aria-live="polite"></p>
+<button id="reveal" type="button" disabled>Afficher le bilan après toutes les scènes</button>
 <button id="export" type="button">Exporter mes évaluations · CSV</button></div>
 <script>
 /* EMBEDDED_REVIEW_SCRIPT */
