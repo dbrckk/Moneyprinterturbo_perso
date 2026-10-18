@@ -110,7 +110,7 @@ class CommonsGlobalBudgetTests(unittest.TestCase):
                     ["montagne"] * 3, Path(folder), max_searches=2,
                     stats=stats)
         self.assertEqual(len(selected), 3)
-        self.assertEqual(sorted(calls), ["montagne paysage", "montagne panorama"])
+        self.assertCountEqual(calls, ["montagne paysage", "montagne panorama"])
         self.assertEqual(stats["secondary_queries_attempted"], 1)
         self.assertEqual(stats["internal_fallback_slots_reserved"], 0)
         self.assertEqual(stats["internal_fallback_queries_attempted"], 0)
