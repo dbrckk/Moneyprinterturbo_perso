@@ -10,7 +10,6 @@ import argparse
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import re
 import shutil
@@ -29,6 +28,7 @@ from fast_media import build_onepass_media_command
 from scene_framing import needs_soft_matte, soft_matte_graph
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
+from publish_bundle import publish_bundle
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
@@ -515,29 +515,32 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")
-        # Only publish the finished result; preexisting output remains untouched on failure.
-        temp_out = output.with_name(output.stem + ".partial.mp4")
-        try:
-            shutil.copyfile(staged, temp_out)
-            os.replace(temp_out, output)
-        finally:
-            temp_out.unlink(missing_ok=True)
-        # Deliver editable captions next to the actual video output.
-        shutil.copyfile(work / "captions.srt", output.with_suffix(".srt"))
+        # Prepare every final artifact before changing anything in the public
+        # output folder. Failures must not leave a new MP4 with old subtitles
+        # or credits from a different render.
+        publications: dict[Path, Path] = {
+            output: staged, output.with_suffix(".srt"): work / "captions.srt",
+        }
+        obsolete: list[Path] = [
+            output.with_suffix(".quality.json"),
+            output.with_suffix(".storyboard.png"),
+        ]
         if caption_meta is not None:
-            shutil.copyfile(work / "captions.ass", output.with_suffix(".ass"))
+            publications[output.with_suffix(".ass")] = work / "captions.ass"
             if caption_meta["estimated_word_timing"]:
                 warnings.append("Some word timings are estimated, not measured acoustically")
-            output.with_suffix(".alignment.json").write_text(json.dumps({
+            alignment_file = work / "alignment-metadata.json"
+            alignment_file.write_text(json.dumps({
                 "requested": word_alignment, "method": caption_meta["timing_method"],
                 "aligned_scenes": caption_meta["aligned_scenes"],
                 "scene_count": caption_meta["scene_count"],
                 "phrases": caption_meta["phrases"], "word_timings": word_times,
                 "warnings": warnings,
             }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            publications[output.with_suffix(".alignment.json")] = alignment_file
         else:
-            output.with_suffix(".ass").unlink(missing_ok=True)
-            output.with_suffix(".alignment.json").unlink(missing_ok=True)
+            obsolete.extend([output.with_suffix(".ass"),
+                             output.with_suffix(".alignment.json")])
         media_used: list[dict[str, object]] = []
         for index, asset in enumerate(slots):
             if asset is None:
@@ -552,7 +555,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
-        credits_path = output.with_suffix(".credits.txt")
+        credits_path = work / "prepared-credits.txt"
         voice_info = None
         credits = ["ASSET & VOICE CREDITS — MoneyPrinterTurbo Perso", ""]
         if audio is not None and tts == "piper" and piper_model is not None:
@@ -611,7 +614,14 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used, "warnings": warnings,
         }
-        output.with_suffix(".json").write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        metadata_file = work / "prepared-manifest.json"
+        metadata_file.write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n",
+                                 encoding="utf-8")
+        publications[output.with_suffix(".credits.txt")] = credits_path
+        publications[output.with_suffix(".json")] = metadata_file
+        # The caller's previous complete export survives a copy or rename
+        # failure. On success, invalidate reports tied to the former video.
+        publish_bundle(publications, remove=obsolete)
         return info
 
 
