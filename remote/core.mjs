@@ -153,11 +153,12 @@ export function findRun(runs, id) {
 
 /** Resume a previously known run directly, even after it leaves the last 30. */
 export function knownRunEndpoint(runId) {
-  const id = Number(runId);
-  if (!Number.isSafeInteger(id) || id <= 0 || String(id) !== String(runId)) {
+  if ((typeof runId !== 'number' || !Number.isSafeInteger(runId) || runId <= 0) &&
+      (typeof runId !== 'string' || !/^[1-9][0-9]*$/.test(runId) ||
+       !Number.isSafeInteger(Number(runId)))) {
     throw new Error('Identifiant de rendu GitHub invalide.');
   }
-  return `${API_ROOT}/actions/runs/${id}`;
+  return `${API_ROOT}/actions/runs/${Number(runId)}`;
 }
 
 /** Do not accidentally show another workflow's output for a saved run ID. */
