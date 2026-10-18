@@ -165,3 +165,34 @@ exhausted budgets. The Android CLIP benchmark separately exports these counts.
 
 The bound is on **attempt count**, not a guarantee of fixed wall-clock render
 duration: each request still has a timeout and Wikimedia latency varies.
+
+## Strict storyboard-wide Commons API call accounting
+
+The per-image Commons selector can itself retry a contextual query when it
+needs a second distinct photo. This previously happened inside worker threads
+after the storyboard planner had allocated its own secondary queries, so
+`max_searches` could be exceeded despite a lower reported total.
+
+The storyboard planner now **reserves all possible internal alternative API
+calls before launching concurrent fetch workers**. It allocates original
+scene searches first, reserves any curated repeated-scene searches next, then
+allocates the remaining optional contextual retries deterministically in scene
+query order. An explicit secondary search is never allowed to spawn a further
+internal retry.
+
+The `commons_fetch.total_commons_api_queries` metric now sums **actual
+reported API calls**, including contextual internal retries, instead of
+estimating `unique_queries + explicit_secondaries`. Additional fields
+`internal_fallback_slots_reserved` and
+`internal_fallback_queries_attempted` distinguish allocated quota from
+actually consumed API requests. The global cap applies to every storyboard
+request even when several fetchers run concurrently; directly invoking
+`commons_assets()` outside the storyboard still allows its own one optional
+fallback unless `allow_alternative=False` is supplied.
+
+Conserving search budget may reduce available distinct licensed photos in a
+crowded video; the existing graphic fallback remains preferable to an
+unlicensed or unrelated picture. Mocked network tests exercise saturated and
+partially available budgets, non-nested explicit secondary searches, and
+accurate accounting. Wikimedia network latency and search quality are not
+guaranteed by this bound.
