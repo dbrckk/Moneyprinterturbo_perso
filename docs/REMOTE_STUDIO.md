@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://cyber-nanobot-g5pbj9v.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://turbo-gate-h3jnc94.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 
@@ -171,3 +171,10 @@ déterministe dans la langue choisie : français, anglais, espagnol, allemand,
 italien ou portugais. Ce texte n'est **pas** généré par un modèle IA.
 Les brouillons et historiques restent dans le stockage local du navigateur
 et les jetons GitHub ne sont jamais sauvegardés par le site.
+
+
+### Mise à jour du studio Android (octobre 2026)
+
+**[Ouvrir le studio Android mis à jour](https://turbo-gate-h3jnc94.shipstatic.com)** — hébergement HTTPS statique gratuit et permanent, avec canevas disponibles en six langues, récupération des demandes sur plusieurs pages GitHub et téléchargement direct des artefacts vidéo.
+
+L'[ancien studio](https://cyber-nanobot-g5pbj9v.shipstatic.com) reste disponible. Les navigateurs Android isolent les données locales par nom de domaine : pour récupérer la narration et les réglages d'un ancien studio, utiliser **Copier mon brouillon** sur l'ancien site, puis **Restaurer mon brouillon** sur le nouveau. Le jeton GitHub n'est jamais inclus dans cette sauvegarde et doit être saisi à nouveau. Les historiques ne sont pas importés entre domaines ; les anciens rendus restent consultables dans [GitHub Actions](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml) tant que leurs artefacts n'ont pas expiré.
