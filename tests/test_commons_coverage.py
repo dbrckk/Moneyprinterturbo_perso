@@ -78,6 +78,91 @@ class CommonsCoverageTests(unittest.TestCase):
         self.assertIn("LicenseShortName", observed[0]["iiextmetadatafilter"][0])
         self.assertEqual(notices, [])
 
+    def test_single_scene_does_not_download_45_invalid_thumbnails(self):
+        observed = []
+        candidates = [
+            commons_page(f"Forest trail photograph {i:02d}.jpg", index=i + 1)
+            for i in range(45)]
+        data = {"forest landscape": api_payload(*candidates)}
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            stats = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, observed)), \
+                 patch.object(media, "media_dimensions", return_value=None):
+                found, warnings = media.commons_assets(
+                    "forest landscape", root, limit=1, timings=stats)
+            remaining = list(root.iterdir())
+        self.assertEqual(found, [])
+        self.assertEqual(remaining, [])
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(stats["api_queries"], 1)
+        self.assertEqual(stats["download_attempt_budget"], 5)
+        self.assertEqual(stats["download_attempts"], 5)
+        self.assertEqual(stats["download_budget_exhausted"], 1)
+        self.assertTrue(any("attempt budget" in warning for warning in warnings))
+
+    def test_secondary_budget_is_reserved_for_newly_relevant_images(self):
+        observed = []
+        data = {
+            "forest landscape": api_payload(*[
+                commons_page(f"Forest trail panorama {i:02d}.jpg", index=i + 1)
+                for i in range(45)]),
+            "forest": api_payload(
+                commons_page("Forest river landscape fresh photograph.jpg", index=45),
+                commons_page("Forest distant river landscape photograph.jpg", index=46),
+            ),
+        }
+        signatures = [0] * 6 + [(1 << 64) - 1]
+        with TemporaryDirectory() as folder:
+            stats = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, observed)), \
+                 patch.object(media, "media_dimensions", return_value=(900, 1600)), \
+                 patch.object(media, "visual_signature",
+                              side_effect=signatures):
+                found, warnings = media.commons_assets(
+                    "forest landscape", Path(folder), limit=2, timings=stats)
+        self.assertEqual(len(found), 2)
+        self.assertEqual(found[0].visual_fingerprint, 0)
+        self.assertEqual(found[1].visual_fingerprint, (1 << 64) - 1)
+        self.assertEqual(stats["download_attempt_budget"], 10)
+        self.assertEqual(stats["download_attempts"], 7)
+        self.assertEqual(stats["near_duplicate_downloads_skipped"], 5)
+        self.assertEqual(stats["download_budget_exhausted"], 0)
+        self.assertEqual(stats["api_queries"], 2)
+        self.assertEqual(stats["fallback_after_verification"], 1)
+        self.assertEqual([q["gsrsearch"][0] for q in observed],
+                         ["forest landscape", "forest"])
+        self.assertEqual(warnings, [])
+
+    def test_primary_and_secondary_duplicates_cannot_exhaust_action_minutes(self):
+        observed = []
+        data = {
+            "forest landscape": api_payload(*[
+                commons_page(f"Forest trail panorama {i:02d}.jpg", index=i + 1)
+                for i in range(45)]),
+            "forest": api_payload(*[
+                commons_page(f"Forest garden landscape {i:02d}.jpg", index=i + 1)
+                for i in range(45)]),
+        }
+        with TemporaryDirectory() as folder:
+            stats = {}
+            with patch.object(media, "_read_limited",
+                              side_effect=self.fake_network(data, observed)), \
+                 patch.object(media, "media_dimensions", return_value=(900, 1600)), \
+                 patch.object(media, "visual_signature", return_value=7):
+                found, warnings = media.commons_assets(
+                    "forest landscape", Path(folder), limit=2, timings=stats)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(len(observed), 2)
+        self.assertEqual(stats["api_queries"], 2)
+        self.assertEqual(stats["download_attempts"], 10)
+        self.assertEqual(stats["download_attempt_budget"], 10)
+        self.assertEqual(stats["near_duplicate_downloads_skipped"], 9)
+        self.assertEqual(stats["download_budget_exhausted"], 1)
+        self.assertTrue(any("attempt budget" in message for message in warnings))
+
     def test_distinct_images_required_even_when_licensed_titles_differ(self):
         observed = []
         results = {"forest landscape": api_payload(
