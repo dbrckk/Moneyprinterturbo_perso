@@ -223,6 +223,10 @@ def validate(video: Path, metadata: dict, subtitle_path: Path, stream_info: dict
         duplicates = commons_stats.get("scenes_reusing_image")
         if isinstance(duplicates, int) and not isinstance(duplicates, bool) and duplicates > 0:
             warnings.append(f"{duplicates} Commons scene(s) reuse a previously selected image; review variety")
+        adjacent = commons_stats.get("adjacent_visual_reuses")
+        if isinstance(adjacent, int) and not isinstance(adjacent, bool) and adjacent > 0:
+            warnings.append(
+                f"{adjacent} consecutive Commons scene transition(s) reuse visually similar imagery; review the storyboard")
     return {
         "ok": not errors,
         "checks": {"duration": round(duration, 3) if _positive(duration) else None,
