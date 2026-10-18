@@ -81,6 +81,23 @@ class PublicationUnitTests(unittest.TestCase):
         self.assertTrue(all(p.exists() for p in self.obsolete))
         self.assertFalse(list(self.output.glob(".mpt-publish-*")))
 
+
+    def test_cli_records_provenance_without_rewriting_manifest_after_render(self):
+        target = self.root / "cli.mp4"
+        observed = {}
+
+        def fake_render(topic, script, output, **kwargs):
+            observed.update(kwargs)
+            return {"output": str(output), "script_mode": kwargs["script_mode"]}
+        with patch.object(free_studio, "render", side_effect=fake_render):
+            self.assertEqual(free_studio.main([
+                "--topic", "Lovely mountains", "--script", "A short narration.",
+                "--output", str(target)]), 0)
+        self.assertEqual(observed["script_mode"], "user-script")
+        # A successful render now owns and publishes its own complete manifest;
+        # main() must never perform a second public filesystem write.
+        self.assertFalse(target.with_suffix(".json").exists())
+
     def test_rejects_duplicate_paths_empty_sources_and_mixed_directories(self):
         with self.assertRaisesRegex(ValueError, "unique"):
             publish_bundle(self.sources, remove=[self.srt])
@@ -109,8 +126,12 @@ class RendererPublicationTests(unittest.TestCase):
                 target.with_suffix(suffix).write_bytes(b"stale")
             info = free_studio.render(
                 "Parks", "A clean second render.", target,
-                resolution=360, fps=12, mute=True, caption_style="classic")
+                resolution=360, fps=12, mute=True, caption_style="classic",
+                script_mode="user-script")
             self.assertEqual(info["caption_style"], "classic")
+            self.assertEqual(info["script_mode"], "user-script")
+            import json
+            self.assertEqual(json.loads(target.with_suffix(".json").read_text())["script_mode"], "user-script")
             for suffix in (".quality.json", ".storyboard.png",
                            ".ass", ".alignment.json"):
                 self.assertFalse(target.with_suffix(suffix).exists())
