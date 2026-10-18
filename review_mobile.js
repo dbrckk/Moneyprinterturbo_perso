@@ -3,6 +3,10 @@
 const reviewCases = __REVIEW_DATA__;
 const root = document.getElementById('review-cases');
 const progress = document.getElementById('progress');
+const reveal = document.getElementById('reveal');
+const summary = document.getElementById('summary');
+const radioNodes = [];
+
 
 function make(tag, text, className) {
   const node = document.createElement(tag);
@@ -60,6 +64,7 @@ for (const [index, record] of reviewCases.entries()) {
     radio.name = 'choice-' + index;
     radio.value = value;
     radio.addEventListener('change', updateProgress);
+    radioNodes.push(radio);
     label.append(radio, document.createTextNode(title));
     fieldset.append(label);
   }
@@ -74,15 +79,8 @@ for (const [index, record] of reviewCases.entries()) {
   root.append(section);
 }
 
-function updateProgress() {
-  const count = reviewCases.filter((_, i) =>
-    document.querySelector('input[name="choice-' + i + '"]:checked')).length;
-  progress.textContent = count + ' / ' + reviewCases.length + ' scènes évaluées';
-}
-updateProgress();
-
-document.getElementById('export').addEventListener('click', () => {
-  const rows = reviewCases.map((item, index) => {
+function chosenRows() {
+  return reviewCases.map((item, index) => {
     const picked = document.querySelector('input[name="choice-' + index + '"]:checked');
     const value = picked?.value ?? '';
     let choice = value;
@@ -91,7 +89,46 @@ document.getElementById('export').addEventListener('click', () => {
     return [item.query, item.baseline_url, item.clip_url, choice,
       document.getElementById('notes-' + index).value];
   });
-  const csv = buildCSV(rows);
+}
+
+function updateProgress() {
+  const count = reviewCases.filter((_, i) =>
+    document.querySelector('input[name="choice-' + i + '"]:checked')).length;
+  progress.textContent = count + ' / ' + reviewCases.length + ' scènes évaluées';
+  reveal.disabled = count !== reviewCases.length || count === 0 || summary.hidden === false;
+}
+updateProgress();
+
+reveal.addEventListener('click', () => {
+  const rows = chosenRows();
+  if (!rows.length || rows.some(row => !row[3]) || summary.hidden === false) return;
+
+  const totals = { clip: 0, baseline: 0, tie: 0, both_bad: 0 };
+  for (const row of rows) {
+    if (!Object.hasOwn(totals, row[3])) return;
+    totals[row[3]] += 1;
+  }
+  const decisive = totals.clip + totals.baseline;
+  const share = decisive ? Math.round(100 * totals.clip / decisive) + ' %' : 'non calculable';
+  const message = [
+    'Bilan des préférences humaines — ' + rows.length + ' scènes',
+    'Images choisies par CLIP : ' + totals.clip,
+    'Images choisies par le classement classique : ' + totals.baseline,
+    'Équivalentes : ' + totals.tie,
+    'Les deux inadaptées : ' + totals.both_bad,
+    'Part CLIP parmi les préférences décisives : ' + share + ' (' + decisive + ' vote(s)).',
+    'Échantillon limité : ce résultat ne mesure pas la justesse objective et ne modifie aucun réglage du générateur.',
+    'Votes verrouillés après révélation. Exportez votre CSV ci-dessous.',
+  ].join('\n');
+  summary.textContent = message;
+  summary.hidden = false;
+  radioNodes.forEach(radio => { radio.disabled = true; });
+  reveal.disabled = true;
+  reveal.textContent = 'Bilan affiché · votes verrouillés';
+});
+
+document.getElementById('export').addEventListener('click', () => {
+  const csv = buildCSV(chosenRows());
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;
