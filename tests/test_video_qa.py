@@ -58,6 +58,75 @@ class VideoQualityTests(unittest.TestCase):
         errors = video_qa.validate(self.video, self.metadata, self.subtitle, video_qa.probe(self.video))['errors']
         self.assertTrue(any('Subtitle cue count' in e for e in errors))
 
+    def test_subtitle_text_must_match_spoken_scene_even_when_times_match(self):
+        self.subtitle.write_text(
+            "1\n00:00:00,000 --> 00:00:01,500\nDifferent words.\n\n"
+            "2\n00:00:01,500 --> 00:00:03,000\nLa suite.\n",
+            encoding='utf-8')
+        report = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertFalse(report['ok'])
+        self.assertTrue(any('Subtitle cue 1 text differs' in error
+                            for error in report['errors']), report['errors'])
+
+    def test_subtitle_sequence_and_malformed_cues_are_detected(self):
+        self.subtitle.write_text(
+            "1\n00:00:00,000 --> 00:00:01,500\nUne scène.\n\n"
+            "1\n00:00:01,500 --> 00:00:03,000\nLa suite.\n",
+            encoding='utf-8')
+        report = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertTrue(any('invalid sequence number' in error
+                            for error in report['errors']), report['errors'])
+        self.subtitle.write_text(
+            self.subtitle.read_text() + "\nNot a numbered SRT cue\n",
+            encoding='utf-8')
+        report = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertTrue(any('malformed' in error for error in report['errors']),
+                        report['errors'])
+
+    def test_utf8_bom_crlf_and_wrapped_srt_text_are_valid(self):
+        raw = ("1\r\n00:00:00,000 --> 00:00:01,500\r\n"
+               "Une\r\nscène.\r\n\r\n"
+               "2\r\n00:00:01,500 --> 00:00:03,000\r\n"
+               "La suite.\r\n")
+        self.subtitle.write_bytes(("\ufeff" + raw).encode("utf-8"))
+        report = video_qa.validate(
+            self.video, self.metadata, self.subtitle, video_qa.probe(self.video))
+        self.assertTrue(report['ok'], report['errors'])
+        self.assertEqual(len(video_qa.parse_srt_cues(self.subtitle)), 2)
+
+    def test_video_stream_cut_short_is_not_masked_by_full_length_aac(self):
+        truncated = self.root / 'short-video.mp4'
+        video_qa.execute([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'testsrc2=s=160x288:r=12:d=1.5',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=3',
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', '3', str(truncated)])
+        streams = video_qa.probe(truncated)
+        self.assertAlmostEqual(float(streams['format']['duration']), 3.0, places=1)
+        report = video_qa.validate(truncated, self.metadata, self.subtitle, streams)
+        self.assertFalse(report['ok'])
+        self.assertTrue(any('Video stream length drift' in error
+                            for error in report['errors']), report['errors'])
+
+    def test_audio_stream_cut_short_is_not_masked_by_full_length_video(self):
+        truncated = self.root / 'short-audio.mp4'
+        video_qa.execute([
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'testsrc2=s=160x288:r=12:d=3',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=1.5',
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', '3', str(truncated)])
+        streams = video_qa.probe(truncated)
+        self.assertAlmostEqual(float(streams['format']['duration']), 3.0, places=1)
+        report = video_qa.validate(truncated, self.metadata, self.subtitle, streams)
+        self.assertFalse(report['ok'])
+        self.assertTrue(any('Audio stream length drift' in error
+                            for error in report['errors']), report['errors'])
+
     def test_rejects_wrong_scene_timeline(self):
         self.metadata['segments'][1]['start'] = 1.8
         errors = video_qa.validate(self.video, self.metadata, self.subtitle, video_qa.probe(self.video))['errors']
