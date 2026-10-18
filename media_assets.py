@@ -824,7 +824,8 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 notice for notice in extra_notices
                 if "No relevant verified public-domain/CC0 images found" not in notice])
             for key in ("api_seconds", "download_seconds", "verification_seconds",
-                        "download_bytes", "download_attempts"):
+                        "download_bytes", "download_attempts",
+                        "download_attempt_budget", "download_budget_exhausted"):
                 timings[key] = timings.get(key, 0) + second_timings.get(key, 0)
         # commons_assets already orders by textual relevance, medium and crop.
         # Do not re-sort by medium/crop alone: that would put a weakly related
@@ -950,6 +951,10 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                                   for t in request_stats),
             "download_attempts": sum(int(t.get("download_attempts", 0))
                                      for t in request_stats),
+            "download_attempt_budget": sum(int(t.get("download_attempt_budget", 0))
+                                           for t in request_stats),
+            "download_budgets_exhausted": sum(int(t.get("download_budget_exhausted", 0))
+                                              for t in request_stats),
             "fingerprint_seconds_sum": round(sum(
                 float(t.get("fingerprint_seconds", 0)) for t in request_stats), 4),
             **semantic_metrics,
