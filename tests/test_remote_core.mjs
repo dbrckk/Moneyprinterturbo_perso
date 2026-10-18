@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {segmentsOf, queriesOf, validateDraft, dispatchBody, findRun, runTitle, workflowRunLink, knownRunEndpoint, isExpectedRun, safeError} from '../remote/core.mjs';
+import {segmentsOf, queriesOf, outlineFor, validateDraft, dispatchBody,
+ findRun, findRunAcrossPages, RUNS_ENDPOINT, runTitle, workflowRunLink,
+ knownRunEndpoint, isExpectedRun, safeError} from '../remote/core.mjs';
 const valid = {topic:'Les montagnes',script:'La forêt est vaste. Les montagnes sont hautes.',scene_queries:'forêt | montagne',lang:'fr',aspect:'9:16',resolution:'720',speech_rate:'145',script_mode:'template',voice:'espeak',visuals:'commons',visual_ai:'off',visual_style:'cinematic',caption_style:'kinetic',word_alignment:'estimated',transition:'auto'};
 const uid='studio-12345678-1234-1234-1234-123456789abc';
 test('segmenter matches Python whitespace and sentence splitting',()=>{
@@ -114,4 +116,77 @@ test('run validation refuses mismatched repo and workflow on saved IDs',()=>{
   assert.equal(isExpectedRun({...base,path:'other.yml'},uid),false);
   assert.equal(isExpectedRun({...base,repository:{full_name:'attacker/other'}},uid),false);
   assert.equal(isExpectedRun({...base,path:'dbrckk/Moneyprinterturbo_perso/.github/workflows/free-video.yml@refs/heads/main'},uid),true);
+});
+
+test('non-AI storyboard templates are translated in all six supported languages', () => {
+  const intros = {
+    fr:'Découvrons', en:"Let's explore", es:'Descubramos',
+    de:'Entdecken wir', it:'Scopriamo', pt:'Vamos explorar',
+  };
+  for (const [lang, opening] of Object.entries(intros)) {
+    const script = outlineFor('  La   montagne  ',lang);
+    assert.ok(script.startsWith(opening + ' La montagne.'), lang);
+    assert.ok(segmentsOf(script).length >= 4, lang);
+    assert.ok(segmentsOf(script).length <= 18, lang);
+  }
+  assert.match(outlineFor('Le climat','fr'),/sources fiables/);
+  assert.match(outlineFor('Les arbres','de'),/zuverlässiger Quellen/);
+  assert.match(outlineFor('Los árboles','es'),/fuentes fiables/);
+  assert.match(outlineFor('Le montagne','it'),/fonti affidabili/);
+  assert.match(outlineFor('Oceano','pt'),/fontes confiáveis/);
+  assert.throws(() => outlineFor('Sujet','unrecognized'),/Langue/);
+  assert.throws(() => outlineFor('X','fr'),/2 à 140/);
+  assert.throws(() => outlineFor('ligne\nsuivante','fr'),/une seule ligne/);
+});
+
+test('Android workflow lookup checks at most three pages only when needed', async () => {
+  assert.ok(RUNS_ENDPOINT.includes('per_page=100'));
+  const requestId='studio-abcdefab-1234-1234-1234-0123456789ab';
+  const irrelevant = Array.from({length:100}, (_,i) => ({
+    id:i+1, event:'workflow_dispatch', display_title:'Someone else',
+    head_branch:'main',
+  }));
+  const expected = {...irrelevant[0],id:900001,display_title:runTitle(requestId)};
+  const seen=[];
+  const found=await findRunAcrossPages(async url => {
+    seen.push(url);
+    return {workflow_runs:seen.length===1 ? irrelevant : [expected]};
+  },requestId);
+  assert.equal(found.id,900001);
+  assert.equal(seen.length,2);
+  assert.ok(seen[0].endsWith('page=1') && seen[1].endsWith('page=2'));
+  assert.ok(seen.every(url => !url.includes('token=')));
+
+  let calls=0;
+  const empty=await findRunAcrossPages(async () => {
+    calls++;
+    return {workflow_runs:irrelevant.slice(0,12)};
+  },requestId);
+  assert.equal(empty,null);
+  assert.equal(calls,1);
+
+  calls=0;
+  const capped=await findRunAcrossPages(async () => {
+    calls++;
+    return {workflow_runs:irrelevant};
+  },requestId);
+  assert.equal(capped,null);
+  assert.equal(calls,3);
+});
+
+test('stale Android run selections stop additional GitHub API pagination',async () => {
+  const requestId='studio-abcdefab-1234-1234-1234-0123456789ab';
+  let current=true;
+  let count=0;
+  const match=await findRunAcrossPages(async () => {
+    count++;
+    current=false; // The user selected another saved run during the request.
+    return {workflow_runs: Array.from({length:100}, (_,id) => ({
+      id, event:'workflow_dispatch',display_title:'not our render',head_branch:'main',
+    }))};
+  },requestId,()=>current);
+  assert.equal(match,null);
+  assert.equal(count,1);
+  await assert.rejects(() => findRunAcrossPages(async()=>({unexpected:true}),requestId),
+    /liste de rendus invalide/);
 });

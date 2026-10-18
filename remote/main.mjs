@@ -1,5 +1,5 @@
-import { API_ROOT, RUNS_ENDPOINT, ACTIONS_URL, dispatchBody, findRun, requestId,
-  runTitle, safeError, segmentsOf, validateDraft, workflowRunLink,
+import { API_ROOT, ACTIONS_URL, dispatchBody, findRunAcrossPages, requestId,
+  runTitle, safeError, segmentsOf, outlineFor, validateDraft, workflowRunLink,
   knownRunEndpoint, isExpectedRun } from './core.mjs';
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, findDirectCredits, findDirectManifest,
@@ -200,9 +200,9 @@ async function lookupRun() {
       }
       matched = known;
     } else {
-      const result = await api(RUNS_ENDPOINT);
+      matched = await findRunAcrossPages(api, lookupFor,
+        () => runSelection.isCurrent(generation) && active?.id === lookupFor);
       if (!runSelection.isCurrent(generation) || !active || active.id !== lookupFor) return;
-      matched = findRun(result?.workflow_runs, lookupFor);
     }
     if (!runSelection.isCurrent(generation)) return;
     if (matched) updateRun(matched);
@@ -236,16 +236,12 @@ function startPoll() {
     } else { void lookupRun(); }
   },20000);
 }
-function templateFor(topic,lang) {
-  if(lang==='fr')return `Découvrons ${topic}. Voici les éléments clés à connaître sur ${topic}. Examinons des exemples concrets et leurs applications. Consulte des sources fiables pour approfondir le sujet.`;
-  if(lang==='en')return `Let's explore ${topic}. Here are the central ideas behind ${topic}. Look at examples and practical applications. Verify the details with reliable sources.`;
-  return `${topic}. ${topic} : présentation et points clés. ${topic} : exemples et applications utiles.`;
-}
-
 $('make-outline').addEventListener('click', () => {
-  const topic=$('topic').value.trim();
-  if(topic.length<2){notify('Renseigne un sujet avant de créer un canevas.');return;}
-  $('script').value=templateFor(topic,$('lang').value);$('script_mode').value='template';saveDraft();showScenes();clearNotice();
+  try {
+    $('script').value = outlineFor($('topic').value, $('lang').value);
+    $('script_mode').value = 'template';
+    saveDraft(); showScenes(); clearNotice();
+  } catch (error) { notify(error.message); }
 });
 $('video-form').addEventListener('input', () => { saveDraft();showScenes();clearNotice(); });
 $('video-form').addEventListener('change', saveDraft);

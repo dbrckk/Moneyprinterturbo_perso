@@ -2,7 +2,7 @@
 export const REPOSITORY = 'dbrckk/Moneyprinterturbo_perso';
 export const WORKFLOW = 'free-video.yml';
 export const API_ROOT = `https://api.github.com/repos/${REPOSITORY}`;
-export const RUNS_ENDPOINT = `${API_ROOT}/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=30`;
+export const RUNS_ENDPOINT = `${API_ROOT}/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=100`;
 export const ACTIONS_URL = `https://github.com/${REPOSITORY}/actions/workflows/${WORKFLOW}`;
 export const LANGS = Object.freeze(['fr', 'en', 'es', 'de', 'it', 'pt']);
 export const ASPECTS = Object.freeze(['9:16', '16:9', '1:1']);
@@ -34,6 +34,33 @@ export function segmentsOf(script) {
     if (buffer) output.push(buffer);
   }
   return output;
+}
+
+/** The same no-AI templates as free_studio.py, in the selected language. */
+export function outlineFor(topic, language) {
+  if (typeof topic !== 'string' || typeof language !== 'string') {
+    throw new Error('Sujet ou langue invalide.');
+  }
+  const subject = topic.trim().replace(/\s+/g, ' ');
+  if (subject.length < 2 || subject.length > 140 || /[\r\n]/.test(topic)) {
+    throw new Error('Le sujet doit contenir 2 à 140 caractères sur une seule ligne.');
+  }
+  switch (language) {
+    case 'fr':
+      return `Découvrons ${subject}. Voici les idées essentielles pour comprendre ${subject}. Regardons les exemples et les usages les plus utiles. Pour aller plus loin, confrontez ces informations à des sources fiables.`;
+    case 'en':
+      return `Let's explore ${subject}. Here are the key ideas behind ${subject}. Consider the most useful examples and real-world applications. To learn more, verify these ideas using reliable sources.`;
+    case 'es':
+      return `Descubramos ${subject}. Estas son las ideas principales para entender ${subject}. Veamos algunos ejemplos y aplicaciones útiles. Consulta fuentes fiables para obtener más información.`;
+    case 'de':
+      return `Entdecken wir ${subject}. Das sind die wichtigsten Ideen zu ${subject}. Betrachten wir praktische Beispiele und Anwendungen. Prüfe diese Informationen anhand zuverlässiger Quellen.`;
+    case 'it':
+      return `Scopriamo ${subject}. Ecco le idee principali per capire ${subject}. Vediamo alcuni esempi e applicazioni utili. Verifica queste informazioni con fonti affidabili.`;
+    case 'pt':
+      return `Vamos explorar ${subject}. Estas são as ideias principais sobre ${subject}. Vejamos exemplos e aplicações úteis. Verifique estas informações em fontes confiáveis.`;
+    default:
+      throw new Error('Langue de canevas non prise en charge.');
+  }
 }
 
 export function queriesOf(value) {
@@ -94,6 +121,29 @@ export function runTitle(id) { return `Free Studio · ${id}`; }
 export function dispatchBody(values, id) {
   if (!/^studio-[0-9a-f-]{36}$/i.test(id)) throw new Error('Identifiant de demande invalide.');
   return { ref: 'main', inputs: { ...validateDraft(values), request_id: id } };
+}
+
+/** Search for a correlated workflow dispatch without missing busy repositories.
+ * On an ordinary repo, only ONE request is used. A second page is fetched
+ * strictly when GitHub filled the first 100 dispatch results; max three pages.
+ * The callback stops network work after the user selects another job.
+ */
+export async function findRunAcrossPages(fetchPage, id, isCurrent = () => true) {
+  if (typeof fetchPage !== 'function' || typeof isCurrent !== 'function') {
+    throw new Error('Invalid run lookup');
+  }
+  for (let page = 1; page <= 3 && isCurrent(); page++) {
+    const endpoint = `${RUNS_ENDPOINT}&page=${page}`;
+    const response = await fetchPage(endpoint);
+    if (!isCurrent()) return null;
+    if (!Array.isArray(response?.workflow_runs)) {
+      throw new Error('GitHub a retourné une liste de rendus invalide.');
+    }
+    const match = findRun(response.workflow_runs, id);
+    if (match) return match;
+    if (response.workflow_runs.length < 100) break;
+  }
+  return null;
 }
 
 export function findRun(runs, id) {
