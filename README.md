@@ -24,6 +24,12 @@ indicatifs et nécessitent une revue du storyboard.
 Détails techniques, commandes locales et limites :
 [docs/SEMANTIC_CLIP.md](docs/SEMANTIC_CLIP.md).
 
+La recherche Commons examine davantage de résultats pour trouver des images
+CC0/domaine public et n'élargit une recherche qu'une seule fois pour des
+sujets visuels non ambigus. Le [benchmark A/B](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/clip-ab-benchmark.yml)
+publie la couverture effective et le nombre de requêtes, sans présenter la
+couverture comme une amélioration esthétique prouvée.
+
 **Comparer les images depuis Android :** lancer le workflow
 [CLIP A/B Visual Benchmark](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/clip-ab-benchmark.yml)
 puis ouvrir le fichier direct `review-mobile.html` dans les artefacts de

@@ -71,6 +71,32 @@ A human still needs to inspect the rendered scene contact sheet: CLIP can
 confuse near-duplicate landscapes, styles, art, names, and obscure French
 concepts. Turn this off if speed is more important than experimentation.
 
+## Licensed-image discovery and coverage
+
+Commons full-text results often contain files licensed under CC BY or other
+terms that the free production mode deliberately excludes. The search now
+checks up to **45** results per request (rather than 30), below MediaWiki's
+50 scaled-image limit, and asks for only the extended metadata it actually
+uses. If a scene needs multiple candidates and its first search does not
+yield enough license-verified, lexically relevant images, one alternative
+search is allowed **only** for a tightly recognized visual noun
+(e.g. `forest landscape` → `forest`, `waterfall` → `cascade`).
+People's names, multiple visual concepts and unknown modifiers do not
+trigger this broadening. The original scene query still determines relevance;
+a more permissive search never weakens the CC0/public-domain filter,
+host allowlist, download-size limit, duplicate suppression or FFprobe check.
+
+No alternative request is made when one image is requested or when enough
+candidates were already eligible. Requests are bounded to at most two
+Commons searches per eligible multi-image request, not unlimited retries.
+Stats include API query count, examined pages, number of relevant
+licensed candidates and number added by fallback.
+
+The A/B workflow records **licensed pair coverage**, not correctness.
+More selectable images may improve availability but does not establish
+higher perceptual quality. The five-topic workflow can change with
+Commons' live inventory and license metadata.
+
 ## A/B measurement on real Wikimedia images
 
 The additional [`visual_benchmark.py`](../visual_benchmark.py) and
