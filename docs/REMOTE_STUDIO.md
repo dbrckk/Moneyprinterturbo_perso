@@ -153,3 +153,21 @@ Une narration générée ultérieurement par Ollama ne peut pas être contrôlé
 avant l'exécution du modèle ; ses scènes restent validées ensuite par le moteur.
 Ce contrôle réduit les installations et minutes GitHub Actions inutiles, sans
 promettre une utilisation illimitée du service gratuit.
+
+
+## Recherche de rendus et canevas multilingues
+
+Le studio Android retrouve les demandes dans les **100 dernières exécutions**
+GitHub Actions. Lorsqu'une page entière est occupée et que la demande n'y
+figure pas, la recherche consulte jusqu'à deux pages supplémentaires
+(**300 exécutions maximum**). Les pages suivantes ne sont pas chargées si la
+première suffit, afin de limiter les appels API et les blocages de quota.
+La recherche est abandonnée si l'utilisateur sélectionne un autre rendu.
+Lorsqu'un identifiant de run a déjà été vérifié et enregistré localement,
+le studio consulte directement cet identifiant plutôt que les listes.
+
+Le bouton « Créer un canevas » emploie maintenant le vrai modèle de phrases
+déterministe dans la langue choisie : français, anglais, espagnol, allemand,
+italien ou portugais. Ce texte n'est **pas** généré par un modèle IA.
+Les brouillons et historiques restent dans le stockage local du navigateur
+et les jetons GitHub ne sont jamais sauvegardés par le site.
