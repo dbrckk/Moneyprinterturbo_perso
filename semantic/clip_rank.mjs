@@ -19,8 +19,8 @@ const NEGATIVES = [
 
 export function verifyInput(input) {
   if (!input || !Array.isArray(input.candidates) ||
-      input.candidates.length < 2 || input.candidates.length > 18) {
-    throw new Error('Expected 2–18 candidate images');
+      input.candidates.length < 2 || input.candidates.length > 32) {
+    throw new Error('Expected 2–32 candidate images');
   }
   const ids = new Set();
   for (const item of input.candidates) {
