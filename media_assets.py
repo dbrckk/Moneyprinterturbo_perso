@@ -382,7 +382,8 @@ def alternative_commons_search_query(query: str) -> str | None:
 
 def commons_assets(topic: str, work: Path, *, limit: int = 5,
                    timings: dict[str, float | int] | None = None,
-                   target_aspect: float | None = None
+                   target_aspect: float | None = None,
+                   allow_alternative: bool = True
                    ) -> tuple[list[MediaAsset], list[str]]:
     """Collect verified CC0 / public-domain image thumbnails. No API key needed.
 
@@ -390,6 +391,8 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     """
     if not 1 <= limit <= 8:
         raise ValueError("Commons media limit out of range")
+    if not isinstance(allow_alternative, bool):
+        raise ValueError("Commons fallback flag must be boolean")
     if target_aspect is not None and (
             isinstance(target_aspect, bool) or not isinstance(target_aspect, (int, float))
             or not math.isfinite(target_aspect) or not 0.2 <= target_aspect <= 5):
@@ -498,7 +501,8 @@ def commons_assets(topic: str, work: Path, *, limit: int = 5,
     # At most one extra Commons API lookup, only when multiple distinct
     # images were requested. The primary metadata count cannot predict
     # decoding failures or perceptual duplicates after the thumbnails arrive.
-    alternate = alternative_commons_search_query(query) if limit > 1 else None
+    alternate = (alternative_commons_search_query(query)
+                 if allow_alternative and limit > 1 else None)
     fallback_attempted = False
     # Ranked metadata can include dozens of broken thumbnail URLs or copies
     # of one picture. Each request has a 25-second timeout. Never download
@@ -784,6 +788,18 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             alternate_queries[query] = alternate
             available_secondary -= 1
 
+    # The direct Commons selector can issue its *own* alternate API search.
+    # Reserve those calls BEFORE dispatching parallel workers. Otherwise the
+    # advertised max_searches can be silently exceeded by nested fallbacks.
+    available_internal = max_searches - len(query_indices) - len(alternate_queries)
+    internal_fallback_queries: set[str] = set()
+    for query in query_indices:
+        if (available_internal and query not in alternate_queries
+                and limits[query] > 1
+                and alternative_commons_search_query(query) is not None):
+            internal_fallback_queries.add(query)
+            available_internal -= 1
+
     def fetch(query: str, index: int, limit: int,
               secondary_query: str | None
               ) -> tuple[list[MediaAsset], list[str], dict[str, float | int]]:
@@ -792,7 +808,12 @@ def commons_scene_assets(queries: list[str], work: Path, *,
         timings: dict[str, float | int] = {}
         aspect_options = {"target_aspect": target_aspect} if target_aspect is not None else {}
         assets, notices = commons_assets(query, directory, limit=limit,
-                                         timings=timings, **aspect_options)
+                                         timings=timings,
+                                         allow_alternative=query in internal_fallback_queries,
+                                         **aspect_options)
+        # A mocked fetcher has no API telemetry. Count its known primary call
+        # once; the real fetcher reports one or two via its own diagnostics.
+        timings["api_queries"] = max(1, int(timings.get("api_queries", 1)))
         # No second API call when the first licensed result set was sufficient.
         timings["secondary_queries_attempted"] = 0
         if secondary_query and len(assets) < limit:
@@ -804,7 +825,7 @@ def commons_scene_assets(queries: list[str], work: Path, *,
                 alternatives, extra_notices = commons_assets(
                     secondary_query, alternate_folder,
                     limit=limit-len(assets), timings=second_timings,
-                    **aspect_options)
+                    allow_alternative=False, **aspect_options)
             except Exception as exc:
                 alternatives, extra_notices = [], [
                     f"Secondary Commons lookup failed: {type(exc).__name__}"]
@@ -823,6 +844,9 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             notices.extend(extra_notices if not assets else [
                 notice for notice in extra_notices
                 if "No relevant verified public-domain/CC0 images found" not in notice])
+            # Secondary Commons fetchers are forbidden from issuing their own
+            # hidden alternative lookups; count this explicit network call.
+            timings["api_queries"] += max(1, int(second_timings.get("api_queries", 1)))
             for key in ("api_seconds", "download_seconds", "verification_seconds",
                         "download_bytes", "download_attempts",
                         "download_attempt_budget", "download_budget_exhausted"):
@@ -924,8 +948,11 @@ def commons_scene_assets(queries: list[str], work: Path, *,
             "secondary_queries_planned": len(alternate_queries),
             "secondary_queries_attempted": sum(
                 int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
-            "total_commons_api_queries": len(query_indices) + sum(
-                int(t.get("secondary_queries_attempted", 0)) for t in request_stats),
+            "internal_fallback_slots_reserved": len(internal_fallback_queries),
+            "internal_fallback_queries_attempted": sum(
+                int(t.get("fallback_search_attempted", 0)) for t in request_stats),
+            "total_commons_api_queries": sum(
+                max(1, int(t.get("api_queries", 1))) for t in request_stats),
             "unique_images_selected": len(unique_urls),
             "scenes_reusing_image": len(selected) - len(unique_urls),
             "scenes_with_perceptual_signature": len(used_signatures),
