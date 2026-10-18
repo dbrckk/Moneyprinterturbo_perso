@@ -1,4 +1,4 @@
-**Accès HTTPS dernière version : https://turbo-gate-h3jnc94.shipstatic.com** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
+**Accès HTTPS dernière version : https://dbrckk.github.io/Moneyprinterturbo_perso/** (site statique permanent sur compte gratuit, moteur vidéo sur GitHub Actions).
 
 # Remote Studio — Android sans serveur payant
 
@@ -175,6 +175,9 @@ et les jetons GitHub ne sont jamais sauvegardés par le site.
 
 ### Mise à jour du studio Android (octobre 2026)
 
-**[Ouvrir le studio Android mis à jour](https://turbo-gate-h3jnc94.shipstatic.com)** — hébergement HTTPS statique gratuit et permanent, avec canevas disponibles en six langues, récupération des demandes sur plusieurs pages GitHub et téléchargement direct des artefacts vidéo.
+**[Ouvrir le studio Android mis à jour](https://dbrckk.github.io/Moneyprinterturbo_perso/)** — hébergement GitHub Pages HTTPS à adresse stable et gratuite, avec canevas disponibles en six langues, récupération des demandes sur plusieurs pages GitHub et téléchargement direct des artefacts vidéo.
 
 L'[ancien studio](https://cyber-nanobot-g5pbj9v.shipstatic.com) reste disponible. Les navigateurs Android isolent les données locales par nom de domaine : pour récupérer la narration et les réglages d'un ancien studio, utiliser **Copier mon brouillon** sur l'ancien site, puis **Restaurer mon brouillon** sur le nouveau. Le jeton GitHub n'est jamais inclus dans cette sauvegarde et doit être saisi à nouveau. Les historiques ne sont pas importés entre domaines ; les anciens rendus restent consultables dans [GitHub Actions](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml) tant que leurs artefacts n'ont pas expiré.
+
+
+**Miroir de secours permanent :** [MoneyPrinter sur ShipStatic](https://turbo-gate-h3jnc94.shipstatic.com). Ce miroir dispose des mêmes 11 fichiers statiques du commit `b5d9d75`. Le lien GitHub Pages est désormais recommandé, car les changements ultérieurs de `remote/` y sont automatiquement déployés **à la même adresse**, sans créer de nouveau domaine à chaque version. Publication confirmée par le [workflow GitHub Pages](https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/39135225026). La vérification indépendante de l'ouverture de la page sur tous les réseaux mobiles reste à effectuer.
