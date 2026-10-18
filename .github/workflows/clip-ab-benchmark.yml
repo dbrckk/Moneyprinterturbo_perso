@@ -87,6 +87,8 @@ jobs:
           assert 0 <= metrics['near_duplicate_downloads_skipped'] <= sum(d.get('download_attempts', 0) for d in metrics['search_diagnostics'].values())
           assert 0 <= metrics['fallback_after_verification'] <= metrics['fallback_queries_attempted']
           assert metrics['commons_api_queries'] <= 2 * metrics['requested_cases']
+          assert 0 <= metrics['commons_download_attempts'] <= metrics['commons_download_attempt_budget'] <= 20 * metrics['requested_cases']
+          assert 0 <= metrics['commons_download_budgets_exhausted'] <= metrics['requested_cases']
           assert 'accuracy' not in metrics
           assert (base/'contact-sheet.png').stat().st_size>1000
           assert (base/'human-review.csv').stat().st_size>40
@@ -112,6 +114,8 @@ jobs:
                        f"Commons API searches: {m['commons_api_queries']}, "
                        f"bounded alternative attempts: {m['fallback_queries_attempted']}, "
                        f"additional eligible candidates: {m['fallback_candidates_added']}.\n\n")
+               fp.write(f"Commons thumbnail attempts: {m['commons_download_attempts']}/"
+                        f"{m['commons_download_attempt_budget']}; budgets exhausted: {m['commons_download_budgets_exhausted']}.\n\n")
               fp.write(f"Commons downloads: {m['commons_seconds']}s; local CLIP inference: "
                        f"{m['semantic_seconds']}s.\n\n")
               fp.write('**Not an accuracy score.** Review the direct contact sheet and '
