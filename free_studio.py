@@ -30,6 +30,7 @@ from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
+from video_timeline import plan_local_video_timeline, source_seek_seconds
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -265,12 +266,17 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
                   f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
                   "eq=contrast=1.05:saturation=1.07,"
                   "scale=in_range=auto:out_range=tv,format=yuv420p")
-    else:
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1",
-               "-i", str(asset.file)]
+    elif asset.kind == "video":
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-stream_loop", "-1"]
+        seek = source_seek_seconds(asset)
+        if seek:
+            cmd.extend(["-ss", f"{seek:.3f}"])
+        cmd.extend(["-i", str(asset.file)])
         effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
                   "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+    else:
+        raise ValueError("Unsupported local media kind")
     if needs_soft_matte(asset):
         graph = soft_matte_graph(0, width=width, height=height, fps=fps,
                                  prefix=f"legacy{index}", output_name="framed")
@@ -420,6 +426,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             for i, item in remote.items():
                 slots[i] = item
             warnings.extend(notices)
+        # Reused local videos advance through their actual playback timeline.
+        # Commons stills and unrelated local images are left untouched.
+        slots, clip_notices = plan_local_video_timeline(slots, durations)
+        warnings.extend(clip_notices)
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         if commons:
@@ -554,6 +564,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "query_term_count": asset.query_term_count,
                                "query_term_coverage": asset.query_term_coverage,
                                "semantic_score": asset.semantic_score,
+                               "source_start_seconds": (
+                                   round(source_seek_seconds(asset), 3) if asset.kind == "video" else None),
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})

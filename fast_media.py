@@ -12,6 +12,7 @@ from typing import Protocol
 
 from cinematic import gradient_source, transition_plan
 from scene_framing import needs_soft_matte, soft_matte_graph
+from video_timeline import source_seek_seconds
 
 
 class SceneMedia(Protocol):
@@ -58,7 +59,11 @@ def build_onepass_media_command(
                       "eq=contrast=1.05:saturation=1.07,"
                       "scale=in_range=auto:out_range=tv,format=yuv420p")
         elif asset.kind == "video":
-            cmd += ["-stream_loop", "-1", "-t", f"{runtime:.9f}", "-i", str(asset.file)]
+            cmd += ["-stream_loop", "-1"]
+            seek = source_seek_seconds(asset)
+            if seek:
+                cmd += ["-ss", f"{seek:.3f}"]
+            cmd += ["-t", f"{runtime:.9f}", "-i", str(asset.file)]
             effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                       f"crop={width}:{height},setsar=1,"
                       "eq=contrast=1.05:saturation=1.07,format=yuv420p")
