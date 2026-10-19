@@ -44,6 +44,9 @@ class MediaAsset:
     query_term_count: int | None = None
     query_term_coverage: float | None = None
     semantic_score: float | None = None
+    # Playback position for sequential re-use of user-supplied video footage.
+    # Zero for Commons stills, static images and first appearances of a clip.
+    source_start_seconds: float = 0.0
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
