@@ -82,7 +82,7 @@ def _local_media_order(path: Path) -> tuple:
     Filenames cannot establish true capture chronology; this only respects
     the numbering convention already used by many smartphone exports.
     """
-    parts = re.split(r"(\\d+)", path.name.casefold())
+    parts = re.split(r"(\d+)", path.name.casefold())
     return tuple((1, int(part)) if part.isdigit() else (0, part)
                  for part in parts) + ((2, path.name),)
 
