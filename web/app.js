@@ -171,7 +171,11 @@
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
                 'Ordre numérique des fichiers respecté. Aucune vidéo envoyée à GitHub.');
       if (previous && previous !== batch) {
-        post(`/api/media/batches/${previous}/delete`, {}).catch(() => {});
+        // Do not remove a sealed batch: it can still be used for a retry
+        // or a later render, and the user may need its original footage.
+        json(`/api/media/batches/${previous}`).then(info => {
+          if (!info.sealed) return post(`/api/media/batches/${previous}/delete`, {});
+        }).catch(() => {});
       }
     } catch (err) {
       if (batch) await post(`/api/media/batches/${batch}/delete`, {}).catch(() => {});
