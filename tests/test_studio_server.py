@@ -145,6 +145,47 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(json.loads(deleted)["deleted"])
 
+    def test_restart_recovers_interrupted_jobs_without_restarting_render(self):
+        with tempfile.TemporaryDirectory() as temp:
+            original = Jobs(Path(temp) / "render")
+            job_id = "a" * 32
+            pending = {"id": job_id, "created": 100, "finished": None,
+                       "status": "running", "error": None, "metadata": None,
+                       "parameters": {"topic": "Test interruption", "resolution": 360,
+                                      "media_batch": ""}}
+            original._checkpoint(pending)
+            recovered = Jobs(original.output_dir)
+            snapshot = recovered.get(job_id)
+            self.assertIsNotNone(snapshot)
+            self.assertEqual(snapshot["status"], "error")
+            self.assertIn("interrompu", snapshot["error"])
+            self.assertFalse(recovered.running)
+            self.assertFalse(recovered.processes)
+            self.assertEqual(Jobs(original.output_dir).get(job_id)["status"], "error")
+
+    def test_bad_or_missing_completed_output_is_not_offered_after_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            original = Jobs(Path(temp) / "render")
+            job_id = "b" * 32
+            old = {"id": job_id, "created": 100, "finished": 101,
+                   "status": "done", "error": None, "metadata": None,
+                   "parameters": {"topic": "Export incomplet", "resolution": 360,
+                                  "media_batch": ""}}
+            original._checkpoint(old)
+            recovered = Jobs(original.output_dir)
+            self.assertEqual(recovered.get(job_id)["status"], "error")
+            self.assertIsNone(recovered.artifact(job_id, "video.mp4"))
+
+    def test_invalid_render_request_never_seals_user_uploaded_media(self):
+        batch = self.jobs.create_media_batch()
+        folder = self.jobs.upload_root / batch
+        (folder / "001_test.mp4").write_bytes(b"file for queue validation")
+        with self.assertRaises(ValueError):
+            self.jobs.submit({**VALID, "visuals": "local",
+                              "media_batch": batch, "tts": "piper", "mute": False})
+        self.assertFalse((folder / ".sealed").exists())
+        self.assertFalse(self.jobs.running)
+
     def test_ui_security_and_draft(self):
         status, headers, payload = self.request("GET", "/")
         self.assertEqual(status, 200)
@@ -186,6 +227,18 @@ class ServerTests(unittest.TestCase):
             time.sleep(.1)
         self.assertEqual(result["status"], "done", result)
         self.assertGreater(result["duration_seconds"], 2)
+        # A real Android/Termux process restart clears Python memory, but
+        # completed videos, their QA metadata and download links must survive.
+        saved = self.jobs.output_dir / job["id"] / ".job_state.json"
+        summary = json.loads(saved.read_text(encoding="utf-8"))
+        self.assertNotIn("script", summary)
+        self.assertEqual(summary["status"], "done")
+        recovered = Jobs(self.jobs.output_dir)
+        self.assertEqual(recovered.get(job["id"])["status"], "done")
+        self.assertAlmostEqual(recovered.get(job["id"])["duration_seconds"],
+                               result["duration_seconds"])
+        self.assertEqual(recovered.artifact(job["id"], "video.mp4"),
+                         self.jobs.artifact(job["id"], "video.mp4"))
         for filename, marker in (("video.mp4", b"ftyp"), ("video.srt", b"-->"), ("video.json", b"segments")):
             status, headers, data = self.request("GET", f"/api/jobs/{job['id']}/{filename}")
             self.assertEqual(status, 200)

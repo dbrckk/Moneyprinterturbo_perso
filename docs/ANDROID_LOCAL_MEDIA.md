@@ -61,6 +61,32 @@ après rechargement de la page, il retrouve automatiquement les fichiers qui
 existent encore dans le moteur local. En cas de suppression du lot ou de
 changement de serveur, un nouvel import est nécessaire.
 
+## Récupération des projets après fermeture de Termux
+
+Lorsqu'Android coupe le moteur ou que le terminal se ferme, ouvrir
+Termux et redémarrer le serveur avec :
+
+```sh
+cd ~/Moneyprinterturbo_perso
+python studio_server.py
+```
+
+Revenir ensuite à **http://127.0.0.1:8765** et consulter
+**Derniers projets**. Les MP4 déjà terminés, leurs sous-titres et leurs
+métadonnées restent disponibles sans être recalculés : le moteur reconstruit
+l'historique depuis les fichiers locaux au démarrage.
+
+- Un rendu encore **en attente** ou **en cours** au moment de l'arrêt est
+  marqué **interrompu**. Il n'est pas repris automatiquement car son
+  processus FFmpeg a disparu ; il faut le relancer explicitement.
+- Un rendu marqué terminé sans fichier MP4/JSON valide n'est pas proposé
+  au téléchargement.
+- L'historique de l'interface est limité aux 20 projets les plus récents.
+  Les anciens exports ne sont pas supprimés par ce mécanisme et restent
+  dans `outputs/web/` jusqu'au nettoyage manuel.
+- Chaque projet dispose d'un petit `.job_state.json` atomique. Ce
+  checkpoint ne copie ni la narration ni les secrets d'authentification.
+
 ## Limites importantes
 
 - Le site distant `https://dbrckk.github.io/Moneyprinterturbo_perso/`

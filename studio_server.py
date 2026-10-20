@@ -111,32 +111,149 @@ class Jobs:
         self.processes: dict[str, subprocess.Popen] = {}
         self.running = False
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._restore_jobs()
+
+    def _checkpoint(self, job: dict) -> None:
+        """Persist *status only*; never duplicate narration, prompts or tokens.
+
+        Atomic rename prevents a killed Android process from leaving a partial
+        JSON record. Full render settings stay in this process and script.txt.
+        """
+        directory = self.output_dir / job["id"]
+        directory.mkdir(mode=0o700, exist_ok=True)
+        summary = {key: job.get(key) for key in ("id", "status", "created", "finished", "error")}
+        summary["topic"] = job["parameters"]["topic"]
+        summary["resolution"] = job["parameters"]["resolution"]
+        summary["media_batch"] = job["parameters"].get("media_batch", "")
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=directory,
+                    prefix=".state-", suffix=".tmp", delete=False) as stream:
+                tmp = Path(stream.name)
+                os.chmod(tmp, 0o600)
+                json.dump(summary, stream, ensure_ascii=False)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, directory / ".job_state.json")
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
+
+    def _restore_jobs(self) -> None:
+        """Recover past outputs after a Termux/process restart, never auto-rerun."""
+        recovered = []
+        for folder in self.output_dir.iterdir():
+            if (folder.is_symlink() or not folder.is_dir()
+                    or not re.fullmatch(r"[a-f0-9]{32}", folder.name)):
+                continue
+            state_file = folder / ".job_state.json"
+            if state_file.is_symlink():
+                continue
+            try:
+                if state_file.is_file():
+                    if state_file.stat().st_size > 4096:
+                        continue
+                    data = json.loads(state_file.read_text(encoding="utf-8"))
+                    if not isinstance(data, dict) or data.get("id") != folder.name:
+                        continue
+                    if data.get("status") not in ("queued", "running", "done", "error", "cancelled"):
+                        continue
+                    if (type(data.get("created")) is not int
+                            or data["created"] < 0):
+                        continue
+                    title = data.get("topic")
+                    if not isinstance(title, str) or len(title) > 140:
+                        continue
+                    resolution = data.get("resolution")
+                    if type(resolution) is not int or resolution not in (360, 720, 1080):
+                        continue
+                    media_batch = data.get("media_batch", "")
+                    if not isinstance(media_batch, str) or (media_batch and
+                           not re.fullmatch(r"[a-f0-9]{32}", media_batch)):
+                        continue
+                    record = {
+                        "id": folder.name, "created": data["created"],
+                        "status": data["status"], "finished": data.get("finished"),
+                        "error": data.get("error"),
+                        "parameters": {"topic": title, "resolution": resolution,
+                                       "media_batch": media_batch},
+                        "metadata": None,
+                    }
+                else:
+                    # Older builds did not write a state checkpoint. Recover
+                    # legitimate completed MP4 + manifest pairs if possible.
+                    if not (folder / "video.mp4").is_file():
+                        continue
+                    record = {
+                        "id": folder.name, "created": int((folder / "video.mp4").stat().st_mtime),
+                        "status": "done", "finished": None, "error": None,
+                        "parameters": {"topic": "Vidéo restaurée", "resolution": 360,
+                                       "media_batch": ""},
+                        "metadata": None,
+                    }
+                manifest = folder / "video.json"
+                video = folder / "video.mp4"
+                if record["status"] == "done":
+                    if (manifest.is_symlink() or video.is_symlink()
+                            or not manifest.is_file() or not video.is_file()
+                            or video.stat().st_size < 1000
+                            or manifest.stat().st_size > 2 * 1024 * 1024):
+                        record["status"] = "error"
+                        record["error"] = "Export incomplet après redémarrage"
+                    else:
+                        payload = json.loads(manifest.read_text(encoding="utf-8"))
+                        if not isinstance(payload, dict) or "segments" not in payload:
+                            raise ValueError("Invalid recovered MP4 manifest")
+                        record["metadata"] = payload
+                if record["status"] in ("queued", "running"):
+                    record["status"] = "error"
+                    record["error"] = "Rendu interrompu par l'arrêt du serveur Android. Relancez-le si nécessaire."
+                    record["finished"] = int(time.time())
+                # Avoid rewriting legacy recovered folders, which may have
+                # different ownership or metadata layout.
+                if state_file.exists() and record["status"] != data["status"]:
+                    self._checkpoint(record)
+                recovered.append(record)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+        for job in sorted(recovered, key=lambda item: (item["created"], item["id"]))[-MAX_JOBS:]:
+            self.jobs[job["id"]] = job
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
-        if job["visuals"] == "local":
-            if job["media_batch"]:
-                with self.media_lock:
+        if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
+            raise ValueError("Le modèle vocal Piper n'est pas configuré")
+        # Lock order always media_lock -> lock (same as delete_media_batch).
+        # Validate all options and capacity BEFORE sealing an uploaded batch.
+        with self.media_lock, self.lock:
+            if job["visuals"] == "local":
+                if job["media_batch"]:
                     directory = self.upload_root / job["media_batch"]
                     if not directory.is_dir() or not self._batch_files(directory):
                         raise ValueError("Importez au moins un média valide avant le rendu")
-                    (directory / ".sealed").touch(exist_ok=True)
-            elif not self.media_dir:
-                raise ValueError("Importez des vidéos ou configurez --media-dir")
-        if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
-            raise ValueError("Le modèle vocal Piper n'est pas configuré")
-        with self.lock:
-            # Keep a bounded history; never silently discard pending jobs.
-            finished = [j for j in self.jobs.values() if j["status"] in ("done", "error", "cancelled")]
-            while len(self.jobs) >= MAX_JOBS and finished:
-                old = finished.pop(0)
-                self.jobs.pop(old["id"], None)
-                # Deliberately do not delete output files: user may still own the link.
-            if len(self.jobs) >= MAX_JOBS:
+                elif not self.media_dir:
+                    raise ValueError("Importez des vidéos ou configurez --media-dir")
+            finished = [j for j in self.jobs.values()
+                        if j["status"] in ("done", "error", "cancelled")]
+            if len(self.jobs) - len(finished) >= MAX_JOBS:
                 raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
             ident = uuid4().hex
             record = {"id": ident, "status": "queued", "created": int(time.time()),
                       "finished": None, "error": None, "parameters": job, "metadata": None}
+            # Ensure a successful enqueue can survive a process restart.
+            self._checkpoint(record)
+            try:
+                if job["media_batch"]:
+                    (self.upload_root / job["media_batch"] / ".sealed").touch(exist_ok=True)
+            except OSError:
+                shutil.rmtree(self.output_dir / ident, ignore_errors=True)
+                raise
+            while len(self.jobs) >= MAX_JOBS and finished:
+                old = finished.pop(0)
+                self.jobs.pop(old["id"], None)
+                # Finished exports remain on disk and can be recovered later.
             self.jobs[ident] = record
             if not self.running:
                 self.running = True
@@ -261,6 +378,7 @@ class Jobs:
             if job["status"] in ("queued", "running"):
                 job["status"] = "cancelled"
                 job["finished"] = int(time.time())
+                self._checkpoint(job)
                 proc = self.processes.get(ident)
                 if proc is not None:
                     try:
@@ -301,9 +419,10 @@ class Jobs:
                     return
                 queued["status"] = "running"
                 ident = queued["id"]
+                self._checkpoint(queued)
             dest = self.output_dir / ident
             try:
-                dest.mkdir(exist_ok=False)
+                dest.mkdir(exist_ok=True)
                 (dest / "script.txt").write_text(queued["parameters"]["script"], encoding="utf-8")
                 with (dest / "render.log").open("wb") as log:
                     proc = subprocess.Popen(self._arguments(queued, dest), cwd=ROOT,
@@ -336,14 +455,17 @@ class Jobs:
                 with self.lock:
                     queued["metadata"] = metadata
                     queued["status"] = "done"
+                    self._checkpoint(queued)
             except Exception as exc:
                 with self.lock:
                     if queued["status"] != "cancelled":
                         queued["error"] = str(exc)[:250]
                         queued["status"] = "error"
+                        self._checkpoint(queued)
             finally:
                 with self.lock:
                     queued["finished"] = int(time.time())
+                    self._checkpoint(queued)
                     self.processes.pop(ident, None)
 
     def artifact(self, ident: str, name: str) -> Path | None:
