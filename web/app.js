@@ -6,13 +6,13 @@
   let videoUrl = null;
   let pollTimer = null;
   let lastStatus = '';
-  const state = {has_ollama: false, has_piper: false};
+  const state = {has_ollama: false, has_piper: false, has_local_dir: false, media_batch: ''};
   const endpoint = (id, name = '') => `/api/jobs/${id}${name ? '/' + name : ''}`;
 
   async function api(url, options = {}) {
     const headers = Object.assign({}, options.headers || {});
     if (token) headers.Authorization = `Bearer ${token}`;
-    if (options.body) headers['Content-Type'] = 'application/json';
+    if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
     const response = await fetch(url, {...options, headers, cache: 'no-store'});
     if (!response.ok) {
       let message = `Erreur serveur ${response.status}`;
@@ -31,7 +31,8 @@
       script: $('script').value.trim(), aspect: $('aspect').value,
       resolution: Number($('resolution').value), visuals: $('visuals').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
-      mute: $('mute').checked, scene_queries: $('queries').value.trim()
+      mute: $('mute').checked, scene_queries: $('queries').value.trim(),
+      media_batch: $('visuals').value === 'local' ? state.media_batch : ''
     };
   }
   function showError(err) { $('error').textContent = err ? String(err.message || err) : ''; }
@@ -125,6 +126,65 @@
       panel.append(button);
     }
   }
+  const collator = new Intl.Collator('fr', {numeric: true, sensitivity: 'base'});
+  function mediaNote(value) { $('media-note').textContent = value; }
+  $('upload-media').addEventListener('click', async () => {
+    showError(null);
+    const files = [...$('media-files').files].sort((a, b) =>
+      collator.compare(a.name, b.name) || a.name.localeCompare(b.name));
+    if (!files.length) { showError('Sélectionnez des vidéos ou photos à importer.'); return; }
+    if (files.length > 24 || files.some(f => !f.size || f.size >
+        (/\.(jpe?g|png|webp)$/i.test(f.name) ? 18 : 350) * 1024 * 1024)) {
+      showError('Maximum 24 fichiers, 350 Mo par vidéo et 18 Mo par image.');
+      return;
+    }
+    if (files.reduce((sum, file) => sum + file.size, 0) > 800 * 1024 * 1024) {
+      showError('Le projet dépasse 800 Mo de médias.'); return;
+    }
+    const button = $('upload-media'); button.disabled = true;
+    let batch = '';
+    try {
+      const created = await post('/api/media/batches', {});
+      batch = created.id;
+      let count = 0;
+      for (const file of files) {
+        mediaNote(`Import de ${++count}/${files.length} : ${file.name}`);
+        await api(`/api/media/batches/${batch}/files`, {
+          method: 'POST', body: file,
+          headers: {'Content-Type': 'application/octet-stream',
+                    'X-Media-Name': encodeURIComponent(file.name)}
+        });
+      }
+      // Replace an abandoned prior draft only after the full new batch works.
+      const previous = state.media_batch;
+      state.media_batch = batch;
+      $('visuals').value = 'local';
+      $('delete-media').hidden = false;
+      mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
+                'Ordre numérique des fichiers respecté. Aucune vidéo envoyée à GitHub.');
+      if (previous && previous !== batch) {
+        post(`/api/media/batches/${previous}/delete`, {}).catch(() => {});
+      }
+    } catch (err) {
+      if (batch) await post(`/api/media/batches/${batch}/delete`, {}).catch(() => {});
+      mediaNote('Import interrompu : aucun média partiel conservé dans ce nouveau lot.');
+      showError(err);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $('delete-media').addEventListener('click', async () => {
+    if (!state.media_batch) return;
+    showError(null);
+    try {
+      await post(`/api/media/batches/${state.media_batch}/delete`, {});
+      state.media_batch = '';
+      $('delete-media').hidden = true;
+      $('media-files').value = '';
+      if (!state.has_local_dir) $('visuals').value = 'commons';
+      mediaNote('Import supprimé du moteur local.');
+    } catch (err) { showError(err); }
+  });
   async function init() {
     const health = await json('/api/health');
     $('connection').textContent = health.ok ? 'Moteur disponible' : 'Indisponible';
@@ -132,8 +192,9 @@
       const config = await json('/api/config');
       state.has_ollama = config.has_ollama;
       state.has_piper = config.has_piper;
+      state.has_local_dir = config.has_local_media;
       $('tts').querySelector('option[value="piper"]').disabled = !config.has_piper;
-      $('visuals').querySelector('option[value="local"]').disabled = !config.has_local_media;
+      $('visuals').querySelector('option[value="local"]').disabled = false;
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
@@ -160,6 +221,9 @@
     showError(null);
     $('render').disabled = true;
     try {
+      if ($('visuals').value === 'local' && !state.media_batch && !state.has_local_dir) {
+        throw new Error('Importez au moins une vidéo ou photo avant de lancer ce montage.');
+      }
       const job = await post('/api/jobs', payload());
       selectJob(job.id);
       loadHistory().catch(() => {});
