@@ -42,6 +42,15 @@
               <div><label for="visuals">Visuels</label><select id="visuals"><option value="commons">Wikimedia Commons · gratuit</option><option value="abstract">Graphismes automatiques</option><option value="local" disabled>Médias locaux · non configuré</option></select></div>
               <div><label for="resolution">Résolution</label><select id="resolution"><option value="360">360p · rapide</option><option value="720" selected>720p · HD</option><option value="1080">1080p · Full HD</option></select></div>
             </div>
+            <div class="media-import" id="media-import">
+              <label for="media-files">Vidéos et photos de mon téléphone</label>
+              <input id="media-files" type="file" multiple accept=".mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,video/*,image/jpeg,image/png,image/webp">
+              <div class="media-actions">
+                <button id="upload-media" class="small-button" type="button">Importer les médias sélectionnés</button>
+                <button id="delete-media" class="text-button" type="button" hidden>Effacer l'import</button>
+              </div>
+              <p id="media-note" class="microcopy" role="status" aria-live="polite">Import privé vers ce moteur local uniquement (aucun transfert vers GitHub). Les clips sont ordonnés par nom numéroté.</p>
+            </div>
             <div class="double">
               <div><label for="tts">Narration</label><select id="tts"><option value="espeak">eSpeak · libre</option><option value="piper" disabled>Piper · modèle absent</option></select></div>
               <div><label for="speech-rate">Vitesse de la voix</label><select id="speech-rate"><option value="120">Calme · 120</option><option value="145" selected>Normale · 145</option><option value="170">Dynamique · 170</option></select></div>
