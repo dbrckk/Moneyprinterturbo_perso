@@ -199,3 +199,19 @@ Les renommages de chaque fichier sont atomiques sur un même système de
 fichiers ; **la publication simultanée de plusieurs fichiers n'est pas
 atomique en cas de coupure brutale du système**. Le dossier de travail
 temporaire est automatiquement nettoyé après une opération normale.
+
+
+## Ordre des vidéos locales numérotées
+
+Lorsqu'un dossier de médias est fourni au moteur Python, les fichiers sont
+désormais triés en **ordre naturel** : `clip1.mp4`, `clip2.mp4`,
+`clip10.mp4` (et non `clip1`, `clip10`, `clip2`). Le moteur affecte
+ensuite ces sources aux scènes dans cet ordre, et les séquences qui réutilisent
+un même clip avancent dans sa chronologie de lecture. Les fichiers non pris
+en charge et les liens symboliques restent exclus.
+
+Cette amélioration concerne les dossiers locaux du moteur, **pas** un
+réordonnancement automatique du contenu d'un montage. Des noms arbitraires
+ou des dates de capture incohérentes ne permettent pas d'inférer la
+chronologie réelle ; renommez les sources avec un préfixe numérique pour
+imposer un ordre précis.
