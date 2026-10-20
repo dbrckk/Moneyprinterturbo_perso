@@ -6,7 +6,14 @@
   let videoUrl = null;
   let pollTimer = null;
   let lastStatus = '';
-  const state = {has_ollama: false, has_piper: false, has_local_dir: false, media_batch: ''};
+  const MEDIA_KEY = 'mpt-local-media-batch-v1';
+  const storedBatch = (() => { try { return localStorage.getItem(MEDIA_KEY) || ''; } catch { return ''; } })();
+  const state = {has_ollama: false, has_piper: false, has_local_dir: false,
+                 media_batch: /^[a-f0-9]{32}$/.test(storedBatch) ? storedBatch : ''};
+  function rememberMediaBatch(id) {
+    try { if (id) localStorage.setItem(MEDIA_KEY, id); else localStorage.removeItem(MEDIA_KEY); }
+    catch { /* Browsers with restricted storage remain usable this session. */ }
+  }
   const endpoint = (id, name = '') => `/api/jobs/${id}${name ? '/' + name : ''}`;
 
   async function api(url, options = {}) {
@@ -158,6 +165,7 @@
       // Replace an abandoned prior draft only after the full new batch works.
       const previous = state.media_batch;
       state.media_batch = batch;
+      rememberMediaBatch(batch);
       $('visuals').value = 'local';
       $('delete-media').hidden = false;
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
@@ -179,6 +187,7 @@
     try {
       await post(`/api/media/batches/${state.media_batch}/delete`, {});
       state.media_batch = '';
+      rememberMediaBatch('');
       $('delete-media').hidden = true;
       $('media-files').value = '';
       if (!state.has_local_dir) $('visuals').value = 'commons';
@@ -195,6 +204,24 @@
       state.has_local_dir = config.has_local_media;
       $('tts').querySelector('option[value="piper"]').disabled = !config.has_piper;
       $('visuals').querySelector('option[value="local"]').disabled = false;
+      if (state.media_batch) {
+        try {
+          const existing = await json(`/api/media/batches/${state.media_batch}`);
+          if (existing.files?.length) {
+            $('visuals').value = 'local';
+            $('delete-media').hidden = false;
+            mediaNote(`${existing.files.length} média(s) retrouvé(s) après recharge de la page.`);
+          } else {
+            state.media_batch = '';
+            rememberMediaBatch('');
+          }
+        } catch {
+          // A stale local identifier is not a credential and cannot re-create
+          // a deleted batch. The user can import a new selection.
+          state.media_batch = '';
+          rememberMediaBatch('');
+        }
+      }
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
