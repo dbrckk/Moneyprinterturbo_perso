@@ -1,0 +1,75 @@
+# Importer et monter ses vidéos sur Android sans PC (mode local)
+
+Ce mode fonctionne dans le **studio local** (`studio_server.py`), distinct de
+l'interface statique HTTPS sur GitHub Pages. Les fichiers sélectionnés ne
+sont **jamais** déposés dans le dépôt GitHub ni transférés vers GitHub Actions.
+
+## Installer gratuitement sur Android avec Termux
+
+1. Installer Termux depuis [F-Droid](https://f-droid.org/packages/com.termux/)
+   ou sa page de [versions GitHub](https://github.com/termux/termux-app/releases).
+2. Dans Termux, exécuter :
+
+```sh
+pkg update -y
+pkg install -y python ffmpeg espeak git
+git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git
+cd Moneyprinterturbo_perso
+python studio_server.py
+```
+
+3. Dans le navigateur du **même téléphone**, ouvrir
+   **http://127.0.0.1:8765**. Le serveur est accessible seulement sur cet
+   appareil (pas sur Internet). Il faut garder le processus Termux actif
+   pendant l'import et l'encodage ; Android peut arrêter les tâches longues
+   en arrière-plan.
+
+**État des vérifications :** la chaîne d'import HTTP et le rendu FFmpeg
+sont testés sur Linux dans GitHub Actions. Les performances, la disponibilité
+exacte des paquets et l'encodage sur chaque modèle de téléphone Android
+doivent encore être validés sur appareil réel.
+
+## Utiliser les vidéos de la galerie
+
+1. Renseigner un sujet et la narration (ou cliquer sur « Générer un brouillon »).
+2. Dans **Vidéos et photos de mon téléphone**, choisir jusqu'à **24** fichiers.
+3. Appuyer sur **Importer les médias sélectionnés** : le studio affiche la
+   progression et sélectionne automatiquement « Médias locaux ».
+4. Appuyer sur **Générer la vidéo**. Le MP4 et ses sous-titres seront
+   téléchargeables depuis le même écran.
+
+Formats acceptés : MP4, MOV, WebM, MKV, JPEG, PNG, WebP. Chaque fichier
+est vérifié par FFprobe et enregistré de façon atomique (aucun demi-fichier
+considéré comme import réussi). Taille maximale : **350 Mo par vidéo**,
+**18 Mo par image**, **800 Mo au total** pour les médias importés dans
+l'installation, au plus **12 lots** avant nettoyage.
+
+Le navigateur classe les fichiers avec des nombres comme
+`clip1.mp4`, `clip2.mp4`, `clip10.mp4`, puis le serveur préfixe
+`001_`, `002_`, etc. Le moteur réutilise les clips dans leur ordre
+avec une position de lecture progressive lorsqu'une même vidéo couvre
+plusieurs scènes. **Ce classement n'analyse pas le sens des événements ni
+les vraies dates de capture.** Renommer les clips pour imposer un ordre reste
+possible.
+
+Les fichiers importés vivent dans `outputs/web/_uploaded_media/`.
+Chaque import appartient à un lot distinct. Un lot est figé dès qu'un
+rendu l'utilise. Le bouton **Effacer l'import** supprime les médias du
+lot, sauf pendant un rendu en cours. Les MP4 finalisés restent disponibles
+dans `outputs/web/<identifiant-de-rendu>/`. L'import n'est pas restauré
+automatiquement dans une nouvelle session du navigateur : sélectionner et
+importer à nouveau si la page est rechargée.
+
+## Limites importantes
+
+- Le site distant `https://dbrckk.github.io/Moneyprinterturbo_perso/`
+  utilise GitHub Actions **sans vos vidéos locales** : un site statique
+  ne peut pas envoyer directement une vidéo du téléphone à ce runner.
+- Le studio local encode sur le téléphone et consomme CPU, énergie et
+  espace disque. Préférer quelques clips courts en 360p pour le premier
+  essai ; passer en 720p après un test réussi.
+- Les données locales sont soumises à la protection du téléphone et du
+  processus local. Éviter d'activer `--host 0.0.0.0` sans comprendre
+  l'accès réseau et sans le jeton obligatoire du serveur.
+- Le logiciel ne vérifie pas la propriété ou les droits à l'image :
+  importer seulement des médias que l'on a le droit d'utiliser.
