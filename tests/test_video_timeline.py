@@ -95,6 +95,38 @@ class TimelinePlannerTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                      "FFmpeg and ffprobe required")
 class RealTimelineVideoTests(unittest.TestCase):
+    def test_video_stream_duration_wins_over_longer_audio_track(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "music-outlasts-frames.mp4"
+            ffmpeg("-f", "lavfi", "-i", "color=c=red:s=160x120:r=12:d=2",
+                   "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:d=5",
+                   "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                   "-c:a", "aac", str(source))
+            self.assertAlmostEqual(probe_clip_duration(source), 2.0, delta=0.05)
+            # This MP4's container is five seconds long because of the audio.
+            metadata = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "json", str(source)],
+                capture_output=True, text=True, check=True, timeout=15)
+            self.assertAlmostEqual(
+                float(json.loads(metadata.stdout)["format"]["duration"]),
+                5.0, delta=0.05)
+            planned, warnings = plan_local_video_timeline(
+                [local(source)] * 3, [1.2] * 3)
+            self.assertEqual(
+                [clip.source_start_seconds for clip in planned],
+                [0.0, 1.2, 0.4])
+            self.assertEqual(warnings, [])
+
+    def test_audio_only_container_cannot_masquerade_as_video(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "sound.m4a"
+            ffmpeg("-f", "lavfi", "-i",
+                   "sine=frequency=440:sample_rate=44100:d=2",
+                   "-c:a", "aac", str(source))
+            with self.assertRaisesRegex(ValueError, "no video stream"):
+                probe_clip_duration(source)
+
     def test_probed_duration_and_actual_rgb_frames_across_engines(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
