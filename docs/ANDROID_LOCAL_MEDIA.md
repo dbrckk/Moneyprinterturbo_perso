@@ -56,9 +56,10 @@ Les fichiers importés vivent dans `outputs/web/_uploaded_media/`.
 Chaque import appartient à un lot distinct. Un lot est figé dès qu'un
 rendu l'utilise. Le bouton **Effacer l'import** supprime les médias du
 lot, sauf pendant un rendu en cours. Les MP4 finalisés restent disponibles
-dans `outputs/web/<identifiant-de-rendu>/`. L'import n'est pas restauré
-automatiquement dans une nouvelle session du navigateur : sélectionner et
-importer à nouveau si la page est rechargée.
+dans `outputs/web/<identifiant-de-rendu>/`. Le navigateur mémorise uniquement l'identifiant du lot, pas les vidéos :
+après rechargement de la page, il retrouve automatiquement les fichiers qui
+existent encore dans le moteur local. En cas de suppression du lot ou de
+changement de serveur, un nouvel import est nécessaire.
 
 ## Limites importantes
 
