@@ -84,6 +84,21 @@ class ServerTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_failed_submit_does_not_seal_uploaded_media(self):
+        status, _, payload = self.request("POST", "/api/media/batches", {})
+        self.assertEqual(status, 201)
+        batch = json.loads(payload)["id"]
+        # Simulate a valid already-imported file without encoding media:
+        # the submission validation must run before the batch is sealed.
+        folder = self.jobs.upload_root / batch
+        (folder / "001_example.mp4").write_bytes(b"existing imported content")
+        status, _, response = self.request("POST", "/api/jobs", {
+            **VALID, "visuals": "local", "media_batch": batch, "tts": "piper"})
+        self.assertEqual(status, 400, response)
+        status, _, details = self.request("GET", f"/api/media/batches/{batch}")
+        self.assertEqual(status, 200)
+        self.assertFalse(json.loads(details)["sealed"])
+
     def test_upload_guards_reject_broken_or_unsafe_media(self):
         status, _, payload = self.request("POST", "/api/media/batches", {})
         self.assertEqual(status, 201, payload)
