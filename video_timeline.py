@@ -1,8 +1,9 @@
 """Chronological playback of reused user-owned video clips.
 
-The source media is neither reordered by filename nor semantically understood:
-when one local clip fills several storyboard scenes, each subsequent scene
-begins further into that same clip. FFmpeg loops only after the clip ends.
+Media order is determined by the local asset selector, not inferred from
+actual recorded events. When one local clip fills several storyboard scenes,
+each subsequent scene begins further into that same clip. FFmpeg loops only
+after the clip ends.
 Local clip audio remains disabled in favour of the narrated soundtrack.
 """
 from __future__ import annotations
@@ -29,16 +30,33 @@ def source_seek_seconds(asset: object) -> float:
 
 
 def probe_clip_duration(path: Path) -> float:
-    """Read local clip duration, without decoding frames or following URLs."""
+    """Measure the first video stream, not an unrelated longer audio track.
+
+    Some user MP4s have narration/music that outlasts their last video frame.
+    Using the container duration causes sequential re-use to seek into EOF.
+    Fall back to container duration only when a video stream exists but its
+    individual duration is unavailable (common with some stream formats).
+    """
     process = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=duration:format=duration",
          "-of", "json", str(path)],
         capture_output=True, text=True, timeout=15, check=True,
     )
-    duration = float(json.loads(process.stdout)["format"]["duration"])
-    if not math.isfinite(duration) or not 0.1 <= duration <= MAX_CLIP_SEEK:
-        raise ValueError("Unusable video source duration")
-    return duration
+    metadata = json.loads(process.stdout)
+    streams = metadata.get("streams") if isinstance(metadata, dict) else None
+    if not isinstance(streams, list) or not streams or not isinstance(streams[0], dict):
+        raise ValueError("Local video source has no video stream")
+    container = metadata.get("format")
+    fallback = container.get("duration") if isinstance(container, dict) else None
+    for raw in (streams[0].get("duration"), fallback):
+        try:
+            duration = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(duration) and 0.1 <= duration <= MAX_CLIP_SEEK:
+            return duration
+    raise ValueError("Unusable video source duration")
 
 
 def plan_local_video_timeline(
