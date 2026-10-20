@@ -554,3 +554,42 @@ class TargetAspectAssetRankingTests(unittest.TestCase):
             for bad in (0, -1, float("inf"), float("nan"), "portrait"):
                 with self.assertRaises(ValueError):
                     media.commons_assets("nature",Path(name),target_aspect=bad)
+
+
+class NaturalLocalFootageOrderTests(unittest.TestCase):
+    def test_numbered_smartphone_clips_are_ordered_numerically_not_lexically(self):
+        import media_assets as assets
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("clip10.mp4", "clip2.mp4", "clip1.mp4",
+                         "clip11.mp4", "clip02.mp4", "clip3.mp4"):
+                (root / name).write_bytes(b"valid-placeholder")
+            with patch.object(assets, "media_dimensions", return_value=(1920, 1080)):
+                clips, notes = assets.local_assets(root)
+        self.assertEqual([c.title for c in clips],
+                         ["clip1.mp4", "clip02.mp4", "clip2.mp4",
+                          "clip3.mp4", "clip10.mp4", "clip11.mp4"])
+        self.assertEqual(notes, [])
+
+    def test_local_natural_order_does_not_change_extension_or_security_filters(self):
+        import media_assets as assets
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "shot9.MP4").write_bytes(b"valid-placeholder")
+            (root / "shot10.mov").write_bytes(b"valid-placeholder")
+            (root / "shot11.exe").write_bytes(b"untrusted")
+            (root / "shot8.mp4").symlink_to(root / "shot9.MP4")
+            with patch.object(assets, "media_dimensions", return_value=(1920, 1080)):
+                clips, notes = assets.local_assets(root)
+        self.assertEqual([c.title for c in clips], ["shot9.MP4", "shot10.mov"])
+        self.assertEqual(notes, [])
+
+    def test_natural_order_is_stable_for_case_and_multi_number_names(self):
+        import media_assets as assets
+        names = ["scene2_take10.mp4", "Scene2_take2.mp4",
+                 "scene10_take1.mp4", "scene2_take1.mp4"]
+        sorted_names = [p.name for p in sorted(
+            [Path(x) for x in names], key=assets._local_media_order)]
+        self.assertEqual(sorted_names, [
+            "scene2_take1.mp4", "Scene2_take2.mp4",
+            "scene2_take10.mp4", "scene10_take1.mp4"])

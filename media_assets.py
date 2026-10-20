@@ -74,12 +74,25 @@ def media_dimensions(path: Path) -> tuple[int, int] | None:
     return None
 
 
+def _local_media_order(path: Path) -> tuple:
+    """Human filename order for numbered footage (clip2 before clip10).
+
+    Numeric runs compare as integers; casefolded text is stable across
+    platforms. The original filename resolves equal normalized names.
+    Filenames cannot establish true capture chronology; this only respects
+    the numbering convention already used by many smartphone exports.
+    """
+    parts = re.split(r"(\d+)", path.name.casefold())
+    return tuple((1, int(part)) if part.isdigit() else (0, part)
+                 for part in parts) + ((2, path.name),)
+
+
 def local_assets(folder: Path) -> tuple[list[MediaAsset], list[str]]:
     if not folder.is_dir():
         raise ValueError(f"Media directory does not exist: {folder}")
     assets: list[MediaAsset] = []
     warnings: list[str] = []
-    for path in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+    for path in sorted(folder.iterdir(), key=_local_media_order):
         ext = path.suffix.lower()
         if path.is_symlink() or not path.is_file() or ext not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
             continue
