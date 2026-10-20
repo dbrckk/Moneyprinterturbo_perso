@@ -114,27 +114,30 @@ class Jobs:
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
-        if job["visuals"] == "local":
-            if job["media_batch"]:
-                with self.media_lock:
-                    directory = self.upload_root / job["media_batch"]
-                    if not directory.is_dir() or not self._batch_files(directory):
-                        raise ValueError("Importez au moins un média valide avant le rendu")
-                    (directory / ".sealed").touch(exist_ok=True)
-            elif not self.media_dir:
-                raise ValueError("Importez des vidéos ou configurez --media-dir")
+        if job["visuals"] == "local" and not job["media_batch"] and not self.media_dir:
+            raise ValueError("Importez des vidéos ou configurez --media-dir")
         if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
             raise ValueError("Le modèle vocal Piper n'est pas configuré")
-        with self.lock:
-            # Keep a bounded history; never silently discard pending jobs.
+        # Lock ordering matches delete_media_batch (media_lock -> lock).
+        # Seal only after every other validation succeeds and queue capacity
+        # is confirmed; rejected jobs must not consume an imported batch.
+        with self.media_lock:
+            if job["media_batch"]:
+                directory = self.upload_root / job["media_batch"]
+                if not directory.is_dir() or not self._batch_files(directory):
+                    raise ValueError("Importez au moins un média valide avant le rendu")
+            with self.lock:
+                # Keep a bounded history; never silently discard pending jobs.
             finished = [j for j in self.jobs.values() if j["status"] in ("done", "error", "cancelled")]
             while len(self.jobs) >= MAX_JOBS and finished:
                 old = finished.pop(0)
                 self.jobs.pop(old["id"], None)
                 # Deliberately do not delete output files: user may still own the link.
-            if len(self.jobs) >= MAX_JOBS:
-                raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
-            ident = uuid4().hex
+                if len(self.jobs) >= MAX_JOBS:
+                    raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
+                if job["media_batch"]:
+                    (self.upload_root / job["media_batch"] / ".sealed").touch(exist_ok=True)
+                ident = uuid4().hex
             record = {"id": ident, "status": "queued", "created": int(time.time()),
                       "finished": None, "error": None, "parameters": job, "metadata": None}
             self.jobs[ident] = record
