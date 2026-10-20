@@ -18,10 +18,14 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import unicodedata
 import time
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
+
+from media_assets import IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS, media_dimensions
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 
@@ -30,6 +34,10 @@ WEB = ROOT / "web"
 MAX_REQUEST = 12_000
 MAX_JOBS = 20
 JOB_TIMEOUT = 1800
+MAX_MEDIA_FILES = 24
+MAX_MEDIA_BATCHES = 12
+MAX_MEDIA_STORAGE = 800 * 1024 * 1024
+MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".mp4": "video/mp4", ".srt": "application/x-subrip; charset=utf-8",
         ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
@@ -78,7 +86,13 @@ def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
         raise ValueError("Les mots-clés doivent être des lignes de texte")
     if queries and (visuals != "commons" or len(queries) != len(sentences)):
         raise ValueError("Les mots-clés Wikimedia doivent correspondre exactement aux scènes")
-    return {"topic": topic.strip(), "lang": lang, "script": script.strip(), "sentences": sentences,
+    media_batch = value.get("media_batch", "")
+    if not isinstance(media_batch, str) or (media_batch and
+                                             not re.fullmatch(r"[a-f0-9]{32}", media_batch)):
+        raise ValueError("Identifiant du lot de médias invalide")
+    if media_batch and visuals != "local":
+        raise ValueError("Le lot de médias nécessite le mode local")
+    return {"media_batch": media_batch, "topic": topic.strip(), "lang": lang, "script": script.strip(), "sentences": sentences,
             "aspect": aspect, "resolution": resolution, "visuals": visuals, "speech_rate": speech_rate,
             "mute": mute, "tts": tts, "scene_queries": queries}
 
@@ -92,14 +106,23 @@ class Jobs:
         self.python_executable = python_executable or sys.executable
         self.jobs: dict[str, dict] = {}
         self.lock = threading.RLock()
+        self.media_lock = threading.RLock()
+        self.upload_root = self.output_dir / "_uploaded_media"
         self.processes: dict[str, subprocess.Popen] = {}
         self.running = False
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
-        if job["visuals"] == "local" and not self.media_dir:
-            raise ValueError("Dossier média local non configuré sur le serveur")
+        if job["visuals"] == "local":
+            if job["media_batch"]:
+                with self.media_lock:
+                    directory = self.upload_root / job["media_batch"]
+                    if not directory.is_dir() or not self._batch_files(directory):
+                        raise ValueError("Importez au moins un média valide avant le rendu")
+                    (directory / ".sealed").touch(exist_ok=True)
+            elif not self.media_dir:
+                raise ValueError("Importez des vidéos ou configurez --media-dir")
         if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
             raise ValueError("Le modèle vocal Piper n'est pas configuré")
         with self.lock:
@@ -119,6 +142,97 @@ class Jobs:
                 self.running = True
                 threading.Thread(target=self._worker, daemon=True, name="mpt-render-queue").start()
             return self.public(record)
+
+    @staticmethod
+    def _batch_files(directory: Path) -> list[Path]:
+        return sorted((p for p in directory.iterdir()
+                       if p.is_file() and not p.is_symlink() and not p.name.startswith(".")),
+                      key=lambda p: p.name)
+
+    def create_media_batch(self) -> str:
+        with self.media_lock:
+            self.upload_root.mkdir(parents=True, exist_ok=True)
+            if sum(p.is_dir() for p in self.upload_root.iterdir()) >= MAX_MEDIA_BATCHES:
+                raise ValueError("Limite de lots atteinte : supprimez un ancien import")
+            ident = uuid4().hex
+            (self.upload_root / ident).mkdir(mode=0o700)
+            return ident
+
+    def batch_info(self, ident: str) -> dict | None:
+        if not re.fullmatch(r"[a-f0-9]{32}", ident):
+            return None
+        with self.media_lock:
+            folder = self.upload_root / ident
+            if not folder.is_dir():
+                return None
+            files = self._batch_files(folder)
+            return {"id": ident, "files": [
+                {"name": p.name, "bytes": p.stat().st_size} for p in files],
+                "sealed": (folder / ".sealed").exists()}
+
+    def save_media(self, ident: str, encoded_name: str, size: int, stream) -> dict:
+        if not re.fullmatch(r"[a-f0-9]{32}", ident):
+            raise ValueError("Lot de médias inconnu")
+        try:
+            name = unquote(encoded_name, encoding="utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Nom du fichier invalide") from exc
+        if (not 1 <= len(name) <= 120 or name in (".", "..")
+                or name.startswith(".") or "/" in name or "\\" in name
+                or any(unicodedata.category(ch).startswith("C") for ch in name)):
+            raise ValueError("Nom du fichier invalide")
+        suffix = Path(name).suffix.lower()
+        if suffix not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
+            raise ValueError("Format non pris en charge : JPEG, PNG, WebP, MP4, MOV, WebM, MKV")
+        limit = MAX_IMAGE_BYTES if suffix in IMAGE_EXTENSIONS else MAX_VIDEO_UPLOAD
+        if not isinstance(size, int) or size <= 0 or size > limit:
+            raise ValueError("Taille de média invalide ou supérieure à la limite")
+        with self.media_lock:
+            directory = self.upload_root / ident
+            if not directory.is_dir() or (directory / ".sealed").exists():
+                raise ValueError("Lot absent ou déjà utilisé pour un rendu")
+            files = self._batch_files(directory)
+            if len(files) >= MAX_MEDIA_FILES:
+                raise ValueError("Maximum 24 médias par projet")
+            used = sum(p.stat().st_size for batch in self.upload_root.iterdir()
+                       if batch.is_dir() for p in self._batch_files(batch))
+            if used + size > MAX_MEDIA_STORAGE:
+                raise ValueError("Stockage média local plein (800 Mo maximum)")
+            target = directory / f"{len(files) + 1:03d}_{name}"
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=directory, prefix=".receiving-",
+                                                 suffix=suffix, delete=False) as output:
+                    temporary = Path(output.name)
+                    remaining = size
+                    while remaining:
+                        chunk = stream.read(min(256 * 1024, remaining))
+                        if not chunk:
+                            raise ValueError("Transfert incomplet : réessayez le fichier")
+                        output.write(chunk)
+                        remaining -= len(chunk)
+                if not media_dimensions(temporary):
+                    raise ValueError("Média illisible par FFprobe : import refusé")
+                os.replace(temporary, target)
+                return {"name": target.name, "bytes": size, "count": len(files) + 1}
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    def delete_media_batch(self, ident: str) -> bool:
+        if not re.fullmatch(r"[a-f0-9]{32}", ident):
+            return False
+        with self.media_lock:
+            directory = self.upload_root / ident
+            if not directory.is_dir():
+                return False
+            with self.lock:
+                if any(j["status"] in ("queued", "running") and
+                       j["parameters"].get("media_batch") == ident
+                       for j in self.jobs.values()):
+                    raise ValueError("Import utilisé par un rendu en cours")
+            shutil.rmtree(directory)
+            return True
 
     @staticmethod
     def public(job: dict) -> dict:
@@ -173,7 +287,9 @@ class Jobs:
             if p["scene_queries"]:
                 args.extend(["--scene-queries", "|".join(p["scene_queries"])])
         elif p["visuals"] == "local":
-            args.extend(["--media-dir", str(self.media_dir)])
+            source = ((self.upload_root / p["media_batch"]) if p["media_batch"]
+                      else self.media_dir)
+            args.extend(["--media-dir", str(source)])
         return args
 
     def _worker(self) -> None:
@@ -324,6 +440,10 @@ class StudioHandler(BaseHTTPRequestHandler):
                                                 "has_ollama": bool(self.server.ollama_model), "default_resolution": 360})
             if path == "/api/jobs":
                 return self.json_response(200, {"jobs": self.server.jobs.list_jobs()})
+            media = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})", path)
+            if media:
+                details = self.server.jobs.batch_info(media.group(1))
+                return self.json_response(200, details) if details else self.json_response(404, {"error": "Lot introuvable"})
             match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(video\.mp4|video\.srt|video\.json|video\.credits\.txt))?", path)
             if match:
                 ident, asset_name = match.groups()
@@ -355,10 +475,40 @@ class StudioHandler(BaseHTTPRequestHandler):
         if match:
             cancelled = self.server.jobs.cancel(match.group(1))
             return self.json_response(200, cancelled) if cancelled else self.json_response(404, {"error": "Projet introuvable"})
-        if path not in ("/api/draft", "/api/jobs"):
+        upload = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})/files", path)
+        if upload:
+            # A failed upload must never leave unread body bytes on a persistent
+            # connection, where they could be mistaken for the next request.
+            self.close_connection = True
+            if self.headers.get("Transfer-Encoding"):
+                return self.json_response(400, {"error": "Transfert HTTP segmenté non pris en charge"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/octet-stream":
+                return self.json_response(415, {"error": "Flux binaire requis"})
+            try:
+                length_text = self.headers.get("Content-Length", "")
+                if not re.fullmatch(r"[1-9][0-9]*", length_text):
+                    raise ValueError("Longueur de média invalide")
+                result = self.server.jobs.save_media(
+                    upload.group(1), self.headers.get("X-Media-Name", ""),
+                    int(length_text), self.rfile)
+                return self.json_response(201, result)
+            except (ValueError, OSError) as exc:
+                return self.json_response(400, {"error": str(exc)[:250]})
+        removal = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})/delete", path)
+        if removal:
+            try:
+                deleted = self.server.jobs.delete_media_batch(removal.group(1))
+                return self.json_response(200 if deleted else 404, {"deleted": deleted})
+            except (ValueError, OSError) as exc:
+                return self.json_response(409, {"error": str(exc)[:250]})
+        if path not in ("/api/draft", "/api/jobs", "/api/media/batches"):
             return self.json_response(404, {"error": "Introuvable"})
         try:
             payload = self.read_json()
+            if path == "/api/media/batches":
+                if payload != {}:
+                    raise ValueError("Objet de création de lot invalide")
+                return self.json_response(201, {"id": self.server.jobs.create_media_batch()})
             if path == "/api/draft":
                 job = validate_draft(payload, allow_empty_script=True)
                 if self.server.ollama_model:

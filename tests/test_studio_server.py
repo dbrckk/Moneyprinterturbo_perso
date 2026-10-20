@@ -5,6 +5,7 @@ from http.client import HTTPConnection
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -67,6 +68,82 @@ class ServerTests(unittest.TestCase):
         outcome = response.status, dict(response.getheaders()), data
         conn.close()
         return outcome
+
+    def send_binary(self, batch: str, name: str, data: bytes, *, headers=None):
+        from urllib.parse import quote
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=25)
+        base = {"Authorization": "Bearer a-safe-secret-for-tests",
+                "Content-Type": "application/octet-stream",
+                "X-Media-Name": quote(name, safe="")}
+        if headers:
+            base.update(headers)
+        conn.request("POST", f"/api/media/batches/{batch}/files",
+                     body=data, headers=base)
+        response = conn.getresponse()
+        result = response.status, response.read()
+        conn.close()
+        return result
+
+    def test_upload_guards_reject_broken_or_unsafe_media(self):
+        status, _, payload = self.request("POST", "/api/media/batches", {})
+        self.assertEqual(status, 201, payload)
+        batch = json.loads(payload)["id"]
+        self.assertEqual(self.send_binary(batch, "../escape.mp4", b"invalid")[0], 400)
+        self.assertEqual(self.send_binary(batch, "bad.exe", b"invalid")[0], 400)
+        self.assertEqual(self.send_binary(batch, "movie.mp4", b"not a real video")[0], 400)
+        self.assertEqual(self.send_binary(batch, "movie.mp4", b"data",
+                                          headers={"Origin": "https://attacker.example"})[0], 403)
+        self.assertEqual(self.send_binary(batch, "movie.mp4", b"data",
+                                          headers={"Authorization": "Bearer wrong"})[0], 401)
+        status, _, details = self.request("GET", f"/api/media/batches/{batch}")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(details)["files"], [])
+        self.assertFalse((self.jobs.output_dir / "escape.mp4").exists())
+        status, _, deleted = self.request("POST", f"/api/media/batches/{batch}/delete", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(deleted)["deleted"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg and ffprobe required")
+    def test_real_phone_video_upload_and_render_are_isolated_by_batch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first = Path(folder) / "clip2.mp4"
+            result = subprocess.run(
+                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                 "-f", "lavfi", "-i", "color=c=red:s=320x240:r=12:d=4",
+                 "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(first)],
+                capture_output=True, timeout=45)
+            self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+            status, _, created = self.request("POST", "/api/media/batches", {})
+            self.assertEqual(status, 201)
+            batch = json.loads(created)["id"]
+            status, imported = self.send_binary(batch, "clip2.mp4", first.read_bytes())
+            self.assertEqual(status, 201, imported)
+            self.assertEqual(json.loads(imported)["name"], "001_clip2.mp4")
+            status, _, data = self.request("GET", f"/api/media/batches/{batch}")
+            self.assertEqual(status, 200)
+            self.assertEqual(len(json.loads(data)["files"]), 1)
+            status, _, response = self.request("POST", "/api/jobs", {
+                **VALID, "visuals": "local", "media_batch": batch})
+            self.assertEqual(status, 202, response)
+            job = json.loads(response)
+            self.assertEqual(self.send_binary(batch, "clip10.mp4", first.read_bytes())[0], 400)
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                _, _, data = self.request("GET", f"/api/jobs/{job['id']}")
+                snapshot = json.loads(data)
+                if snapshot["status"] not in ("queued", "running"):
+                    break
+                time.sleep(.15)
+            self.assertEqual(snapshot["status"], "done", snapshot)
+            status, _, manifest = self.request("GET", f"/api/jobs/{job['id']}/video.json")
+            self.assertEqual(status, 200)
+            self.assertTrue(any(
+                "001_clip2.mp4" in media.get("title", "")
+                for media in json.loads(manifest)["media"]))
+            status, _, deleted = self.request("POST", f"/api/media/batches/{batch}/delete", {})
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(deleted)["deleted"])
 
     def test_ui_security_and_draft(self):
         status, headers, payload = self.request("GET", "/")

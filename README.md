@@ -9,6 +9,18 @@ Générateur de vidéos courtes **gratuit, auto-hébergeable et utilisable depui
 
 > Note importante : les logiciels n'ont pas de frais de licence, mais le matériel, l'électricité, le stockage et un serveur disponible en permanence peuvent avoir un coût. GitHub Actions a des règles et quotas d'utilisation ; ne l'utilisez pas comme un service de rendu continu illimité.
 
+## Importer ses vidéos Android sans PC (Termux)
+
+Le **studio local** accepte désormais les vidéos et photos de la galerie :
+sélection multiple, import par flux, contrôle des fichiers, ordre des clips
+numérotés et assemblage FFmpeg privé pour chaque projet. Sur Android, Termux
+peut exécuter le moteur sans ordinateur. **Le site distant GitHub Pages reste
+réservé à Commons/graphismes** : il ne peut pas recevoir les vidéos privées
+de la galerie pour les transmettre automatiquement à GitHub Actions.
+
+Installation Android, limites, formats et guide d'import :
+[docs/ANDROID_LOCAL_MEDIA.md](docs/ANDROID_LOCAL_MEDIA.md).
+
 ## Comparaison visuelle IA gratuite — option expérimentale
 
 Le studio Android propose maintenant un choix facultatif **CLIP (CPU)** pour
