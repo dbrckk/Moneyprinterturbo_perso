@@ -139,7 +139,7 @@ class ServerTests(unittest.TestCase):
             status, _, manifest = self.request("GET", f"/api/jobs/{job['id']}/video.json")
             self.assertEqual(status, 200)
             self.assertTrue(any(
-                "001_clip2.mp4" in media.get("file", "")
+                "001_clip2.mp4" in media.get("title", "")
                 for media in json.loads(manifest)["media"]))
             status, _, deleted = self.request("POST", f"/api/media/batches/{batch}/delete", {})
             self.assertEqual(status, 200)
