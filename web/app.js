@@ -143,8 +143,12 @@
     $('storage-stats').textContent = 'Imports : ' + megabytes(usage.bytes) +
       ' / ' + megabytes(usage.limit_bytes) +
       ' · ' + usage.batch_count + ' lot(s) · ' +
-      megabytes(usage.reclaimable_bytes) + ' récupérables.';
+      megabytes(usage.reclaimable_bytes) + ' récupérables après montage · ' +
+      megabytes(usage.abandoned_bytes) + ' anciens brouillons/échecs.';
     $('clean-media').disabled = !usage.reclaimable_count;
+    // Do not offer cleanup of the batch currently selected for editing.
+    const abandoned = usage.batches.filter(b => b.abandoned && b.id !== state.media_batch);
+    $('clean-abandoned').disabled = !abandoned.length;
     return usage;
   }
   $('clean-media').addEventListener('click', async () => {
@@ -169,6 +173,25 @@
       mediaNote('Nettoyage terminé : ' + megabytes(result.reclaimed_bytes) +
         ' récupérés, ' + result.deleted_batches.length + ' lot(s). ' +
         'Les vidéos finales restent disponibles.');
+    } catch (err) { showError(err); }
+    finally { await refreshStorage().catch(() => {}); }
+  });
+  $('clean-abandoned').addEventListener('click', async () => {
+    showError(null);
+    const button = $('clean-abandoned'); button.disabled = true;
+    try {
+      const usage = await refreshStorage();
+      const abandoned = usage.batches.filter(b => b.abandoned && b.id !== state.media_batch);
+      if (!abandoned.length) return;
+      const bytes = abandoned.reduce((sum, b) => sum + b.bytes, 0);
+      if (!window.confirm('Supprimer ' + abandoned.length + ' lot(s) de médias ' +
+        'de plus de 7 jours, issus de brouillons abandonnés ou de rendus échoués (' +
+        megabytes(bytes) + ') ? Ces sources ne seront plus récupérables. ' +
+        'Le projet actuellement sélectionné et tous les MP4 finaux sont conservés.')) return;
+      const result = await post('/api/media/cleanup-abandoned',
+                                {protect_batch: state.media_batch});
+      mediaNote('Nettoyage des anciens imports : ' + megabytes(result.reclaimed_bytes) +
+        ' libérés dans ' + result.deleted_batches.length + ' lot(s).');
     } catch (err) { showError(err); }
     finally { await refreshStorage().catch(() => {}); }
   });
