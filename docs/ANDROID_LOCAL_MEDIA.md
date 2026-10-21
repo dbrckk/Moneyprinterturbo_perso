@@ -33,8 +33,10 @@ doivent encore être validés sur appareil réel.
 
 1. Renseigner un sujet et la narration (ou cliquer sur « Générer un brouillon »).
 2. Dans **Vidéos et photos de mon téléphone**, choisir jusqu'à **24** fichiers.
-3. Appuyer sur **Importer les médias sélectionnés** : le studio affiche la
-   progression et sélectionne automatiquement « Médias locaux ».
+   L'import démarre **automatiquement dès la sélection**, sans second appui.
+3. Le studio affiche le fichier transféré, puis sélectionne automatiquement
+   « Médias locaux ». En cas d'interruption, le bouton **Réessayer l'import
+   sélectionné** relance un import propre sans mélanger les lots précédents.
 4. Appuyer sur **Générer la vidéo**. Le MP4 et ses sous-titres seront
    téléchargeables depuis le même écran.
 
