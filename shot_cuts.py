@@ -28,6 +28,9 @@ class ShotProfile:
     """Single, bounded video decode shared by cuts and focus detection."""
     cuts: tuple[float, ...] = ()
     focus: tuple[float, ...] = ()
+    # RGB changes between consecutive sampled frames (sample zero is zero).
+    # This is a visual-turbulence proxy, not gyroscopic camera stabilization.
+    motion: tuple[float, ...] = ()
 
 
 def _focus_energy(frame: bytes) -> float:
@@ -89,7 +92,8 @@ def probe_shot_profile(path: Path, duration: float) -> ShotProfile:
                     0.5 <= timestamp <= window - 0.5 and
                     (not cuts or timestamp - cuts[-1] >= 0.75)):
                 cuts.append(round(timestamp, 3))
-        return ShotProfile(tuple(cuts[:48]), tuple(_focus_energy(f) for f in frames))
+        return ShotProfile(tuple(cuts[:48]), tuple(_focus_energy(f) for f in frames),
+                           (0.0, *changes))
     except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
         return empty
 
@@ -132,4 +136,39 @@ def clearer_start(profile: ShotProfile, current: float, scene: float,
         improvement = min(q[index], q[index + 1])
         if improvement >= baseline * 1.45 and improvement - baseline >= 1.4:
             return round(candidate, 3)
+    return current
+
+
+def steadier_start(profile: ShotProfile, current: float, scene: float,
+                   clip_duration: float) -> float:
+    """Avoid a brief very turbulent start, without removing action footage.
+
+    Only an unusually large motion spike followed by two quiet intervals
+    inside 0.75 seconds qualifies. Crosscuts and extended movement are not
+    trimmed. The metric is pixel change, not a measured camera trajectory.
+    """
+    if not isinstance(profile, ShotProfile) or len(profile.motion) < 6:
+        return current
+    if (not all(type(x) in (int, float) and math.isfinite(x) and x >= 0
+                for x in (current, scene, clip_duration)) or scene <= 0):
+        return current
+    motion = profile.motion
+    start = int(current * _SAMPLE_FPS + 1e-6)
+    if start + 4 >= len(motion) or current + scene + 0.25 >= clip_duration:
+        return current
+    # Sustained fast sports or sweeping camera movements are intentional;
+    # look for a sharp disturbance, never seek just because motion is present.
+    initial = min(motion[start + 1], motion[start + 2])
+    if initial < 36.0:
+        return current
+    for index in range(start + 2, min(start + 4, len(motion) - 1)):
+        point = index / _SAMPLE_FPS
+        if (point <= current + 0.12 or point - current > 0.75 or
+                point + scene > clip_duration - 0.02):
+            continue
+        if any(current - 0.10 <= cut <= point + 0.10 for cut in profile.cuts):
+            continue
+        if (max(motion[index], motion[index + 1]) <= 11.0 and
+                max(motion[index], motion[index + 1]) <= initial * 0.32):
+            return round(point, 3)
     return current
