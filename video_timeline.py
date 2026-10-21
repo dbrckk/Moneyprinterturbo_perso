@@ -95,6 +95,7 @@ def plan_local_video_timeline(
     sharpened: dict[Path, int] = {}
     settled: dict[Path, int] = {}
     repeated: set[Path] = set()
+    avoided: dict[Path, int] = {}
     windows: dict[Path, list[tuple[float, float]]] = {}
     appearances = Counter(asset.file for asset in slots if asset is not None
                           and asset.kind == "video" and asset.source_url == "local")
@@ -218,6 +219,7 @@ def plan_local_video_timeline(
                     if overlap(candidate) <= min(0.35 * duration, existing * 0.6):
                         offset = candidate
                         existing = 0.0
+                        avoided[path] = avoided.get(path, 0) + 1
                         break
                 if existing >= 0.6 * duration:
                     repeated.add(path)
@@ -231,6 +233,8 @@ def plan_local_video_timeline(
         warnings.append(f"Moved {count} repeated scene(s) toward clearer frames in {path.name}")
     for path, count in settled.items():
         warnings.append(f"Avoided {count} brief visually turbulent opening(s) in {path.name}")
+    for path, count in avoided.items():
+        warnings.append(f"Reduced repeated source footage in {count} scene(s) from {path.name}")
     for path in sorted(repeated):
         warnings.append(f"Source footage is too short to avoid some repeated moments in {path.name}")
     return planned, warnings
