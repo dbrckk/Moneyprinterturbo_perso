@@ -38,6 +38,7 @@ MAX_MEDIA_FILES = 24
 MAX_MEDIA_BATCHES = 12
 MAX_MEDIA_STORAGE = 800 * 1024 * 1024
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
+STALE_EMPTY_BATCH_SECONDS = 24 * 60 * 60
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".mp4": "video/mp4", ".srt": "application/x-subrip; charset=utf-8",
         ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
@@ -266,11 +267,123 @@ class Jobs:
                        if p.is_file() and not p.is_symlink() and not p.name.startswith(".")),
                       key=lambda p: p.name)
 
+    @staticmethod
+    def _safe_batch_directory(path: Path) -> bool:
+        return bool(re.fullmatch(r"[a-f0-9]{32}", path.name)
+                    and path.is_dir() and not path.is_symlink())
+
+    def _prune_stale_empty_media_locked(self) -> None:
+        """Only remove old, *empty*, unsealed imports and orphan temp uploads.
+
+        Called under media_lock. Never automatically delete a user media file or
+        a sealed render source, even if the server has been closed for months.
+        """
+        if not self.upload_root.is_dir():
+            return
+        cutoff = time.time() - STALE_EMPTY_BATCH_SECONDS
+        for folder in self.upload_root.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            # A failed, interrupted HTTP transfer can leave a hidden temp file.
+            # Its age is checked independently of the enclosing batch.
+            for candidate in folder.iterdir():
+                if (candidate.name.startswith(".receiving-")
+                        and candidate.is_file() and not candidate.is_symlink()
+                        and candidate.stat().st_mtime < cutoff):
+                    candidate.unlink()
+            if ((folder / ".sealed").exists() or self._batch_files(folder)
+                    or folder.stat().st_mtime >= cutoff):
+                continue
+            shutil.rmtree(folder)
+
+    def _finished_source_batches_locked(self) -> set[str]:
+        """Find finished sources, including older jobs evicted from RAM.
+
+        Completion requires the checkpoint AND the original MP4 + manifest on
+        disk; an interrupted/error job is not deemed safe for reclamation.
+        """
+        completed: set[str] = set()
+        for folder in self.output_dir.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            checkpoint = folder / ".job_state.json"
+            video = folder / "video.mp4"
+            manifest = folder / "video.json"
+            if (checkpoint.is_symlink() or video.is_symlink() or manifest.is_symlink()
+                    or not checkpoint.is_file() or checkpoint.stat().st_size > 4096
+                    or not video.is_file() or video.stat().st_size < 1000
+                    or not manifest.is_file() or not 2 <= manifest.stat().st_size <= 2 * 1024 * 1024):
+                continue
+            try:
+                saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+                if not isinstance(saved, dict) or saved.get("status") != "done":
+                    continue
+                ident = saved.get("media_batch")
+                if isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident):
+                    completed.add(ident)
+            except (ValueError, UnicodeError, OSError):
+                continue
+        return completed
+
+    def _media_storage_locked(self) -> dict:
+        """Snapshot under media_lock -> lock; only server-owned batch paths."""
+        with self.lock:
+            active = {j["parameters"].get("media_batch") for j in self.jobs.values()
+                      if j["status"] in ("queued", "running")}
+            completed = self._finished_source_batches_locked()
+        batches = []
+        total = 0
+        if self.upload_root.is_dir():
+            for folder in self.upload_root.iterdir():
+                if not self._safe_batch_directory(folder):
+                    continue
+                regular = [p for p in folder.iterdir()
+                           if p.is_file() and not p.is_symlink()]
+                size = sum(p.stat().st_size for p in regular)
+                count = len(self._batch_files(folder))
+                sealed = (folder / ".sealed").is_file()
+                ready = sealed and folder.name in completed and folder.name not in active
+                batches.append({"id": folder.name, "bytes": size, "files": count,
+                                "reclaimable": ready, "in_use": folder.name in active})
+                total += size
+        return {"bytes": total, "limit_bytes": MAX_MEDIA_STORAGE,
+                "batch_count": len(batches),
+                "reclaimable_bytes": sum(b["bytes"] for b in batches if b["reclaimable"]),
+                "reclaimable_count": sum(b["reclaimable"] for b in batches),
+                "batches": sorted(batches, key=lambda b: b["id"])}
+
+    def media_storage(self) -> dict:
+        with self.media_lock:
+            return self._media_storage_locked()
+
+    def cleanup_finished_media(self) -> dict:
+        """Explicit action: delete uploaded sources from completed renders only.
+
+        Final MP4, subtitle, project checkpoint, and manifest are untouched.
+        A fresh snapshot under the write lock blocks racing render submissions.
+        """
+        with self.media_lock:
+            before = self._media_storage_locked()
+            deleted = []
+            reclaimed = 0
+            for batch in before["batches"]:
+                if not batch["reclaimable"]:
+                    continue
+                folder = self.upload_root / batch["id"]
+                if not self._safe_batch_directory(folder):
+                    continue
+                shutil.rmtree(folder)
+                deleted.append(batch["id"])
+                reclaimed += batch["bytes"]
+            return {"deleted_batches": deleted, "reclaimed_bytes": reclaimed,
+                    "storage": self._media_storage_locked()}
+
     def create_media_batch(self) -> str:
         with self.media_lock:
             self.upload_root.mkdir(parents=True, exist_ok=True)
-            if sum(p.is_dir() for p in self.upload_root.iterdir()) >= MAX_MEDIA_BATCHES:
-                raise ValueError("Limite de lots atteinte : supprimez un ancien import")
+            self._prune_stale_empty_media_locked()
+            if sum(self._safe_batch_directory(p) for p in self.upload_root.iterdir()) >= MAX_MEDIA_BATCHES:
+                raise ValueError("Limite de lots atteinte : nettoyez les imports terminés")
             ident = uuid4().hex
             (self.upload_root / ident).mkdir(mode=0o700)
             return ident
@@ -311,8 +424,11 @@ class Jobs:
             files = self._batch_files(directory)
             if len(files) >= MAX_MEDIA_FILES:
                 raise ValueError("Maximum 24 médias par projet")
+            # Include interrupted hidden .receiving-* files in the real
+            # capacity budget: ignoring them could exhaust Android storage.
             used = sum(p.stat().st_size for batch in self.upload_root.iterdir()
-                       if batch.is_dir() for p in self._batch_files(batch))
+                       if self._safe_batch_directory(batch)
+                       for p in batch.iterdir() if p.is_file() and not p.is_symlink())
             if used + size > MAX_MEDIA_STORAGE:
                 raise ValueError("Stockage média local plein (800 Mo maximum)")
             target = directory / f"{len(files) + 1:03d}_{name}"
@@ -562,6 +678,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                                                 "has_ollama": bool(self.server.ollama_model), "default_resolution": 360})
             if path == "/api/jobs":
                 return self.json_response(200, {"jobs": self.server.jobs.list_jobs()})
+            if path == "/api/media/storage":
+                return self.json_response(200, self.server.jobs.media_storage())
             media = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})", path)
             if media:
                 details = self.server.jobs.batch_info(media.group(1))
@@ -623,10 +741,15 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return self.json_response(200 if deleted else 404, {"deleted": deleted})
             except (ValueError, OSError) as exc:
                 return self.json_response(409, {"error": str(exc)[:250]})
-        if path not in ("/api/draft", "/api/jobs", "/api/media/batches"):
+        if path not in ("/api/draft", "/api/jobs", "/api/media/batches",
+                        "/api/media/cleanup"):
             return self.json_response(404, {"error": "Introuvable"})
         try:
             payload = self.read_json()
+            if path == "/api/media/cleanup":
+                if payload != {}:
+                    raise ValueError("Requête de nettoyage invalide")
+                return self.json_response(200, self.server.jobs.cleanup_finished_media())
             if path == "/api/media/batches":
                 if payload != {}:
                     raise ValueError("Objet de création de lot invalide")
