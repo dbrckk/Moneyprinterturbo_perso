@@ -39,6 +39,7 @@ MAX_MEDIA_BATCHES = 12
 MAX_MEDIA_STORAGE = 800 * 1024 * 1024
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
 STALE_EMPTY_BATCH_SECONDS = 24 * 60 * 60
+ABANDONED_MEDIA_SECONDS = 7 * 24 * 60 * 60
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".mp4": "video/mp4", ".srt": "application/x-subrip; charset=utf-8",
         ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
@@ -291,8 +292,9 @@ class Jobs:
                         and candidate.is_file() and not candidate.is_symlink()
                         and candidate.stat().st_mtime < cutoff):
                     candidate.unlink()
-            if ((folder / ".sealed").exists() or self._batch_files(folder)
-                    or folder.stat().st_mtime >= cutoff):
+            # Remove the directory only if it is genuinely empty. Unknown
+            # hidden files or symlinks may belong to the user.
+            if folder.stat().st_mtime >= cutoff or any(folder.iterdir()):
                 continue
             shutil.rmtree(folder)
 
@@ -325,12 +327,53 @@ class Jobs:
                 continue
         return completed
 
+    def _batch_job_references_locked(self) -> dict[str, list[str]]:
+        """Resolve source use from disk and memory, not just the last 20 jobs.
+
+        A batch without a validated on-disk reference is never treated as a
+        failed render; it can qualify only as an old, unsealed draft.
+        """
+        references: dict[str, list[str]] = {}
+        for folder in self.output_dir.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            state = folder / ".job_state.json"
+            if state.is_symlink() or not state.is_file():
+                continue
+            try:
+                if not 2 <= state.stat().st_size <= 4096:
+                    continue
+                data = json.loads(state.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or data.get("id") != folder.name:
+                    continue
+                ident = data.get("media_batch")
+                status = data.get("status")
+                if (isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident)
+                        and status in ("queued", "running", "done", "error", "cancelled")):
+                    references.setdefault(ident, []).append(status)
+            except (OSError, ValueError, UnicodeError):
+                continue
+        with self.lock:
+            for job in self.jobs.values():
+                ident = job["parameters"].get("media_batch")
+                if isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident):
+                    references.setdefault(ident, []).append(job["status"])
+        return references
+
+    @staticmethod
+    def _last_batch_change(folder: Path) -> float:
+        # A freshly updated file, even inside an old folder, prevents pruning.
+        return max([folder.stat().st_mtime] +
+                   [p.lstat().st_mtime for p in folder.iterdir()])
+
     def _media_storage_locked(self) -> dict:
         """Snapshot under media_lock -> lock; only server-owned batch paths."""
         with self.lock:
             active = {j["parameters"].get("media_batch") for j in self.jobs.values()
                       if j["status"] in ("queued", "running")}
             completed = self._finished_source_batches_locked()
+        references = self._batch_job_references_locked()
+        cutoff = time.time() - ABANDONED_MEDIA_SECONDS
         batches = []
         total = 0
         if self.upload_root.is_dir():
@@ -343,13 +386,28 @@ class Jobs:
                 count = len(self._batch_files(folder))
                 sealed = (folder / ".sealed").is_file()
                 ready = sealed and folder.name in completed and folder.name not in active
+                statuses = references.get(folder.name, [])
+                # Never remove active, completed or unclassified sealed media.
+                # A failed batch must have a recorded, *only* terminal failure.
+                abandoned_reason = None
+                if (not ready and folder.name not in active and count
+                        and self._last_batch_change(folder) < cutoff):
+                    if not sealed and not statuses:
+                        abandoned_reason = "draft"
+                    elif (sealed and statuses and
+                          all(s in ("error", "cancelled") for s in statuses)):
+                        abandoned_reason = "failed"
                 batches.append({"id": folder.name, "bytes": size, "files": count,
-                                "reclaimable": ready, "in_use": folder.name in active})
+                                "reclaimable": ready, "in_use": folder.name in active,
+                                "abandoned": bool(abandoned_reason),
+                                "abandoned_reason": abandoned_reason})
                 total += size
         return {"bytes": total, "limit_bytes": MAX_MEDIA_STORAGE,
                 "batch_count": len(batches),
                 "reclaimable_bytes": sum(b["bytes"] for b in batches if b["reclaimable"]),
                 "reclaimable_count": sum(b["reclaimable"] for b in batches),
+                "abandoned_bytes": sum(b["bytes"] for b in batches if b["abandoned"]),
+                "abandoned_count": sum(b["abandoned"] for b in batches),
                 "batches": sorted(batches, key=lambda b: b["id"])}
 
     def media_storage(self) -> dict:
@@ -368,6 +426,31 @@ class Jobs:
             reclaimed = 0
             for batch in before["batches"]:
                 if not batch["reclaimable"]:
+                    continue
+                folder = self.upload_root / batch["id"]
+                if not self._safe_batch_directory(folder):
+                    continue
+                shutil.rmtree(folder)
+                deleted.append(batch["id"])
+                reclaimed += batch["bytes"]
+            return {"deleted_batches": deleted, "reclaimed_bytes": reclaimed,
+                    "storage": self._media_storage_locked()}
+
+    def cleanup_abandoned_media(self, *, protect_batch: str = "") -> dict:
+        """Explicit, confirmed-by-client removal of unused uploads >7 days.
+
+        Never remove active render sources, finished render sources, unsealed
+        newer drafts, or any directory selected in the current browser.
+        """
+        if not isinstance(protect_batch, str) or (protect_batch and
+                not re.fullmatch(r"[a-f0-9]{32}", protect_batch)):
+            raise ValueError("Identifiant de projet protégé invalide")
+        with self.media_lock:
+            snapshot = self._media_storage_locked()
+            deleted = []
+            reclaimed = 0
+            for batch in snapshot["batches"]:
+                if not batch["abandoned"] or batch["id"] == protect_batch:
                     continue
                 folder = self.upload_root / batch["id"]
                 if not self._safe_batch_directory(folder):
@@ -742,10 +825,16 @@ class StudioHandler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 return self.json_response(409, {"error": str(exc)[:250]})
         if path not in ("/api/draft", "/api/jobs", "/api/media/batches",
-                        "/api/media/cleanup"):
+                        "/api/media/cleanup", "/api/media/cleanup-abandoned"):
             return self.json_response(404, {"error": "Introuvable"})
         try:
             payload = self.read_json()
+            if path == "/api/media/cleanup-abandoned":
+                if (not isinstance(payload, dict) or
+                        set(payload) - {"protect_batch"}):
+                    raise ValueError("Requête de nettoyage invalide")
+                return self.json_response(200, self.server.jobs.cleanup_abandoned_media(
+                    protect_batch=payload.get("protect_batch", "")))
             if path == "/api/media/cleanup":
                 if payload != {}:
                     raise ValueError("Requête de nettoyage invalide")
