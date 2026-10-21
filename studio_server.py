@@ -391,8 +391,8 @@ class Jobs:
                 ready = sealed and folder.name in completed and folder.name not in active
                 job_refs = references.get(folder.name, [])
                 statuses = [status for status, _ in job_refs]
-                last_activity = max(self._last_batch_change(folder),
-                                    *(changed for _, changed in job_refs))
+                last_activity = max([self._last_batch_change(folder)] +
+                                    [changed for _, changed in job_refs])
                 # Never remove active, completed or unclassified sealed media.
                 # A failed batch must have a recorded, *only* terminal failure.
                 abandoned_reason = None
