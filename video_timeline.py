@@ -17,7 +17,7 @@ import subprocess
 from typing import Callable
 
 from media_assets import MediaAsset
-from shot_cuts import ShotProfile, clearer_start
+from shot_cuts import ShotProfile, clearer_start, steadier_start
 
 MAX_CLIP_SEEK = 24 * 60 * 60
 
@@ -93,6 +93,10 @@ def plan_local_video_timeline(
     profiles: dict[Path, ShotProfile] = {}
     aligned: dict[Path, int] = {}
     sharpened: dict[Path, int] = {}
+    settled: dict[Path, int] = {}
+    repeated: set[Path] = set()
+    avoided: dict[Path, int] = {}
+    windows: dict[Path, list[tuple[float, float]]] = {}
     appearances = Counter(asset.file for asset in slots if asset is not None
                           and asset.kind == "video" and asset.source_url == "local")
     planned: list[MediaAsset | None] = []
@@ -189,10 +193,48 @@ def plan_local_video_timeline(
             if clearer > offset:
                 offset = clearer
                 sharpened[path] = sharpened.get(path, 0) + 1
+            else:
+                calm = steadier_start(profiles[path], offset, duration, length)
+                if calm > offset:
+                    offset = calm
+                    settled[path] = settled.get(path, 0) + 1
+        # When a local source must be reused after looping, check whether
+        # the chosen span largely replays a span already shown. Only shift
+        # when a substantially less-overlapping *forward* candidate exists;
+        # otherwise preserve the original chronological playback.
+        if previously_used and path in profiles and duration <= usable:
+            visited = windows.get(path, [])
+            def overlap(start: float) -> float:
+                return max((max(0.0, min(start + duration, end) - max(start, begin))
+                            for begin, end in visited), default=0.0)
+            existing = overlap(offset)
+            if existing >= 0.6 * duration and offset + duration <= length:
+                for advance in (0.25, 0.50, 0.75):
+                    candidate = round(offset + advance, 3)
+                    if candidate + duration > length - 0.02:
+                        break
+                    if any(offset - 0.1 <= point <= candidate + 0.1
+                           for point in cuts.get(path, [])):
+                        break
+                    if overlap(candidate) <= min(0.35 * duration, existing * 0.6):
+                        offset = candidate
+                        existing = 0.0
+                        avoided[path] = avoided.get(path, 0) + 1
+                        break
+                if existing >= 0.6 * duration:
+                    repeated.add(path)
+        if offset + duration <= length:
+            windows.setdefault(path, []).append((offset, offset + duration))
         planned.append(replace(asset, source_start_seconds=offset))
         elapsed[path] = offset - intro + duration
     for path, count in aligned.items():
         warnings.append(f"Aligned {count} scene(s) to source shot cuts in {path.name}")
     for path, count in sharpened.items():
         warnings.append(f"Moved {count} repeated scene(s) toward clearer frames in {path.name}")
+    for path, count in settled.items():
+        warnings.append(f"Avoided {count} brief visually turbulent opening(s) in {path.name}")
+    for path, count in avoided.items():
+        warnings.append(f"Reduced repeated source footage in {count} scene(s) from {path.name}")
+    for path in sorted(repeated):
+        warnings.append(f"Source footage is too short to avoid some repeated moments in {path.name}")
     return planned, warnings

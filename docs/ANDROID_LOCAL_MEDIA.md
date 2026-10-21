@@ -168,6 +168,33 @@ Elle ne reconnaît pas les sujets filmés et n'établit pas une stabilité
 professionnelle de caméra. En cas de manque de preuves ou d'échec FFmpeg,
 elle conserve exactement les points de départ déjà calculés.
 
+## Moins de secousses visuelles et de passages répétés
+
+Le même **profil vidéo local** utilisé pour les coupes et la netteté
+mesure également les changements d'image entre les échantillons. Le coût
+reste limité au scan FFmpeg existant : **4 images/s**, **96 × 54 pixels**,
+**30 secondes maximum** par clip réutilisé.
+
+- Lorsqu'une scène réutilise une vidéo, le studio peut décaler son début
+  de **0,75 seconde maximum** si une très courte agitation visuelle est
+  suivie d'au moins deux échantillons nettement plus calmes. Un mouvement
+  continu (sport, panoramique, caméra en déplacement) n'est **pas**
+  automatiquement supprimé. La détection repose sur des différences de
+  pixels, **pas sur un véritable gyroscope ou stabilisateur vidéo**.
+- En cas de retour au début d'un même clip, le moteur recherche un
+  chevauchement important avec les moments déjà utilisés. Il ne décale
+  la scène que si une courte avance peut réellement diminuer ce
+  chevauchement, sans franchir une coupe, dépasser la fin du fichier
+  ni modifier l'ordre des vidéos.
+- Si le clip ne contient simplement pas assez de matière pour plusieurs
+  scènes distinctes, le moteur **ne fabrique pas de nouvelles images** :
+  il conserve le plan et signale le risque de répétition dans le rapport.
+
+Les vrais débuts de plans détectés restent prioritaires sur les
+optimisations de netteté et d'agitation. Le comportement d'origine reste
+disponible automatiquement si les mesures sont absentes, ambiguës ou
+indisponibles. Les médias du téléphone ne sont pas envoyés dans le cloud.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
