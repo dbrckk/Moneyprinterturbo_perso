@@ -49,7 +49,11 @@ def probe_black_intro(path: Path, duration: float) -> float:
             start, end, length = (float(part) for part in match.groups())
             if (0 <= start <= 0.26 and 0.45 <= length
                     and length <= 8.0 and end > start
-                    and end <= window - 0.20
+                    # Require at least ~1s of confirmed visible
+                    # footage after the black region. FFmpeg may report
+                    # black_end at the last sampled frame on an entirely
+                    # black clip; do not mistake that EOF for a transition.
+                    and end <= window - 0.85
                     and duration - end >= 1.0):
                 return round(end, 3)
             # Never advance to a later dark scene: only the intro qualifies.
