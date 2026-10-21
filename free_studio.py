@@ -21,7 +21,7 @@ import wave
 from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
-from cinematic import build_filters, gradient_source, transition_plan
+from cinematic import build_filters, gradient_source, transition_plan, xfade_transition_spec
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
@@ -35,6 +35,7 @@ from shot_quality import probe_black_intro
 from shot_cuts import probe_shot_profile
 from exposure_match import balance_exposure, exposure_filter
 from white_balance import balance_white, white_balance_suffix
+from smart_transitions import choose_boundaries
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -299,7 +300,8 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
 
 def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
                              *, width: int, height: int, fps: int,
-                             transition: str = "cut") -> Path:
+                             transition: str = "cut",
+                             boundary_transitions: tuple[str, ...] | None = None) -> Path:
     """Compose CFR media clips, with optionally frame-accurate crossfades.
 
     Each crossfade is centered on the original narration/SRT boundary. The
@@ -310,6 +312,10 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
     if len(assets) != len(durations) or not assets:
         raise ValueError("Each scene must have exactly one media slot")
     plan = transition_plan(durations, fps=fps, transition=transition)
+    if boundary_transitions is not None and (
+            len(boundary_transitions) != len(assets) - 1 or
+            any(name not in ("cut", "fade") for name in boundary_transitions)):
+        raise ValueError("Invalid scene transition decisions")
     scenes = [
         render_scene(asset, duration, i, work, width=width, height=height, fps=fps,
                      extra_frames=plan.extra_frames[i])
@@ -330,8 +336,10 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
     previous = "[0:v]"
     for i in range(1, len(scenes)):
         current = f"[xf{i}]"
+        chosen = (boundary_transitions[i-1] if boundary_transitions is not None
+                  else transition)
         filters.append(
-            f"{previous}[{i}:v]xfade=transition={transition}:"
+            f"{previous}[{i}:v]xfade={xfade_transition_spec(chosen)}:"
             f"duration={plan.overlap_frames/fps:.6f}:"
             f"offset={plan.offset_frames[i-1]/fps:.6f}{current}"
         )
@@ -443,6 +451,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             slots, color_notices = balance_white(slots, durations)
             warnings.extend(color_notices)
         using_media = any(item is not None for item in slots)
+        boundary_transitions: tuple[str, ...] | None = None
+        if transition == "auto" and applied_transition == "fade" and using_media:
+            boundary_transitions, adaptive_notes = choose_boundaries(slots, durations)
+            warnings.extend(adaptive_notes)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         if commons:
             metrics["commons_wall_seconds"] = float(commons_stats.get("wall_seconds", 0))
@@ -453,6 +465,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # crossfades, text and subtitles in the FINAL FFmpeg graph. No temporary
         # H.264 scene clips are needed. More complex media retains tested paths.
         plan = transition_plan(durations, fps=fps, transition=applied_transition)
+        if boundary_transitions is not None and plan.overlap_frames == 0:
+            boundary_transitions = tuple("cut" for _ in range(len(slots) - 1))
         direct_abstract = bool(use_fused_xfade and not using_media and len(slots) <= 6)
         # Limit memory for simultaneous decoders, filters and animated images.
         # Two-source 1080p and up-to-four-source 720p media are validated.
@@ -468,7 +482,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                      for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
         elif not (direct_abstract or direct_media):
             video_background = prepare_media_background(slots, durations, work,
-                width=width, height=height, fps=fps, transition=applied_transition)
+                width=width, height=height, fps=fps,
+                transition=applied_transition,
+                boundary_transitions=boundary_transitions)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
@@ -483,16 +499,18 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd = build_onepass_abstract_command(
                 durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
-                audio=audio, output=staged, total=total)
+                audio=audio, output=staged, total=total,
+                boundary_transitions=boundary_transitions)
         elif direct_media:
             cmd = build_onepass_media_command(
                 slots, durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
-                audio=audio, output=staged, total=total)
+                audio=audio, output=staged, total=total,
+                boundary_transitions=boundary_transitions)
         elif fused:
             cmd = final_xfade_command(clips, plan, fps=fps,
                 transition=applied_transition, overlays=filters, audio=audio,
-                duration=total, output=staged)
+                duration=total, output=staged, boundary_transitions=boundary_transitions)
         else:
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
@@ -516,7 +534,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             warnings.append("Single-pass composition failed; using legacy FFmpeg rendering")
             retry_started = time.perf_counter()
             video_background = prepare_media_background(slots, durations, work,
-                width=width, height=height, fps=fps, transition=applied_transition)
+                width=width, height=height, fps=fps,
+                transition=applied_transition,
+                boundary_transitions=boundary_transitions)
             metrics["scene_encoding_seconds"] = round(time.perf_counter() - retry_started, 3)
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
@@ -635,7 +655,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                  if audio else None),
             "commons_fetch": commons_stats if commons else None,
             "visual_ai": visual_ai,
-            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
+            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition,
+            "scene_transitions": list(boundary_transitions) if boundary_transitions is not None else
+                                 [applied_transition if plan.overlap_frames else "cut"] * (len(slots) - 1),
+            "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (
                 "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else
                 "mixed-measured-estimated" if caption_meta and caption_meta["aligned_scenes"] else
