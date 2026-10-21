@@ -109,6 +109,19 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   un site tiers n'est pas autorisé à demander une suppression.
 - **Aucun nettoyage automatique des médias valides ou exports finaux.**
   L'utilisateur décide quand libérer la place des sources déjà montées.
+- **Anciens brouillons et rendus échoués :** le bouton
+  **Nettoyer les anciens brouillons et échecs** propose, après confirmation,
+  les imports inactifs depuis **plus de 7 jours**. Seuls les lots sans rendu
+  connu, non utilisés et non scellés, ou les lots dont *tous* les rendus
+  référencés se sont soldés par un échec/une annulation, sont concernés.
+  Le serveur consulte aussi les anciens fichiers de suivi des projets
+  (pas uniquement les vingt projets visibles).
+- Le **lot actuellement sélectionné dans l'interface** est exclu du
+  nettoyage des anciens brouillons ou échecs, même s'il dépasse sept jours.
+  Aucun média ne disparaît tant que l'utilisateur n'a pas confirmé.
+- Un lot lié à un rendu terminé, un rendu actif ou un état inconnu n'est
+  jamais considéré comme un échec sûr à effacer. La période de sept jours
+  est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
 ## Limites importantes
 
