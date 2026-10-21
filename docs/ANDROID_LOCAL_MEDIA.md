@@ -87,6 +87,29 @@ l'historique depuis les fichiers locaux au démarrage.
 - Chaque projet dispose d'un petit `.job_state.json` atomique. Ce
   checkpoint ne copie ni la narration ni les secrets d'authentification.
 
+## Gestion sécurisée de l'espace de stockage
+
+Le studio affiche maintenant l'espace réellement occupé par les imports,
+le plafond de **800 Mo** et le volume récupérable. Les fichiers
+`.receiving-*` provenant de transferts HTTP interrompus sont comptabilisés
+dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
+
+- **Automatique (sans perte d'images utilisateur) :** lors de la création
+  d'un nouveau lot, suppression des imports *vides* de plus de 24 heures et
+  des fragments temporaires de transfert âgés de plus de 24 heures.
+- **Sur confirmation uniquement :** le bouton **Libérer les imports déjà
+  montés** supprime les sources importées des projets dont le rendu est
+  **terminé** et dont le MP4 et le manifeste existent encore. Les projets
+  en attente, en cours, les imports en brouillon et ceux liés à des rendus
+  échoués sont exclus.
+- Les MP4, SRT, fichiers JSON, crédits et historiques de montage **ne sont
+  jamais supprimés par ce bouton**. Pour remonter ensuite une vidéo à partir
+  des mêmes sources, il faudra toutefois les réimporter depuis la galerie.
+- Le nettoyage est accessible seulement via l'interface locale autorisée ;
+  un site tiers n'est pas autorisé à demander une suppression.
+- **Aucun nettoyage automatique des médias valides ou exports finaux.**
+  L'utilisateur décide quand libérer la place des sources déjà montées.
+
 ## Limites importantes
 
 - Le site distant `https://dbrckk.github.io/Moneyprinterturbo_perso/`
