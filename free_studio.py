@@ -496,11 +496,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
         if direct_abstract:
+            # Abstract animated backgrounds are not source local footage.
+            # Their renderer has no adaptive scene boundaries.
             cmd = build_onepass_abstract_command(
                 durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
-                audio=audio, output=staged, total=total,
-                boundary_transitions=boundary_transitions)
+                audio=audio, output=staged, total=total)
         elif direct_media:
             cmd = build_onepass_media_command(
                 slots, durations, width=width, height=height, fps=fps,
