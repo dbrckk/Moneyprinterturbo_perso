@@ -48,8 +48,6 @@ class StabilityPlanningTests(unittest.TestCase):
         rapid = ShotProfile(motion=(80.0,) * 44)
         self.assertEqual(steadier_start(rapid, 2.6, 2.6, 9.0), 2.6)
         self.assertEqual(steadier_start(ShotProfile(), 2.6, 2.6, 9.0), 2.6)
-        self.assertEqual(steadier_start(self.turbulent_profile(), float("nan"), 2.6, 9.0),
-                         float("nan")) if False else None
         for invalid in (float("nan"), -1.0, True, "9"):
             self.assertEqual(steadier_start(rapid, 2.6, 2.6, invalid), 2.6)
 
@@ -64,6 +62,19 @@ class StabilityPlanningTests(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertIn("too short to avoid some repeated moments", notes[0])
         scan.assert_called_once_with(clip.file, 5.0)
+
+    def test_replay_is_moved_into_unseen_gap_if_it_reduces_overlap(self):
+        clip = local(Path("multi-shot.mp4"))
+        profile = ShotProfile(cuts=(1.5,))
+        durations = [0.8, 0.8, 0.8, 0.8, 1.3, 0.8]
+        timeline, messages = plan_local_video_timeline(
+            [clip] * len(durations), durations,
+            probe=lambda _: 5.0, probe_profile=lambda _p, _d: profile)
+        self.assertEqual([s.source_start_seconds for s in timeline],
+                         [0.0, 1.5, 2.3, 3.1, 3.9, 0.7])
+        self.assertTrue(any("Reduced repeated source footage" in s
+                            for s in messages), messages)
+        self.assertFalse(any("too short to avoid" in s for s in messages))
 
     def test_long_distinct_clip_never_reports_repetition(self):
         clip = local(Path("long.mp4"))
