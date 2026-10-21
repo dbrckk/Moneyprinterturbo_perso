@@ -13,6 +13,7 @@ from typing import Protocol
 from cinematic import gradient_source, transition_plan
 from scene_framing import needs_soft_matte, soft_matte_graph
 from video_timeline import source_seek_seconds
+from exposure_match import exposure_filter
 
 
 class SceneMedia(Protocol):
@@ -66,7 +67,7 @@ def build_onepass_media_command(
             cmd += ["-t", f"{runtime:.9f}", "-i", str(asset.file)]
             effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                       f"crop={width}:{height},setsar=1,"
-                      "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+                      f"{exposure_filter(asset)},format=yuv420p")
         else:
             raise ValueError("Unsupported media kind")
         # Force a known frame count, PTS origin, frame rate, pixel format and SAR

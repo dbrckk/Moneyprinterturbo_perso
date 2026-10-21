@@ -33,6 +33,7 @@ from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
 from shot_quality import probe_black_intro
 from shot_cuts import probe_shot_profile
+from exposure_match import balance_exposure, exposure_filter
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -276,7 +277,7 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
         cmd.extend(["-i", str(asset.file)])
         effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
-                  "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+                  f"{exposure_filter(asset)},format=yuv420p")
     else:
         raise ValueError("Unsupported local media kind")
     if needs_soft_matte(asset):
@@ -435,6 +436,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             probe_intro=probe_black_intro if media_dir is not None else None,
             probe_profile=probe_shot_profile if media_dir is not None else None)
         warnings.extend(clip_notices)
+        if media_dir is not None:
+            slots, exposure_notices = balance_exposure(slots, durations)
+            warnings.extend(exposure_notices)
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         if commons:
@@ -571,6 +575,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "semantic_score": asset.semantic_score,
                                "source_start_seconds": (
                                    round(source_seek_seconds(asset), 3) if asset.kind == "video" else None),
+                               "exposure_shift": (asset.exposure_shift if asset.kind == "video" else None),
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
