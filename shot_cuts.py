@@ -6,12 +6,13 @@ cuts, preserving the established chronological timeline.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 from pathlib import Path
 import subprocess
 
-_FRAME_WIDTH = 48
-_FRAME_HEIGHT = 28
+_FRAME_WIDTH = 96
+_FRAME_HEIGHT = 54
 _FRAME_BYTES = _FRAME_WIDTH * _FRAME_HEIGHT * 3
 _SAMPLE_FPS = 4
 _MAX_SECONDS = 30.0
@@ -22,16 +23,45 @@ def _change(first: bytes, second: bytes) -> float:
     return sum(abs(a - b) for a, b in zip(first, second)) / _FRAME_BYTES
 
 
-def probe_hard_cuts(path: Path, duration: float) -> list[float]:
-    """Locate clear transitions followed and preceded by stable footage.
+@dataclass(frozen=True)
+class ShotProfile:
+    """Single, bounded video decode shared by cuts and focus detection."""
+    cuts: tuple[float, ...] = ()
+    focus: tuple[float, ...] = ()
 
-    The entire analysis stays below 30 seconds, 4 fps and 48x28 RGB.
-    Multiple frames are required: moving cameras and flickers must not be
-    mistaken for reliable editorial cuts. No third-party Python packages.
+
+def _focus_energy(frame: bytes) -> float:
+    """Cheap local contrast proxy, not a general artistic-quality score."""
+    width = _FRAME_WIDTH
+    height = _FRAME_HEIGHT
+    total = 0
+    # One luminance channel avoids rewarding RGB color differences alone.
+    # Neighbor comparisons are sampled every other pixel for Android CPU.
+    for y in range(2, height - 1, 2):
+        for x in range(2, width - 1, 2):
+            index = (y * width + x) * 3
+            light = (frame[index] * 2 + frame[index + 1] * 5 +
+                     frame[index + 2]) >> 3
+            left = (frame[index - 3] * 2 + frame[index - 2] * 5 +
+                    frame[index - 1]) >> 3
+            above = (frame[index - width * 3] * 2 +
+                     frame[index - width * 3 + 1] * 5 +
+                     frame[index - width * 3 + 2]) >> 3
+            total += abs(light - left) + abs(light - above)
+    samples = len(range(2, width - 1, 2)) * len(range(2, height - 1, 2))
+    return round(total / (2 * samples), 3)
+
+
+def probe_shot_profile(path: Path, duration: float) -> ShotProfile:
+    """Inspect up to 30 seconds, decoding only 4 small frames per second.
+
+    Detect strongly separated stable shots and measure local image detail
+    with the *same* FFmpeg subprocess. No cloud calls or model weights.
     """
+    empty = ShotProfile()
     if (type(duration) not in (float, int) or
             not math.isfinite(duration) or duration < 2.0):
-        return []
+        return empty
     window = min(_MAX_SECONDS, float(duration))
     try:
         process = subprocess.run(
@@ -43,16 +73,14 @@ def probe_hard_cuts(path: Path, duration: float) -> list[float]:
             capture_output=True, timeout=18, check=True)
         raw = process.stdout
         if not raw or len(raw) % _FRAME_BYTES:
-            return []
+            return empty
         frames = [raw[i:i + _FRAME_BYTES]
                   for i in range(0, len(raw), _FRAME_BYTES)]
         if len(frames) < 5 or len(frames) > _MAX_SECONDS * _SAMPLE_FPS + 2:
-            return []
+            return empty
         changes = [_change(frames[i - 1], frames[i])
                    for i in range(1, len(frames))]
         cuts: list[float] = []
-        # A cut at frame i requires stability immediately before and after
-        # the step, and a substantial visual difference at that instant.
         for i in range(2, len(frames) - 1):
             timestamp = i / _SAMPLE_FPS
             if (changes[i - 2] <= 18.0 and
@@ -61,6 +89,47 @@ def probe_hard_cuts(path: Path, duration: float) -> list[float]:
                     0.5 <= timestamp <= window - 0.5 and
                     (not cuts or timestamp - cuts[-1] >= 0.75)):
                 cuts.append(round(timestamp, 3))
-        return cuts[:48]
+        return ShotProfile(tuple(cuts[:48]), tuple(_focus_energy(f) for f in frames))
     except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
-        return []
+        return empty
+
+
+def probe_hard_cuts(path: Path, duration: float) -> list[float]:
+    """Backwards-compatible cut-only API used by existing callers and tests."""
+    return list(probe_shot_profile(path, duration).cuts)
+
+
+def clearer_start(profile: ShotProfile, current: float, scene: float,
+                  clip_duration: float) -> float:
+    """Move at most 0.75s ahead to a sustained noticeably clearer frame.
+
+    A nearby cut is handled separately and cannot be crossed here.
+    Comparing neighboring samples within a shot reduces preference for
+    completely different backgrounds over naturally soft subject matter.
+    Never alter a start near the end of a clip or beyond the 30s sample.
+    """
+    if not isinstance(profile, ShotProfile) or len(profile.focus) < 5:
+        return current
+    if not all(math.isfinite(v) and v >= 0 for v in
+               (current, scene, clip_duration)) or scene <= 0:
+        return current
+    base = int(current * _SAMPLE_FPS + 1e-6)
+    q = profile.focus
+    if base + 1 >= len(q) or current + scene + 0.25 >= clip_duration:
+        return current
+    baseline = min(q[base], q[base + 1])
+    # Uniform darkness is handled by the separate intro detector, not by
+    # sharpness: black scenes can be intentional.
+    if baseline < 1.0:
+        return current
+    for index in range(base + 1, min(base + 4, len(q) - 1)):
+        candidate = index / _SAMPLE_FPS
+        if (candidate <= current + 0.12 or candidate - current > 0.75 or
+                candidate + scene > clip_duration - 0.02):
+            continue
+        if any(current - 0.10 <= cut <= candidate + 0.10 for cut in profile.cuts):
+            continue
+        improvement = min(q[index], q[index + 1])
+        if improvement >= baseline * 1.45 and improvement - baseline >= 1.4:
+            return round(candidate, 3)
+    return current

@@ -32,7 +32,7 @@ from publish_bundle import publish_bundle
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
 from shot_quality import probe_black_intro
-from shot_cuts import probe_hard_cuts
+from shot_cuts import probe_shot_profile
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -433,7 +433,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         slots, clip_notices = plan_local_video_timeline(
             slots, durations,
             probe_intro=probe_black_intro if media_dir is not None else None,
-            probe_cuts=probe_hard_cuts if media_dir is not None else None)
+            probe_profile=probe_shot_profile if media_dir is not None else None)
         warnings.extend(clip_notices)
         using_media = any(item is not None for item in slots)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)

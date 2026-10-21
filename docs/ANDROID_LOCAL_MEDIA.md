@@ -149,6 +149,25 @@ chronologique est conservé**. Il s'agit d'un alignement de scènes, et non
 d'une analyse sémantique du contenu. Les sources originales restent intactes.
 Le manifeste du montage indique le nombre de scènes alignées.
 
+## Choix automatique d'images plus nettes dans un clip réutilisé
+
+Lorsqu'un même clip fournit plusieurs scènes, l'analyse des coupes franches
+mesure maintenant aussi un **indicateur local de détail visuel**. Les deux
+mesures utilisent **un seul décodage FFmpeg** (96 × 54 pixels, 4 images par
+seconde, 30 secondes maximum) afin de limiter le coût sur le téléphone.
+
+Si une scène répétée commence sur des images sensiblement moins détaillées
+que les suivantes, le montage peut avancer de **0,75 seconde au maximum**
+vers deux images consécutives plus nettes. Ce déplacement est refusé s'il
+traverse une coupe franche, raccourcit la scène au-delà de la fin du fichier
+ou perturbe le premier emploi d'un clip. Les dates de capture et l'ordre des
+fichiers restent inchangés ; les fichiers originaux ne sont jamais modifiés.
+
+Cette méthode estime **les détails de l'image, pas la qualité artistique**.
+Elle ne reconnaît pas les sujets filmés et n'établit pas une stabilité
+professionnelle de caméra. En cas de manque de preuves ou d'échec FFmpeg,
+elle conserve exactement les points de départ déjà calculés.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
