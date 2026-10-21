@@ -304,6 +304,99 @@ class ServerTests(unittest.TestCase):
                 self.jobs.save_media(batch, "another.mp4", 16,
                                      io.BytesIO(b"x" * 16))
 
+    def test_abandoned_media_cleanup_protects_active_current_and_recent(self):
+        old = time.time() - 10 * 86400
+
+        def batch(sealed=False, old_file=True):
+            ident = self.jobs.create_media_batch()
+            directory = self.jobs.upload_root / ident
+            source = directory / "001_source.mp4"
+            source.write_bytes(b"original footage")
+            if sealed:
+                (directory / ".sealed").touch()
+            if old_file:
+                for child in directory.iterdir():
+                    os.utime(child, (old, old))
+                os.utime(directory, (old, old))
+            return ident, directory
+
+        old_draft, draft_dir = batch()
+        selected_draft, selected_dir = batch()
+        recent_draft, recent_dir = batch(old_file=False)
+        old_failed, failed_dir = batch(sealed=True)
+        recent_failed, recent_failed_dir = batch(sealed=True)
+        unknown_sealed, unknown_sealed_dir = batch(sealed=True)
+        done_id, done_dir = batch(sealed=True)
+        active_id, active_dir = batch(sealed=True)
+
+        def checkpoint(ident, suffix, status, *, old_state):
+            job_id = suffix * 32
+            record = {"id": job_id, "created": 100, "finished": 101,
+                      "status": status, "error": None, "metadata": None,
+                      "parameters": {"topic": "Montage test", "resolution": 360,
+                                     "media_batch": ident}}
+            self.jobs._checkpoint(record)
+            if old_state:
+                state_file = self.jobs.output_dir / job_id / ".job_state.json"
+                os.utime(state_file, (old, old))
+            return record
+
+        # Old references must be found even when evicted from in-memory history.
+        checkpoint(old_failed, "a", "error", old_state=True)
+        checkpoint(recent_failed, "b", "error", old_state=False)
+        checkpoint(done_id, "c", "done", old_state=True)
+        active = checkpoint(active_id, "d", "queued", old_state=True)
+        self.jobs.jobs[active["id"]] = active
+
+        stats = self.jobs.media_storage()
+        eligible = {p["id"] for p in stats["batches"] if p["abandoned"]}
+        self.assertEqual(eligible, {old_draft, selected_draft, old_failed})
+        self.assertEqual(stats["abandoned_count"], 3)
+        self.assertEqual(sum(p["bytes"] for p in stats["batches"]),
+                         stats["bytes"])
+
+        status, _, body = self.request("GET", "/api/media/storage")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["abandoned_count"], 3)
+        status, _, body = self.request("POST", "/api/media/cleanup-abandoned",
+                                       {"protect_batch": "invalid"})
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("POST", "/api/media/cleanup-abandoned",
+                                    {"unapproved": True})
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("POST", "/api/media/cleanup-abandoned", {},
+                                    headers={"Authorization": "Bearer invalid"})
+        self.assertEqual(status, 401)
+        status, _, _ = self.request("POST", "/api/media/cleanup-abandoned", {},
+                                    headers={"Origin": "https://attacker.example"})
+        self.assertEqual(status, 403)
+
+        status, _, data = self.request("POST", "/api/media/cleanup-abandoned",
+                                      {"protect_batch": selected_draft})
+        self.assertEqual(status, 200, data)
+        deleted = json.loads(data)
+        self.assertEqual(set(deleted["deleted_batches"]), {old_draft, old_failed})
+        self.assertFalse(draft_dir.exists())
+        self.assertFalse(failed_dir.exists())
+        for directory in (selected_dir, recent_dir, recent_failed_dir,
+                          unknown_sealed_dir, done_dir, active_dir):
+            self.assertTrue(directory.is_dir())
+            self.assertTrue((directory / "001_source.mp4").is_file())
+        self.assertEqual(self.jobs.media_storage()["abandoned_count"], 1)
+        self.assertEqual(self.jobs.cleanup_abandoned_media(
+            protect_batch=selected_draft)["deleted_batches"], [])
+        self.assertTrue(selected_dir.exists())
+
+    def test_hidden_user_content_blocks_automatic_empty_batch_prune(self):
+        batch = self.jobs.create_media_batch()
+        directory = self.jobs.upload_root / batch
+        (directory / ".notes").write_text("do not remove", encoding="utf-8")
+        old = time.time() - 10 * 86400
+        os.utime(directory / ".notes", (old, old))
+        os.utime(directory, (old, old))
+        self.jobs.create_media_batch()
+        self.assertTrue((directory / ".notes").exists())
+
     def test_ui_security_and_draft(self):
         status, headers, payload = self.request("GET", "/")
         self.assertEqual(status, 200)
