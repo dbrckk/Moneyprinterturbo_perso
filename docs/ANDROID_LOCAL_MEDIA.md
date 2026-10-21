@@ -46,13 +46,30 @@ considéré comme import réussi). Taille maximale : **350 Mo par vidéo**,
 **18 Mo par image**, **800 Mo au total** pour les médias importés dans
 l'installation, au plus **12 lots** avant nettoyage.
 
-Le navigateur classe les fichiers avec des nombres comme
-`clip1.mp4`, `clip2.mp4`, `clip10.mp4`, puis le serveur préfixe
-`001_`, `002_`, etc. Le moteur réutilise les clips dans leur ordre
-avec une position de lecture progressive lorsqu'une même vidéo couvre
-plusieurs scènes. **Ce classement n'analyse pas le sens des événements ni
-les vraies dates de capture.** Renommer les clips pour imposer un ordre reste
-possible.
+L'import commence par classer naturellement les fichiers numérotés
+(`clip1.mp4`, `clip2.mp4`, `clip10.mp4`) ; le serveur préfixe
+`001_`, `002_`, etc. Le moteur cherche ensuite les **dates de capture
+intégrées** aux vidéos (tags FFprobe `creation_time` / QuickTime
+`creationdate`) et aux photos **JPEG** (`DateTimeOriginal` EXIF).
+
+Lorsque **tous les médias d'un lot** disposent de dates valides et
+comparables, leurs scènes sont classées par date de capture croissante.
+Si un fichier n'a pas de date, si les formats ne sont pas pris en charge
+(PNG/WebP n'ont pas encore de lecture de date EXIF ici), si une date paraît
+invalide ou si certaines dates JPEG n'ont pas de fuseau alors que d'autres
+sont en UTC, le moteur **conserve entièrement l'ordre des fichiers** :
+aucun classement chronologique partiel ne risque de mélanger les plans.
+
+L'interface indique si le montage utilise « dates de capture » ou « noms
+des fichiers ». **Ce n'est pas une analyse visuelle du contenu** : deux
+enregistrements portant la mauvaise horloge ou des métadonnées modifiées
+peuvent toujours induire un ordre incorrect. Le fonctionnement est gratuit,
+sans IA cloud ni transfert des médias privés.
+
+Lorsqu'une vidéo remplit plusieurs scènes, la lecture reprend à une
+position progressive. Pour imposer un ordre manuel, donner des noms
+numérotés aux clips et éviter des dates de capture contradictoires (le
+tri temporel vérifié prévaut si toutes les dates sont disponibles).
 
 Les fichiers importés vivent dans `outputs/web/_uploaded_media/`.
 Chaque import appartient à un lot distinct. Un lot est figé dès qu'un
