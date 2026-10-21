@@ -50,6 +50,8 @@ class MediaAsset:
     source_start_seconds: float = 0.0
     # Bounded, optional local clip-to-clip exposure adjustment (FFmpeg eq).
     exposure_shift: float = 0.0
+    # Small optional RGB gains derived from neutral-looking phone footage.
+    white_balance_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
