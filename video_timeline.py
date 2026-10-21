@@ -62,10 +62,13 @@ def probe_clip_duration(path: Path) -> float:
 def plan_local_video_timeline(
     slots: list[MediaAsset | None], durations: list[float], *,
     probe: Callable[[Path], float] = probe_clip_duration,
+    probe_intro: Callable[[Path, float], float] | None = None,
 ) -> tuple[list[MediaAsset | None], list[str]]:
     """Assign advancing source seek times in narration scene order.
 
-    A file is probed once, even when reused many times. For a short source,
+    A file is probed once, even when reused many times. The optional
+    near-black intro check is also cached per distinct local video.
+    For a short source,
     start times wrap at the source duration rather than asking FFmpeg to seek
     beyond EOF. Failed metadata probes preserve the original beginning for
     that clip, without blocking unrelated media.
@@ -77,6 +80,7 @@ def plan_local_video_timeline(
         raise ValueError("Invalid narration timeline")
     elapsed: dict[Path, float] = {}
     lengths: dict[Path, float | None] = {}
+    openings: dict[Path, float] = {}
     planned: list[MediaAsset | None] = []
     warnings: list[str] = []
     for asset, duration in zip(slots, durations, strict=True):
@@ -91,6 +95,20 @@ def plan_local_video_timeline(
                         or not math.isfinite(length) or not 0.1 <= length <= MAX_CLIP_SEEK):
                     raise ValueError("Invalid source clip duration")
                 lengths[path] = float(length)
+                if probe_intro is not None:
+                    try:
+                        leading = probe_intro(path, float(length))
+                        if (isinstance(leading, bool) or
+                                not isinstance(leading, (float, int)) or
+                                not math.isfinite(leading) or
+                                not 0 <= leading <= min(8.0, length - 1.0)):
+                            leading = 0.0
+                        openings[path] = float(leading)
+                        if leading >= 0.45:
+                            warnings.append(
+                                f"Skipped {leading:.2f}s near-black opening in {path.name}")
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        openings[path] = 0.0
             except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError,
                     subprocess.TimeoutExpired):
                 lengths[path] = None
@@ -103,9 +121,15 @@ def plan_local_video_timeline(
         # Actual narration durations, not crossfade extension frames, advance
         # the source cursor. The slight xfade overlap stays frame-accurate.
         cursor = elapsed.get(path, 0.0)
-        offset = round(cursor % length, 3)
+        intro = openings.get(path, 0.0)
+        usable = length - intro
+        offset = round(intro + cursor % usable, 3)
         if offset >= length:
-            offset = 0.0
+            offset = intro
+        # When a source has a black opening, avoid looping back through it
+        # inside a scene (FFmpeg stream_loop restarts at t=0).
+        if intro and duration <= usable and offset + duration > length:
+            offset = intro
         planned.append(replace(asset, source_start_seconds=offset))
         elapsed[path] = cursor + duration
     return planned, warnings
