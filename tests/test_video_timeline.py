@@ -153,7 +153,9 @@ class RealTimelineVideoTests(unittest.TestCase):
                         fps=12, caption_style="classic", transition="cut",
                         use_media_onepass=use_onepass)
                     offsets = [m["source_start_seconds"] for m in info["media"]]
-                    self.assertEqual(offsets, [0.0, 2.6, 5.2])
+                    # Real color changes at 3s and 6s: the source now
+                    # starts repeated scenes at those editorial boundaries.
+                    self.assertEqual(offsets, [0.0, 3.0, 6.0])
                     expected = ("direct-media-onepass" if use_onepass else "cut-concat")
                     self.assertEqual(
                         info["render_performance"]["compositing_pipeline"], expected)
