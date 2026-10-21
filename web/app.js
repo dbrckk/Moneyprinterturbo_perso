@@ -195,6 +195,13 @@
     } catch (err) { showError(err); }
     finally { await refreshStorage().catch(() => {}); }
   });
+  // On Android, selecting clips is enough: import starts immediately.
+  // Keep the button as an explicit retry for flaky connections.
+  $('media-files').addEventListener('change', () => {
+    if ($('media-files').files.length && !$('upload-media').disabled) {
+      $('upload-media').click();
+    }
+  });
   $('upload-media').addEventListener('click', async () => {
     showError(null);
     const files = [...$('media-files').files].sort((a, b) =>
@@ -209,6 +216,7 @@
       showError('Le projet dépasse 800 Mo de médias.'); return;
     }
     const button = $('upload-media'); button.disabled = true;
+    $('media-files').disabled = true;
     let batch = '';
     try {
       const created = await post('/api/media/batches', {});
@@ -241,6 +249,7 @@
       showError(err);
     } finally {
       button.disabled = false;
+      $('media-files').disabled = false;
       refreshStorage().catch(() => {});
     }
   });
