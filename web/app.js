@@ -236,8 +236,12 @@
       rememberMediaBatch(batch);
       $('visuals').value = 'local';
       $('delete-media').hidden = false;
+      const plan = await json(`/api/media/batches/${batch}`);
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
-                'Ordre numérique des fichiers respecté. Aucune vidéo envoyée à GitHub.');
+                (plan.ordering === 'capture'
+                  ? 'Ordre chronologique établi à partir des dates de capture intégrées.'
+                  : 'Dates de capture absentes, ambiguës ou incomplètes : ordre des noms conservé.') +
+                ' Aucune vidéo envoyée à GitHub.');
       if (previous && previous !== batch) {
         post(`/api/media/batches/${previous}/delete`, {})
           .finally(() => refreshStorage().catch(() => {})).catch(() => {});
@@ -283,7 +287,10 @@
           if (existing.files?.length) {
             $('visuals').value = 'local';
             $('delete-media').hidden = false;
-            mediaNote(`${existing.files.length} média(s) retrouvé(s) après recharge de la page.`);
+            mediaNote(`${existing.files.length} média(s) retrouvé(s) après recharge de la page. ` +
+              (existing.ordering === 'capture'
+                ? 'Tri selon les dates de capture.'
+                : 'Tri selon les noms de fichiers.'));
           } else {
             state.media_batch = '';
             rememberMediaBatch('');
