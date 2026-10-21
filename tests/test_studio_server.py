@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from http.client import HTTPConnection
+import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from studio_server import Jobs, StudioServer, validate_draft
 
@@ -185,6 +188,121 @@ class ServerTests(unittest.TestCase):
                               "media_batch": batch, "tts": "piper", "mute": False})
         self.assertFalse((folder / ".sealed").exists())
         self.assertFalse(self.jobs.running)
+
+    def test_media_storage_and_cleanup_keep_final_exports(self):
+        batch_done = self.jobs.create_media_batch()
+        completed_folder = self.jobs.upload_root / batch_done
+        (completed_folder / "001_phone.mp4").write_bytes(b"media-source" * 30)
+        (completed_folder / ".sealed").touch()
+
+        job_id = "c" * 32
+        job_dir = self.jobs.output_dir / job_id
+        saved = {"id": job_id, "created": 100, "finished": 101,
+                 "status": "done", "error": None, "metadata": None,
+                 "parameters": {"topic": "Vidéo finale", "resolution": 360,
+                                "media_batch": batch_done}}
+        self.jobs._checkpoint(saved)
+        # A completed checkpoint without deliverable files is not enough to
+        # destroy the source footage, even on an explicit cleanup request.
+        self.assertEqual(self.jobs.media_storage()["reclaimable_count"], 0)
+        (job_dir / "video.mp4").write_bytes(b"ftyp" + b"X" * 1600)
+        (job_dir / "video.json").write_text('{"segments": [1]}', encoding="utf-8")
+
+        batch_draft = self.jobs.create_media_batch()
+        draft_dir = self.jobs.upload_root / batch_draft
+        (draft_dir / "001_saved.mp4").write_bytes(b"keep me")
+        batch_error = self.jobs.create_media_batch()
+        error_dir = self.jobs.upload_root / batch_error
+        (error_dir / "001_error.mp4").write_bytes(b"keep failed footage")
+        (error_dir / ".sealed").touch()
+        batch_active = self.jobs.create_media_batch()
+        active_dir = self.jobs.upload_root / batch_active
+        (active_dir / "001_active.mp4").write_bytes(b"keep rendering")
+        (active_dir / ".sealed").touch()
+        active_job_id = "d" * 32
+        active = {"id": active_job_id, "created": 102, "finished": None,
+                  "status": "queued", "error": None, "metadata": None,
+                  "parameters": {"topic": "En cours", "resolution": 360,
+                                 "media_batch": batch_active}}
+        self.jobs.jobs[active_job_id] = active
+
+        usage = self.jobs.media_storage()
+        self.assertEqual(usage["batch_count"], 4)
+        self.assertEqual(usage["reclaimable_count"], 1)
+        self.assertGreater(usage["reclaimable_bytes"], 0)
+        status, _, response = self.request("GET", "/api/media/storage")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(response)["reclaimable_count"], 1)
+
+        status, _, response = self.request("POST", "/api/media/cleanup",
+                                           {"confirm": True})
+        self.assertEqual(status, 400)
+        self.assertTrue(completed_folder.exists())
+        status, _, response = self.request("POST", "/api/media/cleanup", {})
+        self.assertEqual(status, 200, response)
+        result = json.loads(response)
+        self.assertEqual(result["deleted_batches"], [batch_done])
+        self.assertFalse(completed_folder.exists())
+        self.assertEqual(result["storage"]["reclaimable_count"], 0)
+        self.assertTrue(draft_dir.exists())
+        self.assertTrue(error_dir.exists())
+        self.assertTrue(active_dir.exists())
+        self.assertTrue((job_dir / "video.mp4").exists())
+        self.assertTrue((job_dir / "video.json").exists())
+        status, _, _ = self.request("POST", "/api/media/cleanup", {})
+        self.assertEqual(status, 200)
+        status, _, _ = self.request("GET", "/api/media/storage",
+                                    headers={"Authorization": "Bearer invalid"})
+        self.assertEqual(status, 401)
+        status, _, _ = self.request("POST", "/api/media/cleanup", {},
+                                    headers={"Origin": "https://example.evil"})
+        self.assertEqual(status, 403)
+
+    def test_prune_abandoned_empty_uploads_only(self):
+        empty_batch = self.jobs.create_media_batch()
+        folder_empty = self.jobs.upload_root / empty_batch
+        old = time.time() - 2 * 86400
+        os.utime(folder_empty, (old, old))
+
+        protected = self.jobs.create_media_batch()
+        protected_dir = self.jobs.upload_root / protected
+        (protected_dir / "001_keep.jpg").write_bytes(b"USER PHOTO")
+        os.utime(protected_dir, (old, old))
+
+        sealed = self.jobs.create_media_batch()
+        sealed_dir = self.jobs.upload_root / sealed
+        (sealed_dir / ".sealed").touch()
+        os.utime(sealed_dir, (old, old))
+
+        interrupted = self.jobs.create_media_batch()
+        partial_dir = self.jobs.upload_root / interrupted
+        partial = partial_dir / ".receiving-stuck.mp4"
+        partial.write_bytes(b"partial")
+        os.utime(partial, (old, old))
+        (partial_dir / "001_keep.mp4").write_bytes(b"USER VIDEO")
+        os.utime(partial_dir, (old, old))
+
+        fresh = self.jobs.create_media_batch()
+        fresh_dir = self.jobs.upload_root / fresh
+        self.jobs.create_media_batch()
+        self.assertFalse(folder_empty.exists())
+        self.assertTrue(protected_dir.exists())
+        self.assertTrue((protected_dir / "001_keep.jpg").exists())
+        self.assertTrue(sealed_dir.exists())
+        self.assertTrue(fresh_dir.exists())
+        self.assertFalse(partial.exists())
+        self.assertTrue((partial_dir / "001_keep.mp4").exists())
+
+    def test_storage_capacity_counts_interrupted_temporary_media(self):
+        batch = self.jobs.create_media_batch()
+        folder = self.jobs.upload_root / batch
+        (folder / ".receiving-stuck.mp4").write_bytes(b"X" * 32)
+        with patch("studio_server.MAX_MEDIA_STORAGE", 40):
+            info = self.jobs.media_storage()
+            self.assertEqual(info["bytes"], 32)
+            with self.assertRaisesRegex(ValueError, "Stockage média local plein"):
+                self.jobs.save_media(batch, "another.mp4", 16,
+                                     io.BytesIO(b"x" * 16))
 
     def test_ui_security_and_draft(self):
         status, headers, payload = self.request("GET", "/")
