@@ -327,13 +327,13 @@ class Jobs:
                 continue
         return completed
 
-    def _batch_job_references_locked(self) -> dict[str, list[str]]:
+    def _batch_job_references_locked(self) -> dict[str, list[tuple[str, float]]]:
         """Resolve source use from disk and memory, not just the last 20 jobs.
 
         A batch without a validated on-disk reference is never treated as a
         failed render; it can qualify only as an old, unsealed draft.
         """
-        references: dict[str, list[str]] = {}
+        references: dict[str, list[tuple[str, float]]] = {}
         for folder in self.output_dir.iterdir():
             if not self._safe_batch_directory(folder):
                 continue
@@ -350,14 +350,17 @@ class Jobs:
                 status = data.get("status")
                 if (isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident)
                         and status in ("queued", "running", "done", "error", "cancelled")):
-                    references.setdefault(ident, []).append(status)
+                    references.setdefault(ident, []).append((status, state.stat().st_mtime))
             except (OSError, ValueError, UnicodeError):
                 continue
         with self.lock:
             for job in self.jobs.values():
                 ident = job["parameters"].get("media_batch")
                 if isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident):
-                    references.setdefault(ident, []).append(job["status"])
+                    checkpoint = self.output_dir / job["id"] / ".job_state.json"
+                    last_change = (checkpoint.stat().st_mtime if checkpoint.is_file()
+                                   and not checkpoint.is_symlink() else time.time())
+                    references.setdefault(ident, []).append((job["status"], last_change))
         return references
 
     @staticmethod
@@ -386,12 +389,15 @@ class Jobs:
                 count = len(self._batch_files(folder))
                 sealed = (folder / ".sealed").is_file()
                 ready = sealed and folder.name in completed and folder.name not in active
-                statuses = references.get(folder.name, [])
+                job_refs = references.get(folder.name, [])
+                statuses = [status for status, _ in job_refs]
+                last_activity = max(self._last_batch_change(folder),
+                                    *(changed for _, changed in job_refs))
                 # Never remove active, completed or unclassified sealed media.
                 # A failed batch must have a recorded, *only* terminal failure.
                 abandoned_reason = None
                 if (not ready and folder.name not in active and count
-                        and self._last_batch_change(folder) < cutoff):
+                        and last_activity < cutoff):
                     if not sealed and not statuses:
                         abandoned_reason = "draft"
                     elif (sealed and statuses and
