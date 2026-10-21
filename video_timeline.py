@@ -8,6 +8,7 @@ Local clip audio remains disabled in favour of the narrated soundtrack.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
 import json
 import math
@@ -63,11 +64,16 @@ def plan_local_video_timeline(
     slots: list[MediaAsset | None], durations: list[float], *,
     probe: Callable[[Path], float] = probe_clip_duration,
     probe_intro: Callable[[Path, float], float] | None = None,
+    probe_cuts: Callable[[Path, float], list[float]] | None = None,
 ) -> tuple[list[MediaAsset | None], list[str]]:
     """Assign advancing source seek times in narration scene order.
 
     A file is probed once, even when reused many times. The optional
     near-black intro check is also cached per distinct local video.
+    When optional high-confidence hard cuts are available, reused footage
+    can start up to 0.85 seconds later at a real shot boundary, rather than
+    arbitrarily in the middle of a camera shot. The seek cursor advances
+    from the chosen boundary; it never reverses the order of source events.
     For a short source,
     start times wrap at the source duration rather than asking FFmpeg to seek
     beyond EOF. Failed metadata probes preserve the original beginning for
@@ -81,6 +87,10 @@ def plan_local_video_timeline(
     elapsed: dict[Path, float] = {}
     lengths: dict[Path, float | None] = {}
     openings: dict[Path, float] = {}
+    cuts: dict[Path, list[float]] = {}
+    aligned: dict[Path, int] = {}
+    appearances = Counter(asset.file for asset in slots if asset is not None
+                          and asset.kind == "video" and asset.source_url == "local")
     planned: list[MediaAsset | None] = []
     warnings: list[str] = []
     for asset, duration in zip(slots, durations, strict=True):
@@ -95,6 +105,18 @@ def plan_local_video_timeline(
                         or not math.isfinite(length) or not 0.1 <= length <= MAX_CLIP_SEEK):
                     raise ValueError("Invalid source clip duration")
                 lengths[path] = float(length)
+                # Shot analysis is only worthwhile when the same source must
+                # supply multiple scenes. One FFmpeg probe per distinct clip.
+                if probe_cuts is not None and appearances[path] > 1:
+                    try:
+                        found = probe_cuts(path, float(length))
+                        if not isinstance(found, list) or len(found) > 128:
+                            raise ValueError("Invalid shot boundary list")
+                        cuts[path] = sorted({float(point) for point in found
+                            if type(point) in (float, int) and math.isfinite(point)
+                            and 0.5 <= point < float(length)})
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        cuts[path] = []
                 if probe_intro is not None:
                     try:
                         leading = probe_intro(path, float(length))
@@ -120,6 +142,7 @@ def plan_local_video_timeline(
             continue
         # Actual narration durations, not crossfade extension frames, advance
         # the source cursor. The slight xfade overlap stays frame-accurate.
+        previously_used = path in elapsed
         cursor = elapsed.get(path, 0.0)
         intro = openings.get(path, 0.0)
         usable = length - intro
@@ -130,6 +153,18 @@ def plan_local_video_timeline(
         # inside a scene (FFmpeg stream_loop restarts at t=0).
         if intro and duration <= usable and offset + duration > length:
             offset = intro
+        # Never jump ahead to a shot boundary on the first use of a clip.
+        # On later scenes, align only to a nearby future change and only if
+        # the complete narration scene still fits before video EOF.
+        if previously_used and offset + duration <= length and path in cuts:
+            chosen = next((point for point in cuts[path]
+                           if offset + 0.08 <= point <= offset + 0.85
+                           and point + duration <= length - 0.02), None)
+            if chosen is not None:
+                offset = round(chosen, 3)
+                aligned[path] = aligned.get(path, 0) + 1
         planned.append(replace(asset, source_start_seconds=offset))
-        elapsed[path] = cursor + duration
+        elapsed[path] = offset - intro + duration
+    for path, count in aligned.items():
+        warnings.append(f"Aligned {count} scene(s) to source shot cuts in {path.name}")
     return planned, warnings
