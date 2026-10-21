@@ -126,6 +126,29 @@ volontairement presque noire peut être reconnue comme une introduction
 technique. Le classement par date de capture demeure inchangé, et les
 fichiers originaux sont **jamais modifiés**.
 
+## Alignement automatique sur les vrais changements de plans
+
+Quand **une même vidéo** est réutilisée pour plusieurs scènes de narration,
+MoneyPrinter effectue maintenant une reconnaissance **légère des coupes
+franches** : FFmpeg examine au maximum les **30 premières secondes** du clip,
+à **4 images/s**, sur des images réduites à **48 × 28 pixels**. Deux plans
+stables séparés par un changement visuel suffisamment marqué fournissent
+un indice de coupe, sans IA cloud ni envoi de vidéos.
+
+Au lieu de commencer systématiquement la scène suivante au milieu d'un
+plan, le moteur peut décaler son départ vers une coupe identifiée au plus
+**0,85 seconde plus loin**. Il ne recule pas dans l'enregistrement et ne
+choisit pas une coupe si elle empêche de lire la scène complète avant la
+fin du fichier. Le premier emploi d'un clip conserve son début (sauf si
+l'introduction noire a été préalablement identifiée).
+
+Les transitions faibles, fondus, mouvements de caméra et événements filmés
+restent difficiles à caractériser. Le mécanisme est volontairement prudent :
+sans coupe assez fiable ou en cas d'échec de FFmpeg, **l'ancien montage
+chronologique est conservé**. Il s'agit d'un alignement de scènes, et non
+d'une analyse sémantique du contenu. Les sources originales restent intactes.
+Le manifeste du montage indique le nombre de scènes alignées.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
