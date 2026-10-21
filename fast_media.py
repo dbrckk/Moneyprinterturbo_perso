@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 from typing import Protocol
 
-from cinematic import gradient_source, transition_plan
+from cinematic import gradient_source, transition_plan, xfade_transition_spec
 from scene_framing import needs_soft_matte, soft_matte_graph
 from video_timeline import source_seek_seconds
 from exposure_match import exposure_filter
@@ -26,6 +26,7 @@ def build_onepass_media_command(
     assets: list[SceneMedia | None], durations: list[float], *,
     width: int, height: int, fps: int, transition: str,
     visual_filters: list[str], audio: Path | None, output: Path, total: float,
+    boundary_transitions: tuple[str, ...] | None = None,
 ) -> list[str]:
     """Build a bounded filter graph with only one H.264 encode.
 
@@ -45,6 +46,10 @@ def build_onepass_media_command(
     if not math.isfinite(total) or abs(total - sum(durations)) > .02:
         raise ValueError("Narration and scene timeline disagree")
     plan = transition_plan(durations, fps=fps, transition=transition)
+    if boundary_transitions is not None:
+        if (len(boundary_transitions) != len(assets) - 1 or
+                any(name not in ("cut", "fade") for name in boundary_transitions)):
+            raise ValueError("Invalid adaptive boundary list")
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-filter_complex_threads", "1"]
     graph: list[str] = []
     for i, asset in enumerate(assets):
@@ -88,7 +93,9 @@ def build_onepass_media_command(
         if plan.overlap_frames:
             for i in range(1, len(assets)):
                 result = f"[xf{i}]"
-                graph.append(f"{last}[s{i}]xfade=transition={transition}:"
+                chosen = (boundary_transitions[i-1] if boundary_transitions is not None
+                          else transition)
+                graph.append(f"{last}[s{i}]xfade={xfade_transition_spec(chosen)}:"
                              f"duration={plan.overlap_frames/fps:.9f}:"
                              f"offset={plan.offset_frames[i-1]/fps:.9f}{result}")
                 last = result

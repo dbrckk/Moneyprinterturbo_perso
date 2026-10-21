@@ -248,6 +248,35 @@ fonction. Il ne s'agit ni d'un étalonnage professionnel ni d'un contrôle
 de la colorimétrie HDR ; un coucher de soleil volontairement chaud peut
 rester inchangé. Les fichiers originaux restent intacts, sans cloud.
 
+## Transitions intelligentes entre plans locaux
+
+Le mode `--transition auto` (style cinématique) décide maintenant
+**pour chaque frontière entre deux vidéos locales** si une coupe nette
+ou un fondu convient le mieux, sans modifier l'ordre du montage.
+Il lit seulement deux petites images de 48 × 27 pixels autour de chaque
+frontière. Les plans à l'apparence globale proche ou les prises d'un
+même enregistrement qui se suivent immédiatement peuvent être assemblés
+par une coupe. Sinon, le fondu reste utilisé.
+
+L'analyse est limitée à **8 frontières** (jusqu'à 9 scènes) afin de
+protéger les ressources Android. Une lecture FFmpeg impossible, une
+image excessivement sombre, des médias téléchargés, des photos, une
+transition explicitement choisie (`cut`, `fade`, `wipeleft`)
+ou une séquence très courte conservent les réglages existants.
+Le style classique automatique conserve ses coupes traditionnelles.
+
+La coupe utilise une transition FFmpeg de type `custom`, centrée
+sur la frontière de narration : **aucune suppression de durée, aucun
+décalage des sous-titres ou de la voix**. La même logique est appliquée
+dans le moteur rapide à encodage unique, le chemin cinématique
+intermédiaire et le mode de secours classique.
+
+Le manifeste JSON du MP4 contient désormais `scene_transitions` :
+une entrée (`cut` ou `fade`) pour chacune des frontières réelles.
+Ce choix examine la ressemblance visuelle générale, pas le sens
+de l'action filmée ; il ne prétend pas remplacer le jugement artistique
+d'un monteur professionnel.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,

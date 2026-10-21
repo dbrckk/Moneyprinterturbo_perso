@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 from typing import Protocol
 
+from cinematic import xfade_transition_spec
+
 class FramePlan(Protocol):
     total_frames: int
     overlap_frames: int
@@ -16,7 +18,8 @@ class FramePlan(Protocol):
 def final_xfade_command(scenes: list[Path], plan: FramePlan, *, fps: int,
                         transition: str, overlays: list[str],
                         duration: float, output: Path, audio: Path | None = None,
-                        preset: str = "veryfast", crf: int = 23) -> list[str]:
+                        preset: str = "veryfast", crf: int = 23,
+                        boundary_transitions: tuple[str, ...] | None = None) -> list[str]:
     """Build the no-shell FFmpeg command with a single output encode."""
     if transition not in {"fade", "wipeleft"}:
         raise ValueError("Only real crossfades use the single-pass pipeline")
@@ -26,6 +29,12 @@ def final_xfade_command(scenes: list[Path], plan: FramePlan, *, fps: int,
         raise ValueError("No valid even-frame overlap")
     if len(plan.offset_frames) != len(scenes) - 1:
         raise ValueError("Transition offsets do not match scenes")
+    if boundary_transitions is not None:
+        if len(boundary_transitions) != len(scenes) - 1:
+            raise ValueError("Boundary transition count mismatch")
+        for chosen in boundary_transitions:
+            if chosen not in ("cut", "fade"):
+                raise ValueError("Invalid adaptive scene transition")
     if (not math.isfinite(duration) or duration <= 0 or
             abs(plan.total_frames / fps - duration) > 1 / fps + 1e-6):
         raise ValueError("Narration length differs from frame timeline")
@@ -45,7 +54,9 @@ def final_xfade_command(scenes: list[Path], plan: FramePlan, *, fps: int,
     previous = "[0:v]"
     for index in range(1,len(scenes)):
         label = f"[xf{index}]"
-        clauses.append(f"{previous}[{index}:v]xfade=transition={transition}:"
+        selected = (boundary_transitions[index - 1] if boundary_transitions is not None
+                    else transition)
+        clauses.append(f"{previous}[{index}:v]xfade={xfade_transition_spec(selected)}:"
                        f"duration={plan.overlap_frames/fps:.6f}:"
                        f"offset={plan.offset_frames[index-1]/fps:.6f}{label}")
         previous = label
