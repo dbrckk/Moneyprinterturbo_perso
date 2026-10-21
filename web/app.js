@@ -135,6 +135,43 @@
   }
   const collator = new Intl.Collator('fr', {numeric: true, sensitivity: 'base'});
   function mediaNote(value) { $('media-note').textContent = value; }
+  function megabytes(size) { return (size / (1024 * 1024)).toLocaleString('fr-FR', {
+    maximumFractionDigits: 1
+  }) + ' Mo'; }
+  async function refreshStorage() {
+    const usage = await json('/api/media/storage');
+    $('storage-stats').textContent = 'Imports : ' + megabytes(usage.bytes) +
+      ' / ' + megabytes(usage.limit_bytes) +
+      ' · ' + usage.batch_count + ' lot(s) · ' +
+      megabytes(usage.reclaimable_bytes) + ' récupérables.';
+    $('clean-media').disabled = !usage.reclaimable_count;
+    return usage;
+  }
+  $('clean-media').addEventListener('click', async () => {
+    showError(null);
+    const btn = $('clean-media');
+    btn.disabled = true;
+    try {
+      const snapshot = await refreshStorage();
+      if (!snapshot.reclaimable_count) return;
+      if (!window.confirm('Supprimer les médias importés de ' +
+        snapshot.reclaimable_count + ' montage(s) terminés (' +
+        megabytes(snapshot.reclaimable_bytes) + ') ? ' +
+        'Les MP4 finaux et leurs sous-titres seront conservés.')) return;
+      const result = await post('/api/media/cleanup', {});
+      if (result.deleted_batches.includes(state.media_batch)) {
+        state.media_batch = '';
+        rememberMediaBatch('');
+        $('delete-media').hidden = true;
+        $('media-files').value = '';
+        if (!state.has_local_dir) $('visuals').value = 'commons';
+      }
+      mediaNote('Nettoyage terminé : ' + megabytes(result.reclaimed_bytes) +
+        ' récupérés, ' + result.deleted_batches.length + ' lot(s). ' +
+        'Les vidéos finales restent disponibles.');
+    } catch (err) { showError(err); }
+    finally { await refreshStorage().catch(() => {}); }
+  });
   $('upload-media').addEventListener('click', async () => {
     showError(null);
     const files = [...$('media-files').files].sort((a, b) =>
@@ -171,14 +208,17 @@
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
                 'Ordre numérique des fichiers respecté. Aucune vidéo envoyée à GitHub.');
       if (previous && previous !== batch) {
-        post(`/api/media/batches/${previous}/delete`, {}).catch(() => {});
+        post(`/api/media/batches/${previous}/delete`, {})
+          .finally(() => refreshStorage().catch(() => {})).catch(() => {});
       }
+      await refreshStorage();
     } catch (err) {
       if (batch) await post(`/api/media/batches/${batch}/delete`, {}).catch(() => {});
       mediaNote('Import interrompu : aucun média partiel conservé dans ce nouveau lot.');
       showError(err);
     } finally {
       button.disabled = false;
+      refreshStorage().catch(() => {});
     }
   });
   $('delete-media').addEventListener('click', async () => {
@@ -192,6 +232,7 @@
       $('media-files').value = '';
       if (!state.has_local_dir) $('visuals').value = 'commons';
       mediaNote('Import supprimé du moteur local.');
+      await refreshStorage();
     } catch (err) { showError(err); }
   });
   async function init() {
@@ -225,6 +266,9 @@
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
+      refreshStorage().catch(() => {
+        $('storage-stats').textContent = 'Impossible de consulter le stockage.';
+      });
     } catch (err) { showError(err); }
   }
   $('auth-form').addEventListener('submit', event => {
