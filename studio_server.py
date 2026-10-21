@@ -25,7 +25,9 @@ import time
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
-from media_assets import IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS, media_dimensions
+from media_assets import (IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS,
+                          _local_media_order, media_dimensions)
+from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 
@@ -484,10 +486,11 @@ class Jobs:
             folder = self.upload_root / ident
             if not folder.is_dir():
                 return None
-            files = self._batch_files(folder)
+            files, ordering = order_media_by_capture(
+                self._batch_files(folder), fallback_key=_local_media_order)
             return {"id": ident, "files": [
                 {"name": p.name, "bytes": p.stat().st_size} for p in files],
-                "sealed": (folder / ".sealed").exists()}
+                "ordering": ordering, "sealed": (folder / ".sealed").exists()}
 
     def save_media(self, ident: str, encoded_name: str, size: int, stream) -> dict:
         if not re.fullmatch(r"[a-f0-9]{32}", ident):
