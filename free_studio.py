@@ -691,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
-                        help="Scene transition; auto fades in cinematic mode and cuts in classic mode")
+                        help="Scene transition; auto chooses cut/fade for suitable local video scenes, otherwise preserves original style")
     parser.add_argument("--word-alignment", choices=["estimated", "forced"], default="estimated",
                         help="Optional true acoustic word alignment using CPU stable-ts/Whisper")
     parser.add_argument("--caption-style", choices=["kinetic", "classic"], default="kinetic",
