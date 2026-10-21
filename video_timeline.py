@@ -17,6 +17,7 @@ import subprocess
 from typing import Callable
 
 from media_assets import MediaAsset
+from shot_cuts import ShotProfile, clearer_start
 
 MAX_CLIP_SEEK = 24 * 60 * 60
 
@@ -65,6 +66,7 @@ def plan_local_video_timeline(
     probe: Callable[[Path], float] = probe_clip_duration,
     probe_intro: Callable[[Path, float], float] | None = None,
     probe_cuts: Callable[[Path, float], list[float]] | None = None,
+    probe_profile: Callable[[Path, float], ShotProfile] | None = None,
 ) -> tuple[list[MediaAsset | None], list[str]]:
     """Assign advancing source seek times in narration scene order.
 
@@ -88,7 +90,9 @@ def plan_local_video_timeline(
     lengths: dict[Path, float | None] = {}
     openings: dict[Path, float] = {}
     cuts: dict[Path, list[float]] = {}
+    profiles: dict[Path, ShotProfile] = {}
     aligned: dict[Path, int] = {}
+    sharpened: dict[Path, int] = {}
     appearances = Counter(asset.file for asset in slots if asset is not None
                           and asset.kind == "video" and asset.source_url == "local")
     planned: list[MediaAsset | None] = []
@@ -107,7 +111,20 @@ def plan_local_video_timeline(
                 lengths[path] = float(length)
                 # Shot analysis is only worthwhile when the same source must
                 # supply multiple scenes. One FFmpeg probe per distinct clip.
-                if probe_cuts is not None and appearances[path] > 1:
+                if probe_profile is not None and appearances[path] > 1:
+                    try:
+                        report = probe_profile(path, float(length))
+                        if not isinstance(report, ShotProfile) or len(report.cuts) > 128:
+                            raise ValueError("Invalid shot profile")
+                        profiles[path] = report
+                        cuts[path] = [point for point in report.cuts
+                                      if type(point) in (float, int)
+                                      and math.isfinite(point)
+                                      and 0.5 <= point < float(length)]
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        profiles[path] = ShotProfile()
+                        cuts[path] = []
+                elif probe_cuts is not None and appearances[path] > 1:
                     try:
                         found = probe_cuts(path, float(length))
                         if not isinstance(found, list) or len(found) > 128:
@@ -156,6 +173,7 @@ def plan_local_video_timeline(
         # Never jump ahead to a shot boundary on the first use of a clip.
         # On later scenes, align only to a nearby future change and only if
         # the complete narration scene still fits before video EOF.
+        chosen = None
         if previously_used and offset + duration <= length and path in cuts:
             chosen = next((point for point in cuts[path]
                            if offset + 0.08 <= point <= offset + 0.85
@@ -163,8 +181,18 @@ def plan_local_video_timeline(
             if chosen is not None:
                 offset = round(chosen, 3)
                 aligned[path] = aligned.get(path, 0) + 1
+        # A local contrast proxy can identify an out-of-focus moment near a
+        # repeated clip's planned start. Never replace an aligned hard cut,
+        # shift the first use, or change chronological file order.
+        if previously_used and chosen is None and path in profiles:
+            clearer = clearer_start(profiles[path], offset, duration, length)
+            if clearer > offset:
+                offset = clearer
+                sharpened[path] = sharpened.get(path, 0) + 1
         planned.append(replace(asset, source_start_seconds=offset))
         elapsed[path] = offset - intro + duration
     for path, count in aligned.items():
         warnings.append(f"Aligned {count} scene(s) to source shot cuts in {path.name}")
+    for path, count in sharpened.items():
+        warnings.append(f"Moved {count} repeated scene(s) toward clearer frames in {path.name}")
     return planned, warnings
