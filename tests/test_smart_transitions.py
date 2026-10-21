@@ -128,8 +128,8 @@ class SmartTransitionRealVideoTests(unittest.TestCase):
                     self.assertEqual(len(details["media"]), 3)
                     self.assertTrue(result.is_file())
                     measured = video_probe(result)
-                    self.assertAlmostEqual(float(measured["duration"]),
-                                           float(details["total_duration"]), delta=0.15)
+                    self.assertAlmostEqual(float(measured["format"]["duration"]),
+                                           float(details["duration_seconds"]), delta=0.15)
                     saved = json.loads(result.with_suffix(".json").read_text())
                     self.assertEqual(saved["scene_transitions"], ["cut", "fade"])
 
