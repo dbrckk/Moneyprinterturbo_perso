@@ -224,6 +224,30 @@ modifiée. Cela ne constitue pas un étalonnage HDR ou une correction
 scientifique des couleurs : les vidéos sous des éclairages très différents
 nécessitent encore une intervention créative.
 
+## Harmonisation prudente de la balance des blancs
+
+Pour les lots de **2 à 8 vidéos locales**, MoneyPrinter peut corriger une
+petite différence de dominante chaude ou froide entre les plans. Le moteur
+échantillonne jusqu'à 3 secondes par vidéo, à 1 image/s et 48 × 27 pixels,
+en ne retenant que les **tons moyens peu saturés** présents dans au moins
+un tiers des pixels de chaque image.
+
+Si toutes les vidéos contiennent des références de couleur utilisables et
+comparables, les gains rouge, vert et bleu sont rapprochés de leur médiane
+commune, sans modifier intentionnellement la luminosité. Chaque gain est
+plafonné à **±6 %**. Le filtre FFmpeg `colorchannelmixer` est partagé
+par les deux moteurs de montage, rapide et classique. Les corrections
+réellement appliquées apparaissent sous `white_balance_gains` dans
+le manifeste JSON.
+
+**Protection des ambiances :** aucune correction n'est apportée en cas
+de couleurs trop saturées, de références neutres insuffisantes, de mesures
+manquantes ou douteuses, de très faible luminosité ou de dominantes
+incomparables. Les photos et médias Wikimedia sont exclus de cette
+fonction. Il ne s'agit ni d'un étalonnage professionnel ni d'un contrôle
+de la colorimétrie HDR ; un coucher de soleil volontairement chaud peut
+rester inchangé. Les fichiers originaux restent intacts, sans cloud.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
