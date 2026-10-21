@@ -195,6 +195,35 @@ optimisations de netteté et d'agitation. Le comportement d'origine reste
 disponible automatiquement si les mesures sont absentes, ambiguës ou
 indisponibles. Les médias du téléphone ne sont pas envoyés dans le cloud.
 
+## Harmonisation prudente de l'exposition entre vidéos
+
+Le studio peut mesurer la luminosité moyenne de **2 à 8 vidéos locales
+distinctes** et atténuer les petits écarts visibles entre elles. FFmpeg
+échantillonne au maximum **3 secondes à 1 image/seconde en 48 × 27 pixels**
+pour chaque fichier ; aucun contenu privé n'est envoyé vers un service
+distant. Une seule mesure par source suffit même si elle est réutilisée.
+
+L'analyse accepte les sources dont la luminosité est dans une plage
+intermédiaire et dont l'écart entre la plus sombre et la plus claire n'est
+pas excessif. Les vidéos de nuit, les plans surexposés, les écarts
+extrêmes, les fichiers illisibles et les ensembles de plus de huit vidéos
+restent **sans correction automatique**. L'outil évite donc de faire
+ressembler artificiellement une scène nocturne à un plan tourné en plein
+jour.
+
+Lorsqu'une correction est justifiée, le filtre FFmpeg ajuste faiblement
+la luminosité autour de la médiane des vidéos sélectionnées, avec une
+limite de **±0,05** sur le paramètre `brightness`. Les profils et les
+réglages de saturation existants restent inchangés. Le même calcul est
+appliqué dans les moteurs de rendu rapide et classique, y compris lorsque
+le rendu rapide bascule en mode de secours.
+
+Le manifeste JSON indique la valeur `exposure_shift` appliquée à chaque
+scène. Aucune photo, illustration Wikimedia ou vidéo originale n'est
+modifiée. Cela ne constitue pas un étalonnage HDR ou une correction
+scientifique des couleurs : les vidéos sous des éclairages très différents
+nécessitent encore une intervention créative.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
