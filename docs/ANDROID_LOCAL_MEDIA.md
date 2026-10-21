@@ -106,6 +106,26 @@ l'historique depuis les fichiers locaux au démarrage.
 - Chaque projet dispose d'un petit `.job_state.json` atomique. Ce
   checkpoint ne copie ni la narration ni les secrets d'authentification.
 
+## Suppression automatique des introductions noires
+
+Pour les **vidéos locales**, le moteur inspecte uniquement les premières
+secondes de chaque fichier, au moyen de FFmpeg déjà installé. Il lit au
+maximum **10 secondes** à **4 images/s en 160 × 90**, donc sans modèle IA,
+connexion cloud ou nouvel abonnement.
+
+Lorsqu'une séquence **presque entièrement noire** d'au moins 0,45 seconde
+est suivie d'images visiblement plus claires, le moteur commence le plan
+après cette introduction. Il vérifie chaque source une seule fois par rendu,
+même lorsque le clip sert à plusieurs scènes. Les périodes d'écran noir
+intégrales, les clips trop courts et les vidéos impossibles à analyser sont
+conservés tels quels. Le rapport mentionne les introductions effectivement
+écartées et leur durée.
+
+Ce contrôle n'est pas une compréhension des événements filmés : une scène
+volontairement presque noire peut être reconnue comme une introduction
+technique. Le classement par date de capture demeure inchangé, et les
+fichiers originaux sont **jamais modifiés**.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
