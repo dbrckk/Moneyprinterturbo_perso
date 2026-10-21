@@ -58,10 +58,10 @@ class BlackIntroPlanningTests(unittest.TestCase):
             [source] * 3, [2.0] * 3,
             probe=lambda _: 5.0,
             probe_intro=lambda _p, _t: 1.0)
-        # Third scene would have started at 1+4%4 = 1.0; second
-        # would overlap EOF, so replay the usable red frames instead.
+        # Second scene ends exactly at EOF, so it can use 3.0.
+        # The third wraps to the first visible frame after the intro.
         self.assertEqual([s.source_start_seconds for s in slots],
-                         [1.0, 1.0, 1.0])
+                         [1.0, 3.0, 1.0])
         self.assertEqual(len(notes), 1)
 
 
