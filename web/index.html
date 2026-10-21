@@ -50,6 +50,11 @@
                 <button id="delete-media" class="text-button" type="button" hidden>Effacer l'import</button>
               </div>
               <p id="media-note" class="microcopy" role="status" aria-live="polite">Import privé vers ce moteur local uniquement (aucun transfert vers GitHub). Les clips sont ordonnés par nom numéroté.</p>
+              <div class="media-storage">
+                <p id="storage-stats" class="microcopy" role="status" aria-live="polite">Stockage des imports : vérification…</p>
+                <button id="clean-media" class="text-button" type="button" disabled>Libérer les imports déjà montés</button>
+                <p class="microcopy">Nettoyage sur confirmation uniquement. Les MP4 finalisés et leurs sous-titres sont conservés.</p>
+              </div>
             </div>
             <div class="double">
               <div><label for="tts">Narration</label><select id="tts"><option value="espeak">eSpeak · libre</option><option value="piper" disabled>Piper · modèle absent</option></select></div>
