@@ -277,6 +277,36 @@ Ce choix examine la ressemblance visuelle générale, pas le sens
 de l'action filmée ; il ne prétend pas remplacer le jugement artistique
 d'un monteur professionnel.
 
+## Réparation automatique d'une coupe défectueuse (montages locaux courts)
+
+Le mode cinématique `--transition auto` dispose d'une correction
+**strictement conditionnelle** après l'encodage : si le contrôle des
+vrais pixels du MP4 signale un **flash noir ou blanc isolé de confiance
+élevée** précisément sur une coupe décidée automatiquement entre deux
+vidéos locales, le studio peut tenter de remplacer cette coupe par un
+fondu court. La décision de départ reste identique pour les autres plans.
+
+Protection du téléphone et des créations :
+
+- Seulement **2 à 4 scènes, 30 secondes maximum**, en 360p ou 720p,
+  avec 8 à 30 images/s et moteur FFmpeg rapide fonctionnel.
+- Un seul réencodage supplémentaire est possible, sans réseau ni
+  dépendance payante ; il n'est pas tenté si l'analyse initiale est
+  incomplète, si plusieurs anomalies élevées existent ou en cas de
+  transition choisie explicitement par l'utilisateur.
+- Le second MP4 est **rejeté** sauf si une nouvelle inspection des pixels
+  réduit effectivement la gravité des anomalies sans en créer d'autres,
+  et si FFprobe confirme la durée de la vidéo et de l'audio.
+- Le premier rendu est conservé intact en cas d'échec, d'incertitude ou
+  de délai d'encodage dépassé. Aucun changement aux fichiers importés.
+- Le rapport indique `postencode_transition_repair` (`accepted`,
+  `rejected` ou `failed`) et le temps additionnel. Le fichier JSON
+  final décrit la transition réellement publiée.
+
+Le mécanisme **ne promet pas** de réparer tous les effets artistiques,
+transitions de vidéos longues ou flashs provenant directement du
+contenu original. Les alertes restent des indications à examiner.
+
 ## Vérification des images du MP4 final après encodage
 
 Après le rendu d'un montage contenant **au moins deux scènes** et
