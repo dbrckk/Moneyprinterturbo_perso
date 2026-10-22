@@ -170,7 +170,7 @@ class SceneIntegrityRealMP4Tests(unittest.TestCase):
             blurred = root / "blurred.mp4"
             for video, effect in (
                 (sharp, "null"),
-                (blurred, "boxblur=luma_radius=16:luma_power=2"),
+                (blurred, "boxblur=luma_radius=28:luma_power=2"),
             ):
                 ffmpeg("-f", "lavfi", "-i",
                        "testsrc2=s=360x640:r=12:d=5.2",
