@@ -95,7 +95,10 @@ class ExposureUnitTests(unittest.TestCase):
             [a, b, late], [2.6] * 3, probe=probe)
         self.assertEqual(planned, [a, b, late])
         self.assertEqual(messages, [])
-        self.assertEqual(probe.call_count, 3)
+        # Source A's two time windows already prove unstable lighting.
+        # Fail closed before probing unrelated source B.
+        self.assertEqual(probe.call_count, 2)
+        self.assertEqual([c.args[1] for c in probe.call_args_list], [0.0, 3.0])
         # Small variations within one recording may still use the normal
         # mild adjustment. The same source receives matching fixed gains.
         readings[a.file, 3.0] = 99
