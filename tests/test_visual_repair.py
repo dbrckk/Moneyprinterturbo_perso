@@ -159,6 +159,49 @@ class RealTransitionRepairTests(unittest.TestCase):
                              ["scene_transitions"], ["fade"])
             self.assertEqual(meta["final_visual_review"]["samples_unavailable"], 0)
 
+    @unittest.skipUnless(shutil.which("espeak"), "Real local narration needed")
+    def test_repaired_spoken_mp4_keeps_original_aac_payload(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            media = root / "uploads"
+            media.mkdir()
+            self.fixture(media / "a.mp4", "0x818181")
+            self.fixture(media / "b.mp4", "0x848484")
+            actual_review = final_scene_review.inspect_final_boundaries
+
+            def report_original_then_real(path, segments, transitions):
+                if transitions[0] == "cut":
+                    baseline = actual_review(path, segments, transitions)
+                    fake = [dict(row) for row in baseline["boundaries"]]
+                    fake[0]["review_confidence"] = "high"
+                    fake[0]["findings"] = ["unexpected-bright-flash"]
+                    return dict(baseline, boundaries=fake)
+                return actual_review(path, segments, transitions)
+
+            output = root / "spoken.mp4"
+            with patch.object(free_studio, "choose_boundaries",
+                              return_value=(("cut",), [])), patch.object(
+                    free_studio, "inspect_final_boundaries",
+                    side_effect=report_original_then_real):
+                result = free_studio.render(
+                    "Présentation", "Première séquence avec une voix claire. "
+                    "Deuxième séquence accompagnée de narration.",
+                    output, media_dir=media, mute=False, tts="espeak",
+                    resolution=360, fps=12, caption_style="classic",
+                    visual_style="cinematic", transition="auto")
+            self.assertEqual(result["render_performance"]
+                             ["postencode_transition_repair"], "accepted")
+            self.assertEqual(result["render_performance"]
+                             ["repair_audio_integrity"], "aac-payload-sha256")
+            self.assertEqual(result["scene_transitions"], ["fade"])
+            metadata = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries",
+                 "stream=codec_type,codec_name", "-of", "json", str(output)],
+                capture_output=True, text=True, check=True, timeout=20)
+            streams = json.loads(metadata.stdout)["streams"]
+            self.assertEqual([s["codec_name"] for s in streams
+                              if s["codec_type"] == "audio"], ["aac"])
+
     def test_failing_encoded_duration_rejects_candidate_and_keeps_original(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -37,7 +37,8 @@ from exposure_match import balance_exposure, exposure_filter
 from white_balance import balance_white, white_balance_suffix
 from smart_transitions import choose_boundaries
 from final_scene_review import inspect_final_boundaries
-from visual_repair import encoded_duration_ok, improved_review, repairable_boundary
+from visual_repair import (encoded_duration_ok, improved_review,
+                           repairable_boundary, targeted_review_improved)
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -617,10 +618,29 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                 retry_pipeline = "reused-normalized-scenes"
                             metrics["postencode_transition_repair_pipeline"] = retry_pipeline
                             execute(retry, cwd=work, timeout=210)
-                            candidate_review = inspect_final_boundaries(
-                                candidate_file, segments, alternative_modes)
-                            if (improved_review(rendered_visual_review, candidate_review,
-                                                repair_index)
+                            # In the larger fused path, an unsuccessful fix
+                            # should not trigger 4–7 unnecessary FFmpeg
+                            # boundary decodes. First inspect only the changed
+                            # boundary; retain a mandatory FULL scan before
+                            # publishing any promising candidate.
+                            preliminary_passed = True
+                            if fused and len(slots) >= 5:
+                                preview_review = inspect_final_boundaries(
+                                    candidate_file, segments, alternative_modes,
+                                    selected_boundaries=(repair_index,))
+                                preliminary_passed = targeted_review_improved(
+                                    rendered_visual_review, preview_review,
+                                    repair_index)
+                                metrics["repair_target_precheck"] = (
+                                    "passed" if preliminary_passed else "rejected")
+                            candidate_review = (
+                                inspect_final_boundaries(
+                                    candidate_file, segments, alternative_modes)
+                                if preliminary_passed else None)
+                            if (candidate_review is not None
+                                    and improved_review(
+                                        rendered_visual_review, candidate_review,
+                                        repair_index)
                                     and encoded_duration_ok(
                                         candidate_file, expected=total, fps=fps,
                                         reference=staged)):
@@ -628,6 +648,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                 boundary_transitions = alternative_modes
                                 rendered_visual_review = candidate_review
                                 metrics["postencode_transition_repair"] = "accepted"
+                                metrics["repair_audio_integrity"] = (
+                                    "aac-payload-sha256" if audio is not None
+                                    else "no-audio")
                                 warnings.append(
                                     f"Boundary {repair_index + 1}: auto-cut flash "
                                     "repaired by a verified fade")

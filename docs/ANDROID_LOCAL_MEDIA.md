@@ -304,11 +304,20 @@ Protection du téléphone et des créations :
   réduit effectivement la gravité des anomalies sans en créer d'autres,
   et si FFprobe confirme les durées ainsi que la présence et les
   caractéristiques des flux vidéo et audio par comparaison au premier MP4.
+  En présence de narration AAC, le système calcule aussi **SHA-256 sur
+  les données audio compressées** : une piste dont les échantillons ont
+  changé, même à durée et codec identiques, fait rejeter la réparation.
+- Pour un montage de **5 à 8 scènes**, le MP4 candidat est d'abord
+  inspecté sur **la seule frontière corrigée**. Si elle reste défectueuse,
+  les six autres contrôles FFmpeg au maximum sont évités et l'original
+  est conservé. Si elle est améliorée, toutes les frontières sont ensuite
+  impérativement réinspectées avant toute acceptation.
 - Le premier rendu est conservé intact en cas d'échec, d'incertitude ou
   de délai d'encodage dépassé. Aucun changement aux fichiers importés.
 - Le rapport indique `postencode_transition_repair` (`accepted`,
-  `rejected` ou `failed`), `postencode_transition_repair_pipeline`
-  (réutilisation des clips ou encodage direct) et le temps additionnel.
+  `rejected` ou `failed`), `postencode_transition_repair_pipeline`,
+  `repair_target_precheck` (`passed` ou `rejected`, si applicable)
+  et `repair_audio_integrity` (preuve AAC ou absence d'audio).
   Le fichier JSON final décrit la transition réellement publiée.
 
 Le mécanisme **ne promet pas** de réparer tous les effets artistiques,
