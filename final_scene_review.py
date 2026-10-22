@@ -57,8 +57,13 @@ def kind_for_flash(transitions: Sequence[str] | None, index: int) -> str:
 
 def inspect_final_boundaries(
     video: Path, segments: Sequence[dict], transitions: Sequence[str] | None = None,
+    *, selected_boundaries: Sequence[int] | None = None,
 ) -> dict:
     """Look for boundary black flashes, brightness shifts and harsh fades.
+
+    When selected_boundaries is provided, decode ONLY those zero-based
+    boundary indices to cheaply preflight a proposed fix. The complete
+    audit remains mandatory before accepting a repaired MP4.
 
     All findings are non-blocking review prompts. Cut edits may *intend* a
     large change; they are recorded as exposure deltas but never classified
@@ -78,14 +83,24 @@ def inspect_final_boundaries(
         raise ValueError("Missing final scene duration") from exc
     if not math.isfinite(total) or not 0 < total <= 3600:
         raise ValueError("Invalid final scene duration")
+    if selected_boundaries is not None:
+        if (not isinstance(selected_boundaries, (tuple, list))
+                or len(selected_boundaries) > _MAX_BOUNDARIES
+                or any(type(i) is not int or i < 0 or i >= count
+                       for i in selected_boundaries)
+                or len(set(selected_boundaries)) != len(selected_boundaries)):
+            raise ValueError("Invalid requested encoded scene boundaries")
+        selected = sorted(selected_boundaries)
+    else:
+        take = min(count, _MAX_BOUNDARIES)
+        selected = ([0] if take == 1 else
+                    [round(i * (count - 1) / (take - 1)) for i in range(take)])
     if count == 0:
         return {"method": "rendered-boundary-rgb-48x27-12fps",
                 "boundaries": [], "sampled_count": 0,
                 "samples_unavailable": 0, "boundaries_skipped": 0,
                 "warnings": []}
-    take = min(count, _MAX_BOUNDARIES)
-    selected = ([0] if take == 1 else
-                [round(i * (count - 1) / (take - 1)) for i in range(take)])
+    take = len(selected)
     records: list[dict] = []
     warnings: list[str] = []
     unavailable = 0
