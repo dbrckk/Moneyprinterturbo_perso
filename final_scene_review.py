@@ -105,7 +105,14 @@ def inspect_final_boundaries(
         old = statistics.median(pixels[:3])
         new = statistics.median(pixels[-3:])
         delta = abs(new - old)
-        max_step = max(abs(b - a) for a, b in zip(pixels, pixels[1:]))
+        steps = [abs(b - a) for a, b in zip(pixels, pixels[1:])]
+        max_step = max(steps)
+        peak_step_index = steps.index(max_step)
+        # The *time course* matters. A fade extending over several frames
+        # differs from a nearly instantaneous jump at the edit point.
+        total_variation = sum(steps)
+        max_step_share = max_step / total_variation if total_variation else 0.0
+        peak_near_edit = abs((peak_step_index + 0.5) - (len(pixels) / 2)) <= 2.0
         middle = pixels[max(0, len(pixels)//2 - 2):min(len(pixels), len(pixels)//2 + 2)]
         # A black flash must be isolated: dark frames on BOTH sides of
         # the boundary can be an intentional fade-through-black. Require
@@ -122,11 +129,31 @@ def inspect_final_boundaries(
                        and min(middle, default=255) < 15
                        and kind_for_flash(transitions, index) != "fade")
         kind = transitions[index] if transitions is not None else "unspecified"
+        # A 1-3-frame near-white pulse bracketed by ordinary, comparable
+        # luminance is a useful warning even when the final MP4 is valid.
+        # Do not confuse a lasting exposure/scene change with a flash.
+        bright_frames = [j for j, value in enumerate(pixels)
+                         if value >= 190 and value >= max(old, new) + 85]
+        first_bright = bright_frames[0] if bright_frames else -1
+        last_bright = bright_frames[-1] if bright_frames else -1
+        bright_flash = (
+            len(bright_frames) in (1, 2, 3)
+            and last_bright - first_bright + 1 == len(bright_frames)
+            and len(pixels)//2 - 3 <= first_bright <= last_bright <= len(pixels)//2 + 2
+            and first_bright > 0 and last_bright < len(pixels) - 1
+            and max(pixels[first_bright - 1], pixels[last_bright + 1]) <= 150
+            and abs(new - old) <= 35
+            and old <= 135 and new <= 135
+        )
         findings: list[str] = []
         if black_flash:
             findings.append("unexpected-black-flash")
             warnings.append(
                 f"Boundary {index + 1}: final MP4 has an almost-black flash between visible scenes; review export")
+        if bright_flash:
+            findings.append("unexpected-bright-flash")
+            warnings.append(
+                f"Boundary {index + 1}: final MP4 contains a brief very bright pulse; review export")
         # Large exposure differences may be artistically intentional, so
         # issue a review hint, not an error and not automatic recoloring.
         if delta >= 75 and old >= 25 and new >= 25:
@@ -136,7 +163,8 @@ def inspect_final_boundaries(
         # A near-instantaneous jump on an advertised fade is suspicious;
         # intentional hard cuts are never incorrectly warned about here.
         if (kind == "fade" and max_step >= 118 and
-                abs(new - old) >= 90 and not black_flash):
+                abs(new - old) >= 90 and max_step_share >= 0.70
+                and peak_near_edit and not black_flash):
             findings.append("abrupt-change-during-fade")
             warnings.append(
                 f"Boundary {index + 1}: final fade contains a large sudden brightness step; review transition")
@@ -146,6 +174,9 @@ def inspect_final_boundaries(
             "incoming_luma": round(new, 2),
             "luma_delta": round(delta, 2),
             "largest_frame_luma_step": round(max_step, 2),
+            "max_step_fraction": round(max_step_share, 3),
+            "dominant_step_near_boundary": bool(peak_near_edit and max_step_share >= 0.70),
+            "brief_bright_pulse_frames": len(bright_frames) if bright_flash else 0,
             "findings": findings,
         })
     if unavailable:
