@@ -79,8 +79,11 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
                 initial_bytes[filename.name] = filename.read_bytes()
             actual_qa = final_scene_review.inspect_final_boundaries
 
-            def staged_review(path, segments, transitions):
-                verified = actual_qa(path, segments, transitions)
+            def staged_review(path, segments, transitions, *,
+                              selected_boundaries=None):
+                verified = actual_qa(
+                    path, segments, transitions,
+                    selected_boundaries=selected_boundaries)
                 if transitions[0] == "cut":
                     self.assertEqual(verified["sampled_count"], 4)
                     modified = [dict(value) for value in verified["boundaries"]]
@@ -110,6 +113,8 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
             self.assertEqual(
                 result["render_performance"]["postencode_transition_repair_pipeline"],
                 "reused-normalized-scenes")
+            self.assertEqual(result["render_performance"]["repair_target_precheck"],
+                             "passed")
             self.assertEqual(result["final_visual_review"]["sampled_count"], 4)
             self.assertTrue(encoded_duration_ok(
                 target, expected=result["duration_seconds"], fps=12))
@@ -145,6 +150,26 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
                 spoken, expected=3.0, fps=12, reference=video_only))
             self.assertFalse(encoded_duration_ok(
                 spoken, expected=61.0, fps=12))
+            # Remuxing copies exactly the same compressed AAC payload.
+            remux = root / "remux.mp4"
+            run_ffmpeg("-i", str(spoken), "-map", "0:v:0", "-map", "0:a:0",
+                       "-c", "copy", str(remux))
+            self.assertTrue(encoded_duration_ok(
+                remux, expected=3.0, fps=12, reference=spoken))
+            # An AAC tone with matching channels/sample-rate/duration but
+            # different compressed samples must NOT pass integrity checks.
+            altered = root / "altered.mp4"
+            run_ffmpeg(
+                "-f", "lavfi", "-i",
+                "color=c=0x777777:s=180x320:r=12:d=3",
+                "-f", "lavfi", "-i",
+                "sine=frequency=660:sample_rate=48000:duration=3",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-t", "3.0", str(altered))
+            self.assertTrue(encoded_duration_ok(
+                altered, expected=3.0, fps=12))
+            self.assertFalse(encoded_duration_ok(
+                altered, expected=3.0, fps=12, reference=spoken))
 
 
 if __name__ == "__main__":
