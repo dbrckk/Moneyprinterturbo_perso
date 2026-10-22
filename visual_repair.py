@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 import subprocess
 from typing import Mapping, Sequence
@@ -90,6 +91,59 @@ def improved_review(original: Mapping[str, object], replacement: Mapping[str, ob
     return changed and new_score < baseline_score
 
 
+def targeted_review_improved(
+    original: Mapping[str, object], preview: Mapping[str, object],
+    boundary_index: int,
+) -> bool:
+    """Quickly reject unhelpful retries using only the changed boundary.
+
+    This does not replace improved_review: every promising candidate must
+    undergo the entire MP4 boundary audit before publication.
+    """
+    if (not isinstance(original, dict) or not isinstance(preview, dict)
+            or type(boundary_index) is not int or boundary_index < 0):
+        return False
+    before = original.get("boundaries")
+    after = preview.get("boundaries")
+    if (not isinstance(before, list) or not isinstance(after, list)
+            or len(after) != 1 or boundary_index >= len(before)
+            or original.get("samples_unavailable") != 0
+            or original.get("boundaries_skipped") != 0
+            or preview.get("samples_unavailable") != 0
+            or preview.get("boundaries_skipped") != len(before) - 1):
+        return False
+    old, new = before[boundary_index], after[0]
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    return (old.get("boundary") == boundary_index + 1
+            and new.get("boundary") == boundary_index + 1
+            and old.get("transition") == "cut"
+            and old.get("review_confidence") == "high"
+            and set(old.get("findings", [])).intersection(_HIGH) != set()
+            and new.get("transition") == "fade"
+            and new.get("review_confidence") in ("none", "low"))
+
+
+def audio_stream_sha256(video: Path) -> str | None:
+    """Hash compressed AAC payload through FFmpeg without decoding audio.
+
+    Timestamp-only or container-level hashes are not sufficient: this checks
+    that the narration's actual compressed audio bytes were stream-copied.
+    """
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-i", str(video), "-map", "0:a:0", "-c:a", "copy",
+             "-f", "hash", "-hash", "SHA256", "-"],
+            capture_output=True, check=True, timeout=20, text=True)
+        value = result.stdout.strip()
+        if re.fullmatch(r"SHA256=[0-9a-fA-F]{64}", value):
+            return value.lower()
+        return None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def encoded_duration_ok(
     video: Path, *, expected: float, fps: int, reference: Path | None = None,
 ) -> bool:
@@ -142,10 +196,19 @@ def encoded_duration_ok(
         actual = inspect(video)
         if actual is None:
             return False
-        return (reference is None or (
-            isinstance(reference, Path) and reference != video
-            and (baseline := inspect(reference)) is not None
-            and actual == baseline))
+        if reference is None:
+            return True
+        if not isinstance(reference, Path) or reference == video:
+            return False
+        baseline = inspect(reference)
+        if baseline is None or actual != baseline:
+            return False
+        if any(item[0] == "audio" for item in actual):
+            original_audio = audio_stream_sha256(reference)
+            repaired_audio = audio_stream_sha256(video)
+            if original_audio is None or original_audio != repaired_audio:
+                return False
+        return True
     except (OSError, ValueError, TypeError, KeyError,
             subprocess.SubprocessError, OverflowError, AttributeError):
         return False
