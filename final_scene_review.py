@@ -51,6 +51,10 @@ def sample_boundary_luminance(video: Path, boundary: float, total: float) -> tup
         return None
 
 
+def kind_for_flash(transitions: Sequence[str] | None, index: int) -> str:
+    return transitions[index] if transitions is not None else "unspecified"
+
+
 def inspect_final_boundaries(
     video: Path, segments: Sequence[dict], transitions: Sequence[str] | None = None,
 ) -> dict:
@@ -115,7 +119,8 @@ def inspect_final_boundaries(
             and min(pixels[first_dark - 1], pixels[last_dark + 1]) >= 45
         )
         black_flash = (isolated_dark and old >= 55 and new >= 55
-                       and min(middle, default=255) < 15)
+                       and min(middle, default=255) < 15
+                       and kind_for_flash(transitions, index) != "fade")
         kind = transitions[index] if transitions is not None else "unspecified"
         findings: list[str] = []
         if black_flash:
