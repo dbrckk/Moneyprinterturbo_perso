@@ -12,7 +12,8 @@ from unittest.mock import patch
 import final_scene_review
 import free_studio
 from media_assets import MediaAsset
-from visual_repair import encoded_duration_ok, improved_review, repairable_boundary
+from visual_repair import (encoded_duration_ok, improved_review,
+                           repairable_boundary, targeted_review_improved)
 
 
 def run_ffmpeg(*arguments: str) -> None:
@@ -48,6 +49,30 @@ class ExtendedRepairRulesTests(unittest.TestCase):
         reordered[3]["boundary"] = 3
         self.assertIsNone(repairable_boundary(
             dict(before, boundaries=reordered), transitions, assets))
+
+    def test_target_only_qa_precheck_requires_single_improved_edited_boundary(self):
+        initial_rows = [
+            dict(boundary=i, transition="cut" if i == 2 else "fade",
+                 review_confidence="high" if i == 2 else "none",
+                 findings=["unexpected-black-flash"] if i == 2 else [])
+            for i in range(1, 5)]
+        before = dict(boundaries=initial_rows,
+                      samples_unavailable=0, boundaries_skipped=0)
+        changed = dict(boundary=2, transition="fade",
+                       review_confidence="none", findings=[])
+        partial = dict(boundaries=[changed], samples_unavailable=0,
+                       boundaries_skipped=3)
+        self.assertTrue(targeted_review_improved(before, partial, 1))
+        for candidate in (
+            dict(partial, samples_unavailable=1),
+            dict(partial, boundaries_skipped=0),
+            dict(partial, boundaries=[dict(changed, review_confidence="medium")]),
+            dict(partial, boundaries=[dict(changed, transition="cut")]),
+            dict(partial, boundaries=[dict(changed, boundary=3)]),
+            dict(partial, boundaries=[])):
+            with self.subTest(preview=candidate):
+                self.assertFalse(targeted_review_improved(before, candidate, 1))
+        self.assertFalse(targeted_review_improved(before, partial, 0))
 
     def test_nine_scene_cohorts_are_not_auto_repaired(self):
         assets = [MediaAsset(Path(f"c{i}.mp4"), "video", "local",
