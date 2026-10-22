@@ -382,6 +382,31 @@ Si l'inspection échoue ou dépasse ses limites, elle signale que la
 mesure est indisponible, **sans supprimer ni invalider le MP4**.
 Toutes les opérations se font localement, sans accès au cloud.
 
+### Rythme des plans et mouvement dans le MP4 réellement exporté
+
+La commande d'audit `python video_qa.py outputs/video.mp4` ajoute maintenant
+`motion_cadence_review` au rapport `video.quality.json`. Elle calcule
+la durée médiane des plans et signale **à titre consultatif** les
+montages contenant plusieurs scènes très courtes (moins de 1,25 s)
+ou très longues (plus de 9 s).
+
+Pour les plans issus de vraies **sources vidéo** d'au moins 4 secondes,
+l'audit mesure le mouvement en décodant **une seule fois** le MP4
+à **3 images/s**, en luminance 48 × 27 pixels. La comparaison se limite
+à la région centrale de l'image, hors bandeaux et sous-titres inférieurs,
+et aux instants éloignés des raccords. La lecture est plafonnée à
+**75 secondes et 18 scènes** ; au-delà, la mesure de mouvement est
+ignorée, mais les statistiques de durée restent disponibles.
+Aucune image ni vidéo n'est téléversée vers un service distant.
+
+Un résultat `very_low_motion` signifie uniquement que les images du
+fichier exporté bougent très peu ; **un plan fixe est parfaitement
+légitime**. Le signal aide à vérifier les vidéos accidentellement
+figées ou les longueurs de plans peu dynamiques. Les photographies et
+graphismes synthétiques sont exclus de cette alerte. En cas d'échec,
+le champ `status` indique que l'analyse est indisponible, sans
+invalider le MP4 ni écraser l'export.
+
 ### Analyse temporelle des défauts visuels
 
 Le contrôle des transitions échantillonne les images du **MP4 réellement
