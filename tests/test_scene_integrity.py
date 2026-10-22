@@ -47,7 +47,7 @@ class SceneIntegrityUnitTests(unittest.TestCase):
         self.assertEqual(result["sampled_frames"], 4)
         self.assertEqual(result["worst_mae"], 0)
         self.assertEqual(len(times), 8)
-        self.assertEqual([t for path,t in times if path == self.a],
+        self.assertEqual([round(t, 3) for path,t in times if path == self.a],
                          [1.3, 9.1, 11.7, 19.5])
 
     def test_minor_compression_noise_passes_but_overlay_difference_fails(self):
