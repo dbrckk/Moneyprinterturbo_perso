@@ -202,6 +202,39 @@ class RealTransitionRepairTests(unittest.TestCase):
             self.assertEqual([s["codec_name"] for s in streams
                               if s["codec_type"] == "audio"], ["aac"])
 
+    def test_other_scene_pixel_drift_rejects_repaired_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "uploads"
+            folder.mkdir()
+            self.fixture(folder / "one.mp4", "0x747474")
+            self.fixture(folder / "two.mp4", "0x898989")
+            high = report(record(1, "cut", "high", ["unexpected-bright-flash"]))
+            clean = report(record(1, "fade", "none", []))
+            with patch.object(free_studio, "choose_boundaries",
+                              return_value=(("cut",), [])), patch.object(
+                    free_studio, "inspect_final_boundaries",
+                    side_effect=[high, clean]), patch.object(
+                    free_studio, "unchanged_scene_integrity",
+                    return_value={
+                        "ok": False, "sampled_frames": 2,
+                        "worst_mae": 12.5,
+                        "worst_changed_fraction": 0.12
+                    }), patch.object(
+                    free_studio, "encoded_duration_ok", return_value=True):
+                meta = free_studio.render(
+                    "Deux scènes", "Premier paysage magnifique. "
+                    "Deuxième paysage magnifique.", root / "kept.mp4",
+                    media_dir=folder, mute=True, resolution=360, fps=12,
+                    caption_style="classic", visual_style="cinematic",
+                    transition="auto")
+            self.assertEqual(meta["scene_transitions"], ["cut"])
+            perf = meta["render_performance"]
+            self.assertEqual(perf["postencode_transition_repair"], "rejected")
+            self.assertEqual(perf["repair_scene_integrity"], "rejected")
+            self.assertEqual(perf["repair_scene_samples"], 2)
+            self.assertTrue((root / "kept.mp4").is_file())
+
     def test_failing_encoded_duration_rejects_candidate_and_keeps_original(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
