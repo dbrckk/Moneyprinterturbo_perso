@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import shutil
 import subprocess
 import tempfile
@@ -84,6 +85,43 @@ class ExposureUnitTests(unittest.TestCase):
         self.assertEqual(notes, [])
         probe.assert_not_called()
 
+    def test_reused_source_lighting_changes_fail_closed_and_stable_shots_match(self):
+        a, b = source(Path("a.mp4")), source(Path("b.mp4"))
+        late = replace(a, source_start_seconds=3.0)
+        readings = {(a.file, 0.0): 95, (a.file, 3.0): 149,
+                    (b.file, 0.0): 135}
+        probe = Mock(side_effect=lambda path, start, _duration: readings[path, start])
+        planned, messages = exposure_match.balance_exposure(
+            [a, b, late], [2.6] * 3, probe=probe)
+        self.assertEqual(planned, [a, b, late])
+        self.assertEqual(messages, [])
+        self.assertEqual(probe.call_count, 3)
+        # Small variations within one recording may still use the normal
+        # mild adjustment. The same source receives matching fixed gains.
+        readings[a.file, 3.0] = 99
+        revised, notes = exposure_match.balance_exposure(
+            [a, b, late], [2.6] * 3,
+            probe=lambda path, start, _duration: readings[path, start])
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(revised[0].exposure_shift, revised[2].exposure_shift)
+        self.assertNotEqual(revised[0].exposure_shift, 0.0)
+
+    def test_repeated_window_limit_avoids_unbounded_phone_decoding(self):
+        a, b = source(Path("a.mp4")), source(Path("b.mp4"))
+        scenes = [replace(a, source_start_seconds=float(i) * 3.0)
+                  for i in range(12)] + [b]
+        probe = Mock(side_effect=AssertionError("No expensive decoding"))
+        result, notes = exposure_match.balance_exposure(
+            scenes, [2.6] * len(scenes), probe=probe)
+        self.assertEqual(result, scenes)
+        self.assertEqual(notes, [])
+        probe.assert_not_called()
+        bad = [a, replace(b, source_start_seconds=float("nan"))]
+        self.assertEqual(
+            exposure_match.balance_exposure(bad, [2.6] * 2,
+                                            probe=probe)[1], [])
+        probe.assert_not_called()
+
     def test_rejects_invalid_filter_parameters_and_failed_sampling(self):
         for value in (0.051, -0.051, float("nan"), float("inf"), True, "0.2"):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -119,6 +157,34 @@ class ExposureRealVideoTests(unittest.TestCase):
             self.assertGreater(values[1] - values[0], 40)
             self.assertLess(abs(values[0] - 95), 6)
             self.assertLess(abs(values[1] - 150), 6)
+
+    def test_real_reused_video_with_daylight_change_is_not_graded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "reused.mp4"
+            other = root / "other.mp4"
+            ffmpeg("-f", "lavfi", "-i",
+                   "color=c=0x626262:s=180x320:r=12:d=3",
+                   "-f", "lavfi", "-i",
+                   "color=c=0x969696:s=180x320:r=12:d=3",
+                   "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+                   "-map", "[v]", "-c:v", "libx264",
+                   "-pix_fmt", "yuv420p", str(path))
+            ffmpeg("-f", "lavfi", "-i",
+                   "color=c=0x828282:s=180x320:r=12:d=5",
+                   "-c:v", "libx264", "-pix_fmt", "yuv420p", str(other))
+            self.assertGreater(
+                exposure_match.sample_luminance(path, 3.2, 2.0) -
+                exposure_match.sample_luminance(path, 0.0, 2.0), 30)
+            first = source(path)
+            subsequent = replace(first, source_start_seconds=3.1)
+            foreign = source(other)
+            originals = (path.read_bytes(), other.read_bytes())
+            corrected, notices = exposure_match.balance_exposure(
+                [first, foreign, subsequent], [2.0] * 3)
+            self.assertEqual(corrected, [first, foreign, subsequent])
+            self.assertEqual(notices, [])
+            self.assertEqual((path.read_bytes(), other.read_bytes()), originals)
 
     def test_actual_optimized_and_legacy_render_reduce_scene_luminance_gap(self):
         with tempfile.TemporaryDirectory() as temp:
