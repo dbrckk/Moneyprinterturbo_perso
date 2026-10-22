@@ -69,6 +69,8 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
             outcome = qa.inspect_final_boundaries(clip, scenes(2, 2), ["fade"])
         self.assertEqual(outcome["warnings"], [])
         self.assertEqual(outcome["boundaries"][0]["luma_delta"], 0)
+        self.assertEqual(outcome["boundaries"][0]["review_confidence"], "none")
+        self.assertFalse(outcome["boundaries"][0]["requires_manual_review"])
         abrupt = tuple([205.0] * 6 + [55.0] * 6)
         with patch.object(qa, "sample_boundary_luminance", return_value=abrupt):
             fade = qa.inspect_final_boundaries(clip, scenes(2, 2), ["fade"])
@@ -76,6 +78,10 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
         self.assertIn("abrupt-change-during-fade", fade["boundaries"][0]["findings"])
         self.assertNotIn("abrupt-change-during-fade", cut["boundaries"][0]["findings"])
         self.assertIn("large-exposure-change", cut["boundaries"][0]["findings"])
+        self.assertEqual(fade["boundaries"][0]["review_confidence"], "medium")
+        self.assertTrue(fade["boundaries"][0]["requires_manual_review"])
+        self.assertEqual(cut["boundaries"][0]["review_confidence"], "low")
+        self.assertFalse(cut["boundaries"][0]["requires_manual_review"])
 
     def test_bright_pulse_warning_requires_a_short_centered_spike(self):
         clip = Path("sample-only.mp4")
@@ -86,6 +92,8 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
             result = qa.inspect_final_boundaries(clip, scenes(2, 2), ["cut"])
         record = result["boundaries"][0]
         self.assertIn("unexpected-bright-flash", record["findings"])
+        self.assertEqual(record["review_confidence"], "high")
+        self.assertTrue(record["requires_manual_review"])
         self.assertEqual(record["brief_bright_pulse_frames"], 2)
         self.assertTrue(any("very bright pulse" in w for w in result["warnings"]))
         with patch.object(qa, "sample_boundary_luminance", return_value=gradual):
