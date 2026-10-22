@@ -111,7 +111,7 @@ def inspect_final_boundaries(
         last_dark = dark_indices[-1] if dark_indices else -1
         isolated_dark = (
             0 < first_dark <= last_dark < len(pixels) - 1
-            and last_dark - first_dark <= 2
+            and last_dark - first_dark <= 6
             and min(pixels[first_dark - 1], pixels[last_dark + 1]) >= 45
         )
         black_flash = (isolated_dark and old >= 55 and new >= 55
