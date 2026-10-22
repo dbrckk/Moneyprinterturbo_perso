@@ -277,6 +277,36 @@ Ce choix examine la ressemblance visuelle générale, pas le sens
 de l'action filmée ; il ne prétend pas remplacer le jugement artistique
 d'un monteur professionnel.
 
+## Vérification des images du MP4 final après encodage
+
+Après le rendu d'un montage contenant **au moins deux scènes** et
+une vidéo locale, le studio vérifie les vrais pixels du MP4 exporté.
+Il inspecte **jusqu'à 8 frontières** de scènes, réparties du début à
+la fin, avec un décodage FFmpeg d'environ **1 seconde par frontière**,
+à **12 images/s** et **48 × 27 pixels**.
+
+Pour chaque frontière inspectée, le rapport affiche la luminosité
+moyenne avant et après, la différence d'exposition, le plus grand
+changement de luminosité entre deux images, le type de transition
+et les éventuels avertissements :
+
+- **flash noir inattendu** entre deux scènes suffisamment claires ;
+- **écart important de luminosité** entre les plans ;
+- **variation brusque pendant un fondu**, à vérifier manuellement.
+
+Les coupes nettes choisies volontairement ne sont pas confondues avec
+des défauts de transition. L'analyse est volontairement prudente :
+ses observations sont **des indications à examiner**, pas un
+certificat de qualité professionnelle ou une correction automatique.
+
+Les mesures sont enregistrées sous `final_visual_review` dans le
+manifeste `video.json`, accessible depuis le studio Android.
+La commande d'audit `python video_qa.py outputs/video.mp4` ajoute
+aussi `boundary_visual_review` au fichier `video.quality.json`.
+Si l'inspection échoue ou dépasse ses limites, elle signale que la
+mesure est indisponible, **sans supprimer ni invalider le MP4**.
+Toutes les opérations se font localement, sans accès au cloud.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
