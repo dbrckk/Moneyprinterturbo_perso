@@ -701,10 +701,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                 if unchanged["worst_mae"] is not None:
                                     metrics["repair_scene_worst_pixel_delta"] = (
                                         unchanged["worst_mae"])
-                                if unchanged["minimum_detail_retention"] is not None:
+                                if unchanged.get("minimum_detail_retention") is not None:
                                     metrics["repair_scene_min_detail_retention"] = (
                                         unchanged["minimum_detail_retention"])
-                                if unchanged["sharpness_regression"]:
+                                if unchanged.get("sharpness_regression", False):
                                     metrics["repair_sharpness_regression"] = "detected"
                                     warnings.append(
                                         "Proposed transition repair reduces fine detail "
