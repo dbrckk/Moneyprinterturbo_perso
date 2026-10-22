@@ -77,6 +77,18 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
         self.assertNotIn("abrupt-change-during-fade", cut["boundaries"][0]["findings"])
         self.assertIn("large-exposure-change", cut["boundaries"][0]["findings"])
 
+    def test_intentional_fade_through_black_is_not_misreported_as_flash(self):
+        # The same visible/dark/visible pixels are expected during a
+        # deliberate fade through black, but suspicious for a hard cut.
+        signal = tuple([200.0] * 4 + [2.0] * 4 + [195.0] * 4)
+        with patch.object(qa, "sample_boundary_luminance", return_value=signal):
+            fade = qa.inspect_final_boundaries(Path("example.mp4"),
+                                               scenes(2, 2), ["fade"])
+            cut = qa.inspect_final_boundaries(Path("example.mp4"),
+                                              scenes(2, 2), ["cut"])
+        self.assertNotIn("unexpected-black-flash", fade["boundaries"][0]["findings"])
+        self.assertIn("unexpected-black-flash", cut["boundaries"][0]["findings"])
+
     def test_black_flash_requires_visible_sides_and_no_false_cut_rejection(self):
         signal = tuple([200.0] * 4 + [2.0] * 4 + [195.0] * 4)
         with patch.object(qa, "sample_boundary_luminance", return_value=signal):
