@@ -148,6 +148,54 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
             for filename in local.iterdir():
                 self.assertEqual(filename.read_bytes(), initial_bytes[filename.name])
 
+    def test_failed_target_precheck_skips_the_full_rescan_and_keeps_mp4(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            local = root / "local"
+            local.mkdir()
+            for index in range(5):
+                run_ffmpeg(
+                    "-f", "lavfi", "-i",
+                    "color=c=0x808080:s=180x320:r=12:d=4.2",
+                    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    str(local / f"clip-{index+1:02}.mp4"))
+            actual_qa = final_scene_review.inspect_final_boundaries
+            requests = []
+
+            def guarded_review(path, segments, transitions, *,
+                               selected_boundaries=None):
+                requests.append(selected_boundaries)
+                self.assertLessEqual(len(requests), 2,
+                                     "No complete candidate review after failed precheck")
+                actual = actual_qa(
+                    path, segments, transitions,
+                    selected_boundaries=selected_boundaries)
+                changed = [dict(x) for x in actual["boundaries"]]
+                changed[0]["review_confidence"] = "high"
+                changed[0]["findings"] = ["unexpected-bright-flash"]
+                return dict(actual, boundaries=changed)
+
+            output = root / "preserved.mp4"
+            with patch.object(free_studio, "choose_boundaries",
+                              return_value=(("cut", "fade", "fade", "fade"), [])):
+                with patch.object(free_studio, "inspect_final_boundaries",
+                                  side_effect=guarded_review):
+                    result = free_studio.render(
+                        "Cinq plans",
+                        "Première scène. Deuxième scène. Troisième scène. "
+                        "Quatrième scène. Cinquième scène.",
+                        output, media_dir=local, mute=True, resolution=360,
+                        fps=12, caption_style="classic",
+                        visual_style="cinematic", transition="auto")
+            self.assertEqual(requests, [None, (0,)])
+            self.assertEqual(result["scene_transitions"],
+                             ["cut", "fade", "fade", "fade"])
+            self.assertEqual(result["render_performance"]
+                             ["repair_target_precheck"], "rejected")
+            self.assertEqual(result["render_performance"]
+                             ["postencode_transition_repair"], "rejected")
+            self.assertTrue(output.is_file())
+
     def test_repaired_file_cannot_drop_narration_stream(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
