@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from cinematic import gradient_source, transition_plan, xfade_transition_spec
-from scene_framing import needs_soft_matte, soft_matte_graph
+from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from video_timeline import source_seek_seconds
 from exposure_match import exposure_filter
 from white_balance import white_balance_suffix
@@ -62,9 +62,10 @@ def build_onepass_media_command(
             effect = "format=yuv420p"
         elif asset.kind == "image":
             cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{runtime:.9f}", "-i", str(asset.file)]
+            motion = photo_zoom_filter(width=width, height=height, fps=fps, frames=frames)
             effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                       f"crop={width}:{height},setsar=1,"
-                      f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
+                      f"{motion},"
                       "eq=contrast=1.05:saturation=1.07,"
                       "scale=in_range=auto:out_range=tv,format=yuv420p")
         elif asset.kind == "video":
@@ -84,7 +85,7 @@ def build_onepass_media_command(
                       f"fps={fps},format=yuv420p,setparams=range=limited,setsar=1")
         if needs_soft_matte(asset):
             graph.extend(soft_matte_graph(i, width=width, height=height,
-                fps=fps, prefix=f"soft{i}", output_name=f"s{i}",
+                fps=fps, frames=frames, prefix=f"soft{i}", output_name=f"s{i}",
                 tail_filters=frame_tail))
         else:
             graph.append(f"[{i}:v]{effect},{frame_tail}[s{i}]")

@@ -27,7 +27,7 @@ from cinematic import build_filters, gradient_source, transition_plan, xfade_tra
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
-from scene_framing import needs_soft_matte, soft_matte_graph
+from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
@@ -270,11 +270,12 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
                "-i", gradient_source(index, width, height, fps)]
         effect = "format=yuv420p"
     elif asset.kind == "image":
+        motion = photo_zoom_filter(width=width, height=height, fps=fps, frames=frames)
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1",
                "-framerate", str(fps), "-i", str(asset.file)]
         effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
-                  f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
+                  f"{motion},"
                   "eq=contrast=1.05:saturation=1.07,"
                   "scale=in_range=auto:out_range=tv,format=yuv420p")
     elif asset.kind == "video":
@@ -290,7 +291,7 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
         raise ValueError("Unsupported local media kind")
     if needs_soft_matte(asset):
         graph = soft_matte_graph(0, width=width, height=height, fps=fps,
-                                 prefix=f"legacy{index}", output_name="framed")
+                                 frames=frames, prefix=f"legacy{index}", output_name="framed")
         cmd += ["-an", "-filter_complex_threads", "1",
                 "-filter_complex", ";".join(graph), "-map", "[framed]"]
     else:
