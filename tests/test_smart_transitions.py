@@ -13,7 +13,7 @@ from unittest.mock import Mock
 import free_studio
 from cinematic import xfade_transition_spec
 from media_assets import MediaAsset
-from smart_transitions import boundary_rgb, choose_boundaries
+from smart_transitions import boundary_features, boundary_rgb, choose_boundaries
 from video_qa import probe as video_probe
 
 
@@ -49,6 +49,32 @@ class SmartTransitionUnitTests(unittest.TestCase):
         self.assertEqual(transitions, ("cut", "fade"))
         self.assertEqual(len(notes), 1)
         self.assertEqual(probe.call_count, 4)
+
+    def test_spatial_layout_blocks_false_cuts_with_matching_mean_rgb(self):
+        a, b = video("a.mp4"), video("b.mp4")
+        # Opposite left/right brightness, despite IDENTICAL average colors.
+        left = (40.0,) * 9 + (215.0,) * 9
+        right = (215.0,) * 9 + (40.0,) * 9
+        means = (127.5, 127.5, 127.5)
+        features = {a.file: (*means, left), b.file: (*means, right)}
+        modes, notes = choose_boundaries(
+            [a, b], [2.6, 2.6],
+            probe=lambda asset, _t: features[asset.file],
+        )
+        self.assertEqual(modes, ("fade",))
+        self.assertEqual(notes, [])
+        features[b.file] = (*means, left)
+        self.assertEqual(choose_boundaries(
+            [a, b], [2.6, 2.6],
+            probe=lambda asset, _t: features[asset.file])[0], ("cut",))
+        features[b.file] = (*means, (float("nan"),) * 18)
+        self.assertEqual(choose_boundaries(
+            [a, b], [2.6, 2.6],
+            probe=lambda asset, _t: features[asset.file])[0], ("fade",))
+        features[b.file] = (*means, (0.0,) * 3)
+        self.assertEqual(choose_boundaries(
+            [a, b], [2.6, 2.6],
+            probe=lambda asset, _t: features[asset.file])[0], ("fade",))
 
     def test_no_unjustified_cut_for_missing_remote_images_or_ambiguity(self):
         a = video("a.mp4")
@@ -104,6 +130,37 @@ class SmartTransitionRealVideoTests(unittest.TestCase):
             self.assertEqual(modes, ("cut", "fade"))
             self.assertEqual(len(notes), 1)
             self.assertIsNone(boundary_rgb(video(str(root / "missing.mp4")), 0))
+
+    def test_real_opposing_brightness_regions_use_fade_not_false_cut(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            a = root / "bright-left.mp4"
+            b = root / "bright-right.mp4"
+            for path, first, second in ((a, "white", "black"),
+                                        (b, "black", "white")):
+                ffmpeg("-f", "lavfi", "-i",
+                       "color=c=gray:s=360x640:r=12:d=4.5",
+                       "-vf", ("drawbox=x=0:y=0:w=180:h=640:color="
+                               + first + ":t=fill,"
+                               "drawbox=x=180:y=0:w=180:h=640:color="
+                               + second + ":t=fill"),
+                       "-an", "-c:v", "libx264",
+                       "-pix_fmt", "yuv420p", str(path))
+            first_features = boundary_features(video(str(a)), 2.37)
+            second_features = boundary_features(video(str(b)), 0.18)
+            self.assertIsNotNone(first_features)
+            self.assertIsNotNone(second_features)
+            self.assertLess(
+                sum(abs(x - y) for x, y in zip(
+                    first_features[:3], second_features[:3])) / 3, 24)
+            self.assertGreater(
+                sum(abs(x - y) for x, y in zip(
+                    first_features[3], second_features[3])) / 18, 26)
+            self.assertEqual(
+                choose_boundaries([video(str(a)), video(str(b))],
+                                  [2.6, 2.6])[0], ("fade",))
+            self.assertEqual(len(boundary_rgb(video(str(a)), 1.0)), 3)
+            self.assertIsNone(boundary_features(video(str(root / "missing.mp4")), 0))
 
     def test_both_onepass_and_legacy_render_mixed_cut_fade_and_keep_timing(self):
         with tempfile.TemporaryDirectory() as temp:
