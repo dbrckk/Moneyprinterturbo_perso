@@ -307,6 +307,30 @@ Si l'inspection échoue ou dépasse ses limites, elle signale que la
 mesure est indisponible, **sans supprimer ni invalider le MP4**.
 Toutes les opérations se font localement, sans accès au cloud.
 
+### Analyse temporelle des défauts visuels
+
+Le contrôle des transitions échantillonne les images du **MP4 réellement
+encodé**, en conservant la limite de 8 frontières et de 12 images/s sur une
+fenêtre d'une seconde par frontière. Sans autre passe FFmpeg, il mesure :
+
+- la proportion du changement de luminosité concentrée dans la plus grande
+  variation entre deux images et sa proximité de la frontière de narration ;
+  une transition `fade` n'est signalée comme brusque que si un saut
+  prédominant apparaît à proximité de cette frontière ;
+- la présence d'une **impulsion lumineuse très brève**, entourée d'images
+  plus sombres de luminosité comparable. Un nouveau diagnostic
+  `unexpected-bright-flash` identifie ce cas sans confondre une nouvelle
+  scène durablement plus lumineuse avec un flash ;
+- les flashs noirs, écarts d'exposition et mesures précédemment disponibles.
+
+Les preuves figurent sous `max_step_fraction`,
+`dominant_step_near_boundary` et `brief_bright_pulse_frames` dans
+`final_visual_review.boundaries` et le rapport de contrôle qualité.
+Une alerte appelle une **vérification humaine** : un flash ou une
+transition très contrastée peut être délibéré. Ces analyses ne bloquent
+pas la publication d'un MP4 techniquement valide, et elles ne modifient
+aucune vidéo source.
+
 ## Gestion sécurisée de l'espace de stockage
 
 Le studio affiche maintenant l'espace réellement occupé par les imports,
