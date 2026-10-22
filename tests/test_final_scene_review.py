@@ -77,6 +77,45 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
         self.assertNotIn("abrupt-change-during-fade", cut["boundaries"][0]["findings"])
         self.assertIn("large-exposure-change", cut["boundaries"][0]["findings"])
 
+    def test_bright_pulse_warning_requires_a_short_centered_spike(self):
+        clip = Path("sample-only.mp4")
+        flash = tuple([105.0] * 5 + [248.0] * 2 + [103.0] * 5)
+        gradual = tuple(70.0 + 12.0 * index for index in range(12))
+        lasting = tuple([90.0] * 6 + [250.0] * 6)
+        with patch.object(qa, "sample_boundary_luminance", return_value=flash):
+            result = qa.inspect_final_boundaries(clip, scenes(2, 2), ["cut"])
+        record = result["boundaries"][0]
+        self.assertIn("unexpected-bright-flash", record["findings"])
+        self.assertEqual(record["brief_bright_pulse_frames"], 2)
+        self.assertTrue(any("very bright pulse" in w for w in result["warnings"]))
+        with patch.object(qa, "sample_boundary_luminance", return_value=gradual):
+            smooth = qa.inspect_final_boundaries(clip, scenes(2, 2), ["fade"])
+        self.assertNotIn("unexpected-bright-flash", smooth["boundaries"][0]["findings"])
+        self.assertNotIn("abrupt-change-during-fade", smooth["boundaries"][0]["findings"])
+        with patch.object(qa, "sample_boundary_luminance", return_value=lasting):
+            steady = qa.inspect_final_boundaries(clip, scenes(2, 2), ["cut"])
+        self.assertNotIn("unexpected-bright-flash", steady["boundaries"][0]["findings"])
+
+    def test_abrupt_fade_requires_a_dominant_step_at_edit_center(self):
+        clip = Path("sample-only.mp4")
+        center = tuple([205.0] * 6 + [55.0] * 6)
+        early = tuple([205.0] * 4 + [55.0] * 8)
+        gradual = (210., 210., 210., 210., 180., 145.,
+                   115., 85., 60., 55., 55., 55.)
+        for pixels, should_warn in ((center, True), (early, False),
+                                    (gradual, False)):
+            with self.subTest(pixels=pixels), patch.object(
+                qa, "sample_boundary_luminance", return_value=pixels
+            ):
+                output = qa.inspect_final_boundaries(clip, scenes(2, 2), ["fade"])
+            record = output["boundaries"][0]
+            self.assertEqual("abrupt-change-during-fade" in record["findings"],
+                             should_warn, record)
+            self.assertGreaterEqual(record["max_step_fraction"], 0)
+            self.assertLessEqual(record["max_step_fraction"], 1)
+            self.assertEqual(record["dominant_step_near_boundary"],
+                             should_warn)
+
     def test_intentional_fade_through_black_is_not_misreported_as_flash(self):
         # The same visible/dark/visible pixels are expected during a
         # deliberate fade through black, but suspicious for a hard cut.
@@ -131,6 +170,19 @@ class EncodedBoundaryRealMP4Tests(unittest.TestCase):
             self.assertIn("unexpected-black-flash",
                           review["boundaries"][0]["findings"], review)
             self.assertEqual(review["samples_unavailable"], 0)
+
+    def test_real_encoded_two_frame_white_pulse_is_flagged_but_not_a_cut_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            movie = Path(temp) / "pulse.mp4"
+            self.make_movie(movie, (("gray", 1.4166667),
+                                    ("white", 0.1666667),
+                                    ("gray", 1.4166667)))
+            result = qa.inspect_final_boundaries(movie, scenes(1.5, 1.5),
+                                                 ["cut"])
+            self.assertEqual(result["sampled_count"], 1, result)
+            record = result["boundaries"][0]
+            self.assertIn("unexpected-bright-flash", record["findings"], result)
+            self.assertGreaterEqual(record["brief_bright_pulse_frames"], 1)
 
     def test_real_mp4_exposure_shift_is_measurable_but_intentional_cut_safe(self):
         with tempfile.TemporaryDirectory() as temp:
