@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
 import shutil
@@ -302,6 +304,47 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     return target
 
 
+def _scene_encoding_workers(width: int, height: int, count: int) -> int:
+    """Bound parallel FFmpeg intermediates to multi-scene 720p, never 1080p.
+
+    H.264 codecs and overlays are unchanged; high-resolution decoders are
+    deliberately serialized to prevent excessive peak memory on mobile.
+    """
+    if count < 5 or not (720 <= max(width, height) <= 1280):
+        return 1
+    if width * height > 720 * 1280:
+        return 1
+    return min(2, os.cpu_count() or 1)
+
+
+def encode_media_scenes(
+    assets: list[MediaAsset | None], durations: list[float], work: Path,
+    *, width: int, height: int, fps: int, extra_frames: tuple[int, ...],
+) -> list[Path]:
+    """Create independent numbered scene files, preserving input order.
+
+    Only one worker is used unless several 720p scenes benefit from parallel
+    decoding. Futures must finish before composition; errors propagate instead
+    of permitting a partially composed or published export.
+    """
+    if not assets or len(assets) != len(durations) or len(assets) != len(extra_frames):
+        raise ValueError("Media scene inputs and frame extensions must match")
+
+    def encode(index: int) -> Path:
+        return render_scene(
+            assets[index], durations[index], index, work,
+            width=width, height=height, fps=fps,
+            extra_frames=extra_frames[index],
+        )
+
+    indices = range(len(assets))
+    workers = _scene_encoding_workers(width, height, len(assets))
+    if workers == 1:
+        return [encode(index) for index in indices]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mpt-scene") as executor:
+        return list(executor.map(encode, indices))
+
+
 def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
                              *, width: int, height: int, fps: int,
                              transition: str = "cut",
@@ -320,11 +363,10 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
             len(boundary_transitions) != len(assets) - 1 or
             any(name not in ("cut", "fade") for name in boundary_transitions)):
         raise ValueError("Invalid scene transition decisions")
-    scenes = [
-        render_scene(asset, duration, i, work, width=width, height=height, fps=fps,
-                     extra_frames=plan.extra_frames[i])
-        for i, (asset, duration) in enumerate(zip(assets, plan.durations))
-    ]
+    scenes = encode_media_scenes(
+        assets, plan.durations, work, width=width, height=height, fps=fps,
+        extra_frames=plan.extra_frames,
+    )
     output = work / "background.mp4"
     if len(scenes) == 1:
         # Avoid a redundant FFmpeg remux for a one-scene video.
@@ -483,9 +525,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         fused = bool(not (direct_abstract or direct_media) and plan.overlap_frames > 0
                      and use_fused_xfade)
         if fused:
-            clips = [render_scene(asset, length, i, work, width=width,
-                         height=height, fps=fps, extra_frames=plan.extra_frames[i])
-                     for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
+            clips = encode_media_scenes(
+                slots, plan.durations, work, width=width, height=height,
+                fps=fps, extra_frames=plan.extra_frames,
+            )
         elif not (direct_abstract or direct_media):
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps,
