@@ -200,8 +200,12 @@ indisponibles. Les médias du téléphone ne sont pas envoyés dans le cloud.
 Le studio peut mesurer la luminosité moyenne de **2 à 8 vidéos locales
 distinctes** et atténuer les petits écarts visibles entre elles. FFmpeg
 échantillonne au maximum **3 secondes à 1 image/seconde en 48 × 27 pixels**
-pour chaque fichier ; aucun contenu privé n'est envoyé vers un service
-distant. Une seule mesure par source suffit même si elle est réutilisée.
+pour chaque passage temporel distinct du fichier ; aucun contenu privé
+n'est envoyé vers un service distant. Pour un rush réutilisé à différents
+moments, ces passages sont mesurés séparément (au maximum **12 fenêtres**
+pour tout le montage). Si la lumière varie fortement dans le même rush,
+aucune correction globale n'est appliquée, afin de préserver les intentions
+de prise de vue. Les mesures strictement identiques sont mises en cache.
 
 L'analyse accepte les sources dont la luminosité est dans une plage
 intermédiaire et dont l'écart entre la plus sombre et la plus claire n'est
@@ -228,7 +232,8 @@ nécessitent encore une intervention créative.
 
 Pour les lots de **2 à 8 vidéos locales**, MoneyPrinter peut corriger une
 petite différence de dominante chaude ou froide entre les plans. Le moteur
-échantillonne jusqu'à 3 secondes par vidéo, à 1 image/s et 48 × 27 pixels,
+échantillonne jusqu'à 3 secondes par passage distinct d'une vidéo, à 1 image/s
+et 48 × 27 pixels (12 fenêtres au total maximum),
 en ne retenant que les **tons moyens peu saturés** présents dans au moins
 un tiers des pixels de chaque image.
 
@@ -240,7 +245,9 @@ par les deux moteurs de montage, rapide et classique. Les corrections
 réellement appliquées apparaissent sous `white_balance_gains` dans
 le manifeste JSON.
 
-**Protection des ambiances :** aucune correction n'est apportée en cas
+**Protection des ambiances :** si la même vidéo passe d'une scène chaude
+à une scène froide à des positions de lecture différentes, le moteur refuse
+un gain unique pour tout le clip. Aucune correction n'est apportée en cas
 de couleurs trop saturées, de références neutres insuffisantes, de mesures
 manquantes ou douteuses, de très faible luminosité ou de dominantes
 incomparables. Les photos et médias Wikimedia sont exclus de cette
