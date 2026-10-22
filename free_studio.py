@@ -37,6 +37,7 @@ from exposure_match import balance_exposure, exposure_filter
 from white_balance import balance_white, white_balance_suffix
 from smart_transitions import choose_boundaries
 from final_scene_review import inspect_final_boundaries
+from visual_repair import encoded_duration_ok, improved_review, repairable_boundary
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -576,6 +577,57 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                     * (len(slots) - 1))
                 rendered_visual_review = inspect_final_boundaries(
                     staged, segments, chosen_transitions)
+                # A post-encode isolated flash on an automatically chosen
+                # local-video cut is a *candidate* for one safer fade.
+                # Preserve the first MP4 unless a second actual encode and
+                # a complete re-scan both demonstrably improve the result.
+                if (transition == "auto" and applied_transition == "fade"
+                        and direct_media and not fallback
+                        and boundary_transitions is not None
+                        and plan.overlap_frames > 0 and fps <= 30
+                        and resolution <= 720 and total <= 30):
+                    repair_index = repairable_boundary(
+                        rendered_visual_review, boundary_transitions, slots)
+                    if repair_index is not None:
+                        repair_start = time.perf_counter()
+                        alternative = list(boundary_transitions)
+                        alternative[repair_index] = "fade"
+                        alternative_modes = tuple(alternative)
+                        candidate_file = work / "candidate-transition-repair.mp4"
+                        try:
+                            retry = build_onepass_media_command(
+                                slots, durations, width=width, height=height,
+                                fps=fps, transition=applied_transition,
+                                visual_filters=filters, audio=audio,
+                                output=candidate_file, total=total,
+                                boundary_transitions=alternative_modes)
+                            execute(retry, cwd=work, timeout=180)
+                            candidate_review = inspect_final_boundaries(
+                                candidate_file, segments, alternative_modes)
+                            if (improved_review(rendered_visual_review, candidate_review,
+                                                repair_index)
+                                    and encoded_duration_ok(
+                                        candidate_file, expected=total, fps=fps)):
+                                staged = candidate_file
+                                boundary_transitions = alternative_modes
+                                rendered_visual_review = candidate_review
+                                metrics["postencode_transition_repair"] = "accepted"
+                                warnings.append(
+                                    f"Boundary {repair_index + 1}: auto-cut flash "
+                                    "repaired by a verified fade")
+                            else:
+                                metrics["postencode_transition_repair"] = "rejected"
+                                warnings.append(
+                                    "Automatic transition repair did not improve "
+                                    "the verified MP4; original video retained")
+                        except (OSError, ValueError, TypeError, RuntimeError,
+                                subprocess.SubprocessError):
+                            metrics["postencode_transition_repair"] = "failed"
+                            warnings.append(
+                                "Automatic transition repair unavailable; "
+                                "original MP4 retained")
+                        metrics["transition_repair_seconds"] = round(
+                            time.perf_counter() - repair_start, 3)
                 warnings.extend(rendered_visual_review["warnings"])
             except (OSError, ValueError, TypeError, RuntimeError,
                     subprocess.SubprocessError):
