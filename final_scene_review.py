@@ -168,8 +168,21 @@ def inspect_final_boundaries(
             findings.append("abrupt-change-during-fade")
             warnings.append(
                 f"Boundary {index + 1}: final fade contains a large sudden brightness step; review transition")
+        # Keep advisory severity distinct from artistic intent. Exposure
+        # differences alone are low confidence; an isolated pulse on a
+        # declared hard cut is a stronger technical review signal.
+        if black_flash or bright_flash:
+            confidence = "high"
+        elif "abrupt-change-during-fade" in findings:
+            confidence = "medium"
+        elif findings:
+            confidence = "low"
+        else:
+            confidence = "none"
         records.append({
             "boundary": index + 1, "time_seconds": round(when, 3),
+            "review_confidence": confidence,
+            "requires_manual_review": confidence in ("high", "medium"),
             "transition": kind, "outgoing_luma": round(old, 2),
             "incoming_luma": round(new, 2),
             "luma_delta": round(delta, 2),
