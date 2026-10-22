@@ -473,10 +473,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             boundary_transitions = tuple("cut" for _ in range(len(slots) - 1))
         direct_abstract = bool(use_fused_xfade and not using_media and len(slots) <= 6)
         # Limit memory for simultaneous decoders, filters and animated images.
-        # Two-source 1080p and up-to-four-source 720p media are validated.
+        # Bound 360p to eight scenes, 720p to four, and 1080p to two.
+        # High-resolution decoders and xfade frames remain conservatively capped.
         direct_media = bool(
             use_fused_xfade and use_media_onepass and using_media and
-            ((resolution <= 720 and len(slots) <= 4) or
+            ((resolution == 360 and len(slots) <= 8) or
+             (resolution == 720 and len(slots) <= 4) or
              (resolution == 1080 and len(slots) <= 2)))
         fused = bool(not (direct_abstract or direct_media) and plan.overlap_frames > 0
                      and use_fused_xfade)

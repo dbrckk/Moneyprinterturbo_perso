@@ -128,7 +128,8 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
                         "Quatrième scène. Cinquième scène.",
                         target, media_dir=local, mute=True, resolution=360,
                         fps=12, caption_style="classic",
-                        visual_style="cinematic", transition="auto")
+                        visual_style="cinematic", transition="auto",
+                        use_media_onepass=False)
             self.assertEqual(result["scene_transitions"],
                              ["fade", "fade", "fade", "fade"])
             self.assertEqual(result["render_performance"]["compositing_pipeline"],
@@ -186,7 +187,8 @@ class ExtendedRepairRealMP4Tests(unittest.TestCase):
                         "Quatrième scène. Cinquième scène.",
                         output, media_dir=local, mute=True, resolution=360,
                         fps=12, caption_style="classic",
-                        visual_style="cinematic", transition="auto")
+                        visual_style="cinematic", transition="auto",
+                        use_media_onepass=False)
             self.assertEqual(requests, [None, (0,)])
             self.assertEqual(result["scene_transitions"],
                              ["cut", "fade", "fade", "fade"])

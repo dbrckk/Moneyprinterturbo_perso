@@ -67,3 +67,29 @@ comparison; there is no user-facing downgrade option.
 A separate visual regression fixed the portrait karaoke caption grouping: groups
 now fit the available width based on font size/margins instead of a fixed
 34-character assumption (verified with a rendered 720p frame).
+
+## 360p: montage local de cinq à huit scènes en une seule passe
+
+En 360p (portrait 360×640 ou paysage 640×360), le moteur peut désormais
+composer **jusqu'à huit** scènes photographiques/vidéo dans un unique graphe
+FFmpeg, avec fondus, mouvements, habillage, sous-titres et narration AAC.
+Il supprime les encodages H.264 intermédiaires tout en conservant la cadence
+et les contrôles finaux. La sélection reste volontairement limitée à **quatre
+scènes en 720p** et **deux scènes en 1080p** pour borner la mémoire et les
+encodeurs/décodeurs simultanés. En cas d'échec FFmpeg, le moteur conserve
+son chemin de repli à clips normalisés et l'indique dans le JSON de rendu.
+
+**Mesure exploratoire contrôlée, 22 octobre 2026 :** six images source
+synthétiques 360×640, fondu 12 fps, texte identique, mode muet et sous-titres
+classiques, même environnement FFmpeg 8.0.1 : ancien montage `fused-xfade`
+1,95 s contre `direct-media-onepass` 1,32 s (environ 32 % de temps total en
+moins). La génération initiale des images n'entre pas dans les durées ; le
+contrôle final de qualité H.264 réussit dans les deux cas. Résultat indicatif
+**non extrapolable** aux rushs réels, aux autres résolutions ou à la totalité
+du traitement IA.
+
+Les régressions couvrent six scènes encodées et huit sources mixtes JPEG/MP4,
+avec narration AAC, format de pixels, chronologie, attribution et comparaison
+octet par octet des fichiers originaux. Les tests consacrés au moteur fusionné
+historique activent explicitement `use_media_onepass=False`, afin que son
+contrôle de réparation reste indépendant de la sélection du moteur rapide.

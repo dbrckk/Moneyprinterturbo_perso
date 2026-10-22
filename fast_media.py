@@ -30,11 +30,13 @@ def build_onepass_media_command(
 ) -> list[str]:
     """Build a bounded filter graph with only one H.264 encode.
 
-    At most four inputs limit concurrent decoder, scaling and xfade memory.
-    The renderer chooses this mode conservatively and can fall back if needed.
+    Up to eight simultaneous scene inputs at 360p are allowed, versus four
+    at higher resolutions. The renderer applies stricter 1080p limits.
+    This prevents high-resolution decoder and xfade memory explosions.
     """
-    if not 1 <= len(assets) <= 4 or len(assets) != len(durations):
-        raise ValueError("Media single-pass mode supports 1–4 matching scenes")
+    max_inputs = 8 if width * height <= 360 * 640 else 4
+    if not 1 <= len(assets) <= max_inputs or len(assets) != len(durations):
+        raise ValueError(f"Media single-pass mode supports 1–{max_inputs} matching scenes at this resolution")
     if not any(asset is not None for asset in assets):
         raise ValueError("At least one real media asset is required")
     if not 240 <= width <= 4096 or not 240 <= height <= 4096 or width % 2 or height % 2:
