@@ -254,9 +254,13 @@ Le mode `--transition auto` (style cinématique) décide maintenant
 **pour chaque frontière entre deux vidéos locales** si une coupe nette
 ou un fondu convient le mieux, sans modifier l'ordre du montage.
 Il lit seulement deux petites images de 48 × 27 pixels autour de chaque
-frontière. Les plans à l'apparence globale proche ou les prises d'un
-même enregistrement qui se suivent immédiatement peuvent être assemblés
-par une coupe. Sinon, le fondu reste utilisé.
+frontière. L'analyse compare désormais à la fois **les couleurs moyennes et
+la disposition des zones lumineuses/sombres** sur une grille de 6 × 3 zones,
+obtenue depuis ces mêmes images, sans nouveau décodage FFmpeg. Deux scènes
+avec la même couleur moyenne mais des compositions très différentes sont
+ainsi séparées par un fondu plutôt que par une coupe brutale. Les prises
+d'un même enregistrement qui se suivent immédiatement peuvent toujours
+être assemblées sans fondu. Sinon, le fondu reste utilisé.
 
 L'analyse est limitée à **8 frontières** (jusqu'à 9 scènes) afin de
 protéger les ressources Android. Une lecture FFmpeg impossible, une
