@@ -233,12 +233,46 @@ def encoded_duration_ok(
 # passed the full scene-boundary check. These additional samples protect
 # the other scenes (including their burned subtitles, graphics and grading)
 # against accidental changes when a repair produces a second encode.
-_RGB_SIZE = 48 * 27 * 3
+_REVIEW_WIDTH = 96
+_REVIEW_HEIGHT = 54
+_RGB_SIZE = _REVIEW_WIDTH * _REVIEW_HEIGHT * 3
 _MAX_SCENE_SAMPLES = 4
+
+# The first-pass comparison guards brightness and subtitle overlays.
+# Detail loss can otherwise hide when adjacent fine lines collapse into the
+# same low-resolution average. We reuse these SAME RGB frames and measure
+# local luma gradients, requiring a substantial relative AND absolute loss.
+_MIN_MEASURABLE_DETAIL = 4.0
+_MIN_DETAIL_RETENTION = 0.62
+_MIN_ABSOLUTE_DETAIL_LOSS = 2.5
+
+
+def frame_spatial_detail(rgb: bytes) -> float | None:
+    """Average horizontal/vertical neighbour contrast at 96x54 (no libraries).
+
+    This is an objective edge-energy proxy, not a perceptual quality score.
+    A candidate with much weaker edges than the original scene may have
+    been blurred, badly resized or excessively smoothed by the retry.
+    """
+    if not isinstance(rgb, bytes) or len(rgb) != _RGB_SIZE:
+        return None
+    luma = [(54 * rgb[i] + 183 * rgb[i+1] + 19 * rgb[i+2]) >> 8
+            for i in range(0, len(rgb), 3)]
+    total = 0
+    width, height = _REVIEW_WIDTH, _REVIEW_HEIGHT
+    for row in range(height):
+        offset = row * width
+        for col in range(width):
+            i = offset + col
+            if col + 1 < width:
+                total += abs(luma[i] - luma[i + 1])
+            if row + 1 < height:
+                total += abs(luma[i] - luma[i + width])
+    return total / (height * (width - 1) + (height - 1) * width)
 
 
 def sample_encoded_rgb(video: Path, second: float) -> bytes | None:
-    """One decoded 48x27 frame from the delivered MP4; bounded FFmpeg work."""
+    """One decoded 96x54 RGB frame from the delivered MP4; bounded FFmpeg work."""
     if (not isinstance(video, Path) or not video.is_file()
             or type(second) not in (int, float) or not math.isfinite(second)
             or not 0.1 <= second <= 3600):
@@ -248,7 +282,7 @@ def sample_encoded_rgb(video: Path, second: float) -> bytes | None:
             ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
              "-ss", f"{second:.6f}", "-i", str(video),
              "-map", "0:v:0", "-an", "-frames:v", "1",
-             "-vf", "scale=48:27:flags=area,format=rgb24",
+             "-vf", "scale=96:54:flags=area,format=rgb24",
              "-f", "rawvideo", "pipe:1"],
             capture_output=True, timeout=20, check=True)
         return result.stdout if len(result.stdout) == _RGB_SIZE else None
@@ -265,8 +299,9 @@ def unchanged_scene_integrity(
     We sample the first and last scenes and both scenes surrounding the
     changed transition, at their respective midpoints. Each sample lies
     safely outside the 0.24s transition overlap in normal storyboards.
-    Compare decoded *pixels*, not compressed H.264 bytes: re-encoding can
-    change packet payloads even when the delivered picture is unchanged.
+    Compare decoded 96x54 *pixels* and fine-detail contrast, not compressed
+    H.264 bytes: packet payloads may differ while pictures remain unchanged.
+    The edge metric comes from the SAME decoded frames (no extra FFmpeg calls).
 
     A missing frame or an unexpected picture difference rejects the retry.
     No remediation or source modification occurs in this function.
@@ -274,6 +309,7 @@ def unchanged_scene_integrity(
     result: dict[str, object] = {
         "ok": False, "sampled_frames": 0,
         "worst_mae": None, "worst_changed_fraction": None,
+        "minimum_detail_retention": None, "sharpness_regression": False,
     }
     if (not isinstance(original, Path) or not isinstance(replacement, Path)
             or original == replacement or not 2 <= len(segments) <= 8
@@ -285,6 +321,7 @@ def unchanged_scene_integrity(
         return result
     worst_mae = 0.0
     worst_fraction = 0.0
+    minimum_detail_retention: float | None = None
     for index in indices:
         scene = segments[index]
         if not isinstance(scene, Mapping):
@@ -300,8 +337,23 @@ def unchanged_scene_integrity(
         timestamp = (start + end) / 2
         old = sample_encoded_rgb(original, timestamp)
         new = sample_encoded_rgb(replacement, timestamp)
-        if old is None or new is None:
+        if (not isinstance(old, bytes) or len(old) != _RGB_SIZE
+                or not isinstance(new, bytes) or len(new) != _RGB_SIZE):
             return result
+        original_detail = frame_spatial_detail(old)
+        candidate_detail = frame_spatial_detail(new)
+        if original_detail is None or candidate_detail is None:
+            return result
+        # Flat videos, low-light scenes and blank title cards cannot provide
+        # meaningful edge retention. They still receive RGB-difference QA.
+        detail_regression = False
+        if original_detail >= _MIN_MEASURABLE_DETAIL:
+            retention = candidate_detail / original_detail
+            minimum_detail_retention = (retention if minimum_detail_retention is None
+                                        else min(minimum_detail_retention, retention))
+            detail_regression = (
+                retention < _MIN_DETAIL_RETENTION
+                and original_detail - candidate_detail >= _MIN_ABSOLUTE_DETAIL_LOSS)
         total_abs = sum(abs(a - b) for a, b in zip(old, new, strict=True))
         mae = total_abs / _RGB_SIZE
         changed_pixels = sum(
@@ -314,9 +366,14 @@ def unchanged_scene_integrity(
         worst_fraction = max(worst_fraction, fraction)
         result["worst_mae"] = round(worst_mae, 3)
         result["worst_changed_fraction"] = round(worst_fraction, 4)
+        if minimum_detail_retention is not None:
+            result["minimum_detail_retention"] = round(minimum_detail_retention, 3)
+        if detail_regression:
+            result["sharpness_regression"] = True
         # Encoding noise can create small per-channel differences. Reject
-        # changed footage, overlays or missing subtitles, not normal noise.
-        if mae > 7.0 or fraction > 0.055:
+        # changed footage, overlays, missing subtitles OR strong fine-detail
+        # degradation. Small detail shifts from compression are tolerated.
+        if mae > 7.0 or fraction > 0.055 or detail_regression:
             return result
     result["ok"] = True
     return result

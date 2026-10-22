@@ -317,21 +317,25 @@ Protection du téléphone et des créations :
 - Une fois la correction validée aux frontières, le système compare
   les **pixels décodés** de 2 à 4 images situées au milieu des scènes
   avant et après réparation, en incluant les scènes voisines du raccord,
-  la première et la dernière. Cela vérifie que les plans inchangés,
-  graphismes et sous-titres incrustés n'ont pas subi de modification
-  inattendue. De petites différences de compression restent tolérées.
-  Les extractions FFmpeg peuvent rallonger légèrement la validation,
-  mais elles ne sont lancées que pour les candidats déjà meilleurs.
+  la première et la dernière. Les échantillons passent à **96 × 54 pixels**
+  pour mieux détecter les pertes de finesse. L'algorithme compare aussi
+  les **gradients locaux de luminance** : une chute importante de netteté
+  sur une scène inchangée fait rejeter le second MP4, même si les
+  moyennes de couleur paraissent normales. Les séquences uniformes et
+  les petites variations dues à la compression ne sont pas pénalisées.
+  Ces mesures réutilisent les mêmes images FFmpeg : **aucun décodage
+  supplémentaire** par rapport au contrôle antérieur.
 - Le premier rendu est conservé intact en cas d'échec, d'incertitude ou
   de délai d'encodage dépassé. Aucun changement aux fichiers importés.
 - Le rapport indique `postencode_transition_repair` (`accepted`,
   `rejected` ou `failed`), `postencode_transition_repair_pipeline`,
   `repair_target_precheck` (`passed` ou `rejected`, si applicable)
   et `repair_audio_integrity` (preuve AAC ou absence d'audio).
-  Les mesures `repair_scene_integrity`, `repair_scene_samples`
-  et `repair_scene_worst_pixel_delta` documentent le contrôle des
-  scènes non modifiées. Le fichier JSON final décrit la transition
-  réellement publiée.
+  Les mesures `repair_scene_integrity`, `repair_scene_samples`,
+  `repair_scene_worst_pixel_delta`, `repair_scene_min_detail_retention`
+  et `repair_sharpness_regression` (en cas de problème) documentent
+  le contrôle des scènes non modifiées. Le fichier JSON final indique
+  la transition réellement publiée.
 
 Le mécanisme **ne promet pas** de réparer tous les effets artistiques,
 transitions de vidéos longues ou flashs provenant directement du
