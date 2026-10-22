@@ -591,7 +591,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                         and plan.overlap_frames > 0 and fps <= 30
                         and resolution <= 720 and total <= 60
                         and 2 <= len(slots) <= 8):
-                    repair_index = repairable_boundary(
+                    repair_index = repairable_boundary(
                         rendered_visual_review, boundary_transitions, slots)
                     if repair_index is not None:
                         repair_start = time.perf_counter()
