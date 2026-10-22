@@ -302,8 +302,10 @@ Protection du téléphone et des créations :
   d'images ou de synchronisation.
 - Le second MP4 est **rejeté** sauf si une nouvelle inspection des pixels
   réduit effectivement la gravité des anomalies sans en créer d'autres,
-  et si FFprobe confirme les durées ainsi que la présence et les
-  caractéristiques des flux vidéo et audio par comparaison au premier MP4.
+  et si FFprobe confirme la présence, les caractéristiques et les durées
+  des flux vidéo et audio, la cadence réelle et le **nombre d'images H.264**
+  attendu. Ce dernier garde-fou empêche un fichier dont la durée semble
+  correcte mais dont les images sont tronquées d'être publié.
   En présence de narration AAC, le système calcule aussi **SHA-256 sur
   les données audio compressées** : une piste dont les échantillons ont
   changé, même à durée et codec identiques, fait rejeter la réparation.
@@ -312,13 +314,24 @@ Protection du téléphone et des créations :
   les six autres contrôles FFmpeg au maximum sont évités et l'original
   est conservé. Si elle est améliorée, toutes les frontières sont ensuite
   impérativement réinspectées avant toute acceptation.
+- Une fois la correction validée aux frontières, le système compare
+  les **pixels décodés** de 2 à 4 images situées au milieu des scènes
+  avant et après réparation, en incluant les scènes voisines du raccord,
+  la première et la dernière. Cela vérifie que les plans inchangés,
+  graphismes et sous-titres incrustés n'ont pas subi de modification
+  inattendue. De petites différences de compression restent tolérées.
+  Les extractions FFmpeg peuvent rallonger légèrement la validation,
+  mais elles ne sont lancées que pour les candidats déjà meilleurs.
 - Le premier rendu est conservé intact en cas d'échec, d'incertitude ou
   de délai d'encodage dépassé. Aucun changement aux fichiers importés.
 - Le rapport indique `postencode_transition_repair` (`accepted`,
   `rejected` ou `failed`), `postencode_transition_repair_pipeline`,
   `repair_target_precheck` (`passed` ou `rejected`, si applicable)
   et `repair_audio_integrity` (preuve AAC ou absence d'audio).
-  Le fichier JSON final décrit la transition réellement publiée.
+  Les mesures `repair_scene_integrity`, `repair_scene_samples`
+  et `repair_scene_worst_pixel_delta` documentent le contrôle des
+  scènes non modifiées. Le fichier JSON final décrit la transition
+  réellement publiée.
 
 Le mécanisme **ne promet pas** de réparer tous les effets artistiques,
 transitions de vidéos longues ou flashs provenant directement du
