@@ -13,6 +13,8 @@ import statistics
 import subprocess
 from typing import Callable, TYPE_CHECKING
 
+from color_sample_plan import color_sample_windows
+
 if TYPE_CHECKING:
     from media_assets import MediaAsset
 
@@ -90,28 +92,32 @@ def balance_white(
     *, probe: Callable[[Path, float, float], tuple[float, float, float] | None] = sample_neutral_rgb,
 ) -> tuple[list[MediaAsset | None], list[str]]:
     """Align mild opposing casts around the median of measurable neutrals."""
-    if len(slots) != len(durations):
-        raise ValueError("Scene duration mismatch")
-    first: dict[Path, tuple[float, float]] = {}
-    for asset, length in zip(slots, durations, strict=True):
-        if (asset is not None and asset.kind == "video" and asset.source_url == "local"
-                and asset.file not in first):
-            first[asset.file] = (asset.source_start_seconds, length)
-    if not 2 <= len(first) <= _MAX_SOURCES:
+    windows = color_sample_windows(slots, durations)
+    if windows is None:
         return slots, []
     samples: dict[Path, tuple[float, float, float]] = {}
-    for path, (start, length) in first.items():
-        try:
-            rgb = probe(path, start, length)
-        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+    for path, positions in windows.items():
+        per_scene: list[tuple[float, float, float]] = []
+        for start, length in positions:
+            try:
+                rgb = probe(path, start, length)
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                return slots, []
+            if (not isinstance(rgb, tuple) or len(rgb) != 3 or
+                    any(type(v) not in (float, int) or not math.isfinite(v)
+                        for v in rgb) or
+                    not 70 <= min(rgb) <= max(rgb) <= 190 or
+                    max(rgb) - min(rgb) > 37):
+                return slots, []
+            per_scene.append(tuple(float(v) for v in rgb))
+        # A single repeated source may include a naturally warm interior
+        # and cool outdoor sequence. Never grade both with one fixed gain.
+        ratios = [(rgb[0] / rgb[1], rgb[2] / rgb[1]) for rgb in per_scene]
+        if any(max(values[i] for values in ratios) -
+               min(values[i] for values in ratios) > 0.06 for i in (0, 1)):
             return slots, []
-        if (not isinstance(rgb, tuple) or len(rgb) != 3 or
-                any(type(v) not in (float, int) or not math.isfinite(v)
-                    for v in rgb) or
-                not 70 <= min(rgb) <= max(rgb) <= 190 or
-                max(rgb) - min(rgb) > 37):
-            return slots, []
-        samples[path] = tuple(float(v) for v in rgb)
+        samples[path] = tuple(
+            statistics.median(rgb[i] for rgb in per_scene) for i in range(3))
     # Disagreement must be meaningful but mild. Otherwise preserve the
     # original artistic color temperature and avoid needless grading.
     ratios = {path: (rgb[0] / rgb[1], rgb[2] / rgb[1])
@@ -146,4 +152,4 @@ def balance_white(
         and asset.file in corrections else asset
         for asset in slots
     ]
-    return balanced, [f"Matched neutral color casts across {len(first)} local video clips"]
+    return balanced, [f"Matched neutral color casts across {len(windows)} local video clips"]

@@ -14,6 +14,8 @@ import statistics
 import subprocess
 from typing import Callable, TYPE_CHECKING
 
+from color_sample_plan import color_sample_windows
+
 if TYPE_CHECKING:
     from media_assets import MediaAsset
 
@@ -70,29 +72,29 @@ def balance_exposure(
     """Match mild clip-to-clip differences; preserve artistic lighting.
 
     Only user-owned videos are eligible and each unique path is measured
-    once. Missing measurements cause a whole-cohort fallback, not an
-    inconsistent partially graded montage. Images and Commons remain intact.
+    once per distinct source window (at most twelve overall). If one reused
+    clip varies markedly between scene offsets, preserve the full cohort. Images and Commons remain intact.
     """
-    if len(slots) != len(durations):
-        raise ValueError("Media slots and scene durations differ")
-    first: dict[Path, tuple[float, float]] = {}
-    for asset, scene in zip(slots, durations, strict=True):
-        if asset is None or asset.source_url != "local" or asset.kind != "video":
-            continue
-        if asset.file not in first:
-            first[asset.file] = (asset.source_start_seconds, scene)
-    if not 2 <= len(first) <= MAX_SOURCES:
+    windows = color_sample_windows(slots, durations)
+    if windows is None:
         return slots, []
     readings: dict[Path, float] = {}
-    for path, (start, duration) in first.items():
-        try:
-            value = probe(path, start, duration)
-        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+    for path, positions in windows.items():
+        measured: list[float] = []
+        for start, duration in positions:
+            try:
+                value = probe(path, start, duration)
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                return slots, []
+            if (type(value) not in (float, int) or not math.isfinite(value)
+                    or not 45 <= value <= 210):
+                return slots, []
+            measured.append(float(value))
+        # Do not impose one brightness adjustment across dramatically
+        # different parts of a reused clip (e.g. moving indoors/outdoors).
+        if max(measured) - min(measured) > 18:
             return slots, []
-        if (type(value) not in (float, int) or not math.isfinite(value)
-                or not 45 <= value <= 210):
-            return slots, []
-        readings[path] = float(value)
+        readings[path] = statistics.median(measured)
     lower, upper = min(readings.values()), max(readings.values())
     # Substantially different light conditions are usually deliberate (night
     # vs day, sunset vs stage spotlight) and must not be flattened.
@@ -108,4 +110,4 @@ def balance_exposure(
               if asset is not None and asset.source_url == "local"
               and asset.kind == "video" and asset.file in changes else asset
               for asset in slots]
-    return result, [f"Matched mild exposure differences across {len(first)} local video clips"]
+    return result, [f"Matched mild exposure differences across {len(windows)} local video clips"]

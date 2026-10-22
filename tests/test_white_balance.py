@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import shutil
 import subprocess
 import tempfile
@@ -96,6 +97,46 @@ class WhiteBalanceUnitTests(unittest.TestCase):
         self.assertEqual(original, many)
         self.assertEqual(messages, [])
 
+    def test_reused_video_changed_color_temperature_keeps_original_grading(self):
+        warm, cool = owned(Path("warm.mp4")), owned(Path("cool.mp4"))
+        late = replace(warm, source_start_seconds=3.0)
+        readings = {(warm.file, 0.0): (140, 130, 115),
+                    (warm.file, 3.0): (115, 130, 140),
+                    (cool.file, 0.0): (115, 130, 140)}
+        observed = Mock(side_effect=lambda path, start, _duration:
+                        readings[path, start])
+        original, warnings = white_balance.balance_white(
+            [warm, cool, late], [2.6] * 3, probe=observed)
+        self.assertEqual(original, [warm, cool, late])
+        self.assertEqual(warnings, [])
+        # A's warm/cool scenes already prove inconsistent white balance.
+        # Skip the remaining source to limit work on mobile.
+        self.assertEqual(observed.call_count, 2)
+        self.assertEqual([c.args[1] for c in observed.call_args_list], [0.0, 3.0])
+        # Consistent repeated scene keeps exactly the same bounded gains.
+        readings[warm.file, 3.0] = (141, 130, 115)
+        balanced, warnings = white_balance.balance_white(
+            [warm, cool, late], [2.6] * 3,
+            probe=lambda path, start, _dur: readings[path, start])
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(balanced[0].white_balance_gains,
+                         balanced[2].white_balance_gains)
+        self.assertNotEqual(balanced[0].white_balance_gains, (1.0, 1.0, 1.0))
+
+    def test_excessive_reused_windows_and_bad_timestamps_skip_white_balance(self):
+        warm, cool = owned(Path("warm.mp4")), owned(Path("cool.mp4"))
+        many = [replace(warm, source_start_seconds=float(i) * 3.0)
+                for i in range(12)] + [cool]
+        probe = Mock(side_effect=AssertionError("No sample allowed"))
+        result, notes = white_balance.balance_white(
+            many, [2.6] * len(many), probe=probe)
+        self.assertEqual(result, many)
+        self.assertEqual(notes, [])
+        bad = [warm, replace(cool, source_start_seconds=float("inf"))]
+        self.assertEqual(white_balance.balance_white(
+            bad, [2.6, 2.6], probe=probe)[1], [])
+        probe.assert_not_called()
+
     def test_reject_invalid_filter_arguments_and_bad_media(self):
         for gains in ((1.1, 1, 1), (1, float("nan"), 1),
                       [1, 1, 1], (True, 1, 1), ("bad", 1, 1)):
@@ -135,6 +176,36 @@ class WhiteBalanceRealMediaTests(unittest.TestCase):
             self.assertGreater(a[0] - a[2], 15)
             self.assertLess(b[0] - b[2], -15)
             self.assertLess(abs(a[1] - b[1]), 8)
+
+    def test_real_reused_mp4_with_changing_white_balance_preserves_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reused = root / "reused.mp4"
+            other = root / "reference.mp4"
+            encode("-f", "lavfi", "-i",
+                   "color=c=0x8c8273:s=180x320:r=12:d=3",
+                   "-f", "lavfi", "-i",
+                   "color=c=0x73828c:s=180x320:r=12:d=3",
+                   "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+                   "-map", "[v]", "-c:v", "libx264",
+                   "-pix_fmt", "yuv420p", str(reused))
+            encode("-f", "lavfi", "-i",
+                   "color=c=0x828282:s=180x320:r=12:d=6",
+                   "-c:v", "libx264", "-pix_fmt", "yuv420p", str(other))
+            first = white_balance.sample_neutral_rgb(reused, 0.0, 2.0)
+            second = white_balance.sample_neutral_rgb(reused, 3.1, 2.0)
+            self.assertIsNotNone(first)
+            self.assertIsNotNone(second)
+            self.assertGreater(abs(first[0]/first[1] - second[0]/second[1]), .10)
+            original = owned(reused)
+            later = replace(original, source_start_seconds=3.1)
+            reference = owned(other)
+            saved = (reused.read_bytes(), other.read_bytes())
+            graded, messages = white_balance.balance_white(
+                [original, reference, later], [2.0] * 3)
+            self.assertEqual(graded, [original, reference, later])
+            self.assertEqual(messages, [])
+            self.assertEqual((reused.read_bytes(), other.read_bytes()), saved)
 
     def test_real_optimized_and_legacy_mp4_reduce_warm_cool_cast_gap(self):
         with tempfile.TemporaryDirectory() as tmp:
