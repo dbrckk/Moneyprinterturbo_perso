@@ -51,6 +51,10 @@ def sample_boundary_luminance(video: Path, boundary: float, total: float) -> tup
         return None
 
 
+def kind_for_flash(transitions: Sequence[str] | None, index: int) -> str:
+    return transitions[index] if transitions is not None else "unspecified"
+
+
 def inspect_final_boundaries(
     video: Path, segments: Sequence[dict], transitions: Sequence[str] | None = None,
 ) -> dict:
@@ -103,8 +107,20 @@ def inspect_final_boundaries(
         delta = abs(new - old)
         max_step = max(abs(b - a) for a, b in zip(pixels, pixels[1:]))
         middle = pixels[max(0, len(pixels)//2 - 2):min(len(pixels), len(pixels)//2 + 2)]
-        black_flash = (max(middle, default=255) < 15 and
-                       old >= 55 and new >= 55)
+        # A black flash must be isolated: dark frames on BOTH sides of
+        # the boundary can be an intentional fade-through-black. Require
+        # a brief dip bracketed by visible frames inside the overlap.
+        dark_indices = [j for j, value in enumerate(pixels) if value < 15]
+        first_dark = dark_indices[0] if dark_indices else -1
+        last_dark = dark_indices[-1] if dark_indices else -1
+        isolated_dark = (
+            0 < first_dark <= last_dark < len(pixels) - 1
+            and last_dark - first_dark <= 6
+            and min(pixels[first_dark - 1], pixels[last_dark + 1]) >= 45
+        )
+        black_flash = (isolated_dark and old >= 55 and new >= 55
+                       and min(middle, default=255) < 15
+                       and kind_for_flash(transitions, index) != "fade")
         kind = transitions[index] if transitions is not None else "unspecified"
         findings: list[str] = []
         if black_flash:
