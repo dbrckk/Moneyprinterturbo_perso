@@ -36,6 +36,7 @@ from shot_cuts import probe_shot_profile
 from exposure_match import balance_exposure, exposure_filter
 from white_balance import balance_white, white_balance_suffix
 from smart_transitions import choose_boundaries
+from final_scene_review import inspect_final_boundaries
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -560,6 +561,27 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")
+        # Inspect actual encoded scene boundaries, not only source previews.
+        # Restrict this optional on-device work to multi-scene local footage.
+        # No visual heuristic can reject an otherwise valid MP4.
+        rendered_visual_review = None
+        if media_dir is not None and len(slots) > 1 and any(
+                item is not None and item.source_url == "local"
+                and item.kind == "video" for item in slots):
+            review_start = time.perf_counter()
+            try:
+                chosen_transitions = (list(boundary_transitions) if
+                    boundary_transitions is not None else
+                    [applied_transition if plan.overlap_frames else "cut"]
+                    * (len(slots) - 1))
+                rendered_visual_review = inspect_final_boundaries(
+                    staged, segments, chosen_transitions)
+                warnings.extend(rendered_visual_review["warnings"])
+            except (OSError, ValueError, TypeError, RuntimeError,
+                    subprocess.SubprocessError):
+                warnings.append("Final encoded visual review unavailable; MP4 kept unchanged")
+            metrics["final_visual_review_seconds"] = round(
+                time.perf_counter() - review_start, 3)
         # Prepare every final artifact before changing anything in the public
         # output folder. Failures must not leave a new MP4 with old subtitles
         # or credits from a different render.
@@ -666,7 +688,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 "estimated-per-word" if caption_meta else "scene-level"),
             "caption_phrases": len(caption_meta["phrases"]) if caption_meta else len(segments),
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
-            "scene_search_queries": queries, "media": media_used, "warnings": warnings,
+            "scene_search_queries": queries, "media": media_used,
+            "final_visual_review": rendered_visual_review, "warnings": warnings,
         }
         metadata_file = work / "prepared-manifest.json"
         metadata_file.write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n",
