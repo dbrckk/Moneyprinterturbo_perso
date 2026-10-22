@@ -582,10 +582,11 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 # Preserve the first MP4 unless a second actual encode and
                 # a complete re-scan both demonstrably improve the result.
                 if (transition == "auto" and applied_transition == "fade"
-                        and direct_media and not fallback
+                        and ((direct_media and not fallback) or fused)
                         and boundary_transitions is not None
                         and plan.overlap_frames > 0 and fps <= 30
-                        and resolution <= 720 and total <= 30):
+                        and resolution <= 720 and total <= 60
+                        and 2 <= len(slots) <= 8):
                     repair_index = repairable_boundary(
                         rendered_visual_review, boundary_transitions, slots)
                     if repair_index is not None:
@@ -595,19 +596,34 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                         alternative_modes = tuple(alternative)
                         candidate_file = work / "candidate-transition-repair.mp4"
                         try:
-                            retry = build_onepass_media_command(
-                                slots, durations, width=width, height=height,
-                                fps=fps, transition=applied_transition,
-                                visual_filters=filters, audio=audio,
-                                output=candidate_file, total=total,
-                                boundary_transitions=alternative_modes)
-                            execute(retry, cwd=work, timeout=180)
+                            if direct_media:
+                                retry = build_onepass_media_command(
+                                    slots, durations, width=width, height=height,
+                                    fps=fps, transition=applied_transition,
+                                    visual_filters=filters, audio=audio,
+                                    output=candidate_file, total=total,
+                                    boundary_transitions=alternative_modes)
+                                retry_pipeline = "direct-media-onepass"
+                            else:
+                                # Larger montages already have normalized
+                                # clips. Reuse them instead of decoding each
+                                # uploaded source and preparing the scenes again.
+                                retry = final_xfade_command(
+                                    clips, plan, fps=fps,
+                                    transition=applied_transition,
+                                    overlays=filters, audio=audio,
+                                    duration=total, output=candidate_file,
+                                    boundary_transitions=alternative_modes)
+                                retry_pipeline = "reused-normalized-scenes"
+                            metrics["postencode_transition_repair_pipeline"] = retry_pipeline
+                            execute(retry, cwd=work, timeout=210)
                             candidate_review = inspect_final_boundaries(
                                 candidate_file, segments, alternative_modes)
                             if (improved_review(rendered_visual_review, candidate_review,
                                                 repair_index)
                                     and encoded_duration_ok(
-                                        candidate_file, expected=total, fps=fps)):
+                                        candidate_file, expected=total, fps=fps,
+                                        reference=staged)):
                                 staged = candidate_file
                                 boundary_transitions = alternative_modes
                                 rendered_visual_review = candidate_review

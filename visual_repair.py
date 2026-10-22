@@ -1,7 +1,7 @@
 """Guardrails for a single, verified post-encode cut -> fade repair.
 
-Only very short, locally-produced, *automatically* selected hard cuts can be
-reconsidered. The original MP4 is never overwritten unless a second FFmpeg
+Only bounded, locally-produced, *automatically* selected hard cuts can be
+reconsidered. A retry may reuse already-normalized scene videos. The original MP4 is never overwritten unless a second FFmpeg
 render is measurably better; video/speech/subtitle timings are unchanged.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ def repairable_boundary(
     assets: Sequence[object | None],
 ) -> int | None:
     """Find exactly one high-confidence flash on a selected local-video cut."""
-    if (not isinstance(report, dict) or not 2 <= len(assets) <= 4
+    if (not isinstance(report, dict) or not 2 <= len(assets) <= 8
             or len(transitions) != len(assets) - 1
             or report.get("samples_unavailable") != 0
             or report.get("boundaries_skipped") != 0):
@@ -31,13 +31,9 @@ def repairable_boundary(
     if not isinstance(records, list) or len(records) != len(transitions):
         return None
     candidates = []
-    for record in records:
-        if not isinstance(record, dict):
+    for index, record in enumerate(records):
+        if not isinstance(record, dict) or record.get("boundary") != index + 1:
             return None
-        number = record.get("boundary")
-        if type(number) is not int or not 1 <= number <= len(transitions):
-            return None
-        index = number - 1
         findings = record.get("findings")
         if not isinstance(findings, list) or not all(isinstance(x, str) for x in findings):
             return None
@@ -89,39 +85,67 @@ def improved_review(original: Mapping[str, object], replacement: Mapping[str, ob
             if va != 3 or vb > 1 or b.get("transition") != "fade":
                 return False
             changed = True
-        elif vb > va:
-            return False  # Never introduce a worse neighbouring boundary.
+        elif vb > va or a.get("transition") != b.get("transition"):
+            return False  # Do not worsen or silently modify another edit.
     return changed and new_score < baseline_score
 
 
-def encoded_duration_ok(video: Path, *, expected: float, fps: int) -> bool:
-    """Verify FFprobe's actual H.264 and AAC stream durations, not only metadata."""
+def encoded_duration_ok(
+    video: Path, *, expected: float, fps: int, reference: Path | None = None,
+) -> bool:
+    """Require timed H.264 (and, if present, AAC) with original stream layout.
+
+    Comparing to the unmodified first render guards against a repaired video
+    silently losing narration, changing dimensions or adding another stream.
+    """
     if (not isinstance(video, Path) or not video.is_file()
-            or video.stat().st_size < 1000 or
-            type(expected) not in (float, int) or not math.isfinite(expected)
-            or not 0 < expected <= 30
+            or video.stat().st_size < 1000
+            or type(expected) not in (float, int) or not math.isfinite(expected)
+            or not 0 < expected <= 60
             or type(fps) is not int or not 8 <= fps <= 30):
         return False
-    try:
+
+    def inspect(path: Path) -> tuple[tuple[object, ...], ...] | None:
+        if not path.is_file() or path.stat().st_size < 1000:
+            return None
         checked = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries",
-             "stream=codec_type,duration:format=duration", "-of", "json",
-             str(video)], capture_output=True, timeout=15, check=True, text=True)
+             "stream=codec_type,codec_name,width,height,sample_rate,channels,duration:"
+             "format=duration", "-of", "json", str(path)],
+            capture_output=True, timeout=15, check=True, text=True)
         metadata = json.loads(checked.stdout)
         allowance = max(0.14, 2.0 / fps)
         container = float(metadata["format"]["duration"])
         if not math.isfinite(container) or abs(container - expected) > allowance:
-            return False
+            return None
         streams = metadata.get("streams", [])
-        video_streams = [s for s in streams if s.get("codec_type") == "video"]
-        if len(video_streams) != 1:
+        videos = [s for s in streams if s.get("codec_type") == "video"]
+        audios = [s for s in streams if s.get("codec_type") == "audio"]
+        if len(videos) != 1 or len(audios) > 1 or len(streams) != 1 + len(audios):
+            return None
+        if videos[0].get("codec_name") != "h264":
+            return None
+        if audios and audios[0].get("codec_name") != "aac":
+            return None
+        fingerprints = []
+        for stream in [*videos, *audios]:
+            seconds = float(stream["duration"])
+            if not math.isfinite(seconds) or abs(seconds - expected) > allowance:
+                return None
+            fingerprints.append(
+                (stream.get("codec_type"), stream.get("codec_name"),
+                 stream.get("width"), stream.get("height"),
+                 stream.get("sample_rate"), stream.get("channels")))
+        return tuple(fingerprints)
+
+    try:
+        actual = inspect(video)
+        if actual is None:
             return False
-        for stream in streams:
-            if stream.get("codec_type") in ("video", "audio"):
-                seconds = float(stream["duration"])
-                if not math.isfinite(seconds) or abs(seconds - expected) > allowance:
-                    return False
-        return True
+        return (reference is None or (
+            isinstance(reference, Path) and reference != video
+            and (baseline := inspect(reference)) is not None
+            and actual == baseline))
     except (OSError, ValueError, TypeError, KeyError,
-            subprocess.SubprocessError, OverflowError):
+            subprocess.SubprocessError, OverflowError, AttributeError):
         return False
