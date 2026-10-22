@@ -109,7 +109,10 @@ class WhiteBalanceUnitTests(unittest.TestCase):
             [warm, cool, late], [2.6] * 3, probe=observed)
         self.assertEqual(original, [warm, cool, late])
         self.assertEqual(warnings, [])
-        self.assertEqual(observed.call_count, 3)
+        # A's warm/cool scenes already prove inconsistent white balance.
+        # Skip the remaining source to limit work on mobile.
+        self.assertEqual(observed.call_count, 2)
+        self.assertEqual([c.args[1] for c in observed.call_args_list], [0.0, 3.0])
         # Consistent repeated scene keeps exactly the same bounded gains.
         readings[warm.file, 3.0] = (141, 130, 115)
         balanced, warnings = white_balance.balance_white(
