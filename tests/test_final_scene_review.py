@@ -43,6 +43,26 @@ class EncodedBoundaryUnitTests(unittest.TestCase):
         self.assertEqual(report["boundaries"], [])
         self.assertEqual(report["samples_unavailable"], 0)
 
+    def test_single_selected_boundary_does_not_decode_other_transitions(self):
+        all_scenes = scenes(*([2.0] * 8))
+        sampler = Mock(return_value=tuple([100.0] * 12))
+        with patch.object(qa, "sample_boundary_luminance", sampler):
+            targeted = qa.inspect_final_boundaries(
+                Path("missing.mp4"), all_scenes, ["fade"] * 7,
+                selected_boundaries=(4,))
+        self.assertEqual(targeted["sampled_count"], 1)
+        self.assertEqual(targeted["boundaries"][0]["boundary"], 5)
+        self.assertEqual(targeted["boundaries_skipped"], 6)
+        self.assertEqual(sampler.call_count, 1)
+        self.assertEqual(sampler.call_args.args[1], 10.0)
+        for selected in ((-1,), (7,), (2, 2), (True,), ("1",),
+                         (0, 1, 2, 3, 4, 5, 6, 7), [1, 1]):
+            with self.subTest(selected=selected):
+                with self.assertRaises(ValueError):
+                    qa.inspect_final_boundaries(
+                        Path("missing.mp4"), all_scenes, ["cut"] * 7,
+                        selected_boundaries=selected)
+
     def test_only_bounded_spread_boundaries_and_failing_samples_are_reported(self):
         many = scenes(*([2.0] * 18))
         values = Mock(return_value=tuple([110.0] * 12))
