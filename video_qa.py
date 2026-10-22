@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 from final_scene_review import inspect_final_boundaries
+from motion_cadence_review import inspect_encoded_motion_cadence
 
 MAX_METADATA_BYTES = 2_000_000
 MAX_SCENES = 18
@@ -469,6 +470,21 @@ def audit(video: Path, *, metadata_path: Path | None = None,
                 subprocess.SubprocessError) as exc:
             result["warnings"].append(
                 "Encoded scene-boundary review could not be completed: " +
+                type(exc).__name__)
+        # An optional single bounded decode measures motion in the middle of
+        # genuinely video-backed scenes and narration pacing. Flat graphics,
+        # photographs and intentional steady shots are not called failures.
+        try:
+            pacing = inspect_encoded_motion_cadence(
+                video, metadata["segments"], metadata.get("media"))
+            result["motion_cadence_review"] = {
+                key: val for key, val in pacing.items() if key != "warnings"
+            }
+            result["warnings"].extend(pacing["warnings"])
+        except (ValueError, OSError, RuntimeError,
+                subprocess.SubprocessError) as exc:
+            result["warnings"].append(
+                "Encoded motion/cadence review could not be completed: " +
                 type(exc).__name__)
     output_path = output_path or video.with_suffix(".quality.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
