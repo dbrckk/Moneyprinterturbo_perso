@@ -27,6 +27,7 @@ from cinematic import build_filters, gradient_source, transition_plan, xfade_tra
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
+from encoder_profiles import ENCODER_PROFILES, resolve_encoder_profile
 from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
@@ -412,7 +413,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            visual_style: str = "cinematic", transition: str = "auto",
            caption_style: str = "kinetic", word_alignment: str = "estimated",
            use_fused_xfade: bool = True, use_media_onepass: bool = True,
-           visual_ai: str = "off", script_mode: str | None = None) -> dict[str, object]:
+           visual_ai: str = "off", script_mode: str | None = None,
+           encoder_profile: str = "balanced") -> dict[str, object]:
+    if not isinstance(encoder_profile, str) or encoder_profile not in ENCODER_PROFILES:
+        raise ValueError("Unsupported H.264 encoder profile")
     check_program("ffmpeg")
     check_program("ffprobe")
     if not (1 <= fps <= 60):
@@ -465,6 +469,13 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         caption_meta = (generate_karaoke_ass(segments, work, width=width, height=height,
                           word_times=word_times) if caption_style == "kinetic" else None)
         total = sum(durations)
+        chosen_encoder = resolve_encoder_profile(
+            encoder_profile, width=width, height=height, fps=fps,
+            duration=total, scenes=len(sentences))
+        metrics["final_encoder_preset"] = chosen_encoder.preset
+        metrics["final_encoder_crf"] = chosen_encoder.crf
+        if chosen_encoder.fallback_reason:
+            warnings.append(chosen_encoder.fallback_reason)
         stage_started = time.perf_counter()
         slots: list[MediaAsset | None] = [None] * len(sentences)
         queries: list[str] | None = None
@@ -551,23 +562,27 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd = build_onepass_abstract_command(
                 durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
-                audio=audio, output=staged, total=total)
+                audio=audio, output=staged, total=total,
+                preset=chosen_encoder.preset, crf=chosen_encoder.crf)
         elif direct_media:
             cmd = build_onepass_media_command(
                 slots, durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
                 audio=audio, output=staged, total=total,
-                boundary_transitions=boundary_transitions)
+                boundary_transitions=boundary_transitions,
+                preset=chosen_encoder.preset, crf=chosen_encoder.crf)
         elif fused:
             cmd = final_xfade_command(clips, plan, fps=fps,
                 transition=applied_transition, overlays=filters, audio=audio,
-                duration=total, output=staged, boundary_transitions=boundary_transitions)
+                duration=total, output=staged, boundary_transitions=boundary_transitions,
+                preset=chosen_encoder.preset, crf=chosen_encoder.crf)
         else:
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
                 cmd += ["-i", str(audio)]
-            cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
-                    "-crf", "23", "-pix_fmt", "yuv420p"]
+            cmd += ["-vf", ",".join(filters), "-c:v", "libx264",
+                    "-preset", chosen_encoder.preset, "-crf", str(chosen_encoder.crf),
+                    "-pix_fmt", "yuv420p"]
             if audio:
                 cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
             else:
@@ -592,8 +607,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
                 cmd += ["-i", str(audio)]
-            cmd += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
-                    "-crf", "23", "-pix_fmt", "yuv420p"]
+            cmd += ["-vf", ",".join(filters), "-c:v", "libx264",
+                    "-preset", chosen_encoder.preset, "-crf", str(chosen_encoder.crf),
+                    "-pix_fmt", "yuv420p"]
             if audio:
                 cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
             else:
@@ -650,7 +666,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                     fps=fps, transition=applied_transition,
                                     visual_filters=filters, audio=audio,
                                     output=candidate_file, total=total,
-                                    boundary_transitions=alternative_modes)
+                                    boundary_transitions=alternative_modes,
+                                    preset=chosen_encoder.preset,
+                                    crf=chosen_encoder.crf)
                                 retry_pipeline = "direct-media-onepass"
                             else:
                                 # Larger montages already have normalized
@@ -661,7 +679,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                     transition=applied_transition,
                                     overlays=filters, audio=audio,
                                     duration=total, output=candidate_file,
-                                    boundary_transitions=alternative_modes)
+                                    boundary_transitions=alternative_modes,
+                                    preset=chosen_encoder.preset,
+                                    crf=chosen_encoder.crf)
                                 retry_pipeline = "reused-normalized-scenes"
                             metrics["postencode_transition_repair_pipeline"] = retry_pipeline
                             execute(retry, cwd=work, timeout=210)
@@ -826,6 +846,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
+            "encoder_profile": chosen_encoder.to_dict(),
             "audio_mastering": ({"method": diagnostics.get("audio_mastering"),
                                   "target_integrated_lufs": (
                                       -16 if diagnostics.get("audio_mastering") == "ffmpeg-loudnorm-onepass"
@@ -873,6 +894,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--aspect", choices=sorted(ASPECTS), default="9:16")
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
+    parser.add_argument("--encoder-profile", choices=ENCODER_PROFILES, default="balanced",
+                        help="H.264 export mode: balanced (existing default), detail, premium, or conservative auto")
     parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
                         help="Scene transition; auto chooses cut/fade for suitable local video scenes, otherwise preserves original style")
     parser.add_argument("--word-alignment", choices=["estimated", "forced"], default="estimated",
@@ -916,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
                       caption_style=args.caption_style, word_alignment=args.word_alignment,
-                      script_mode=mode)
+                      script_mode=mode, encoder_profile=args.encoder_profile)
         # The manifest was staged and published alongside the MP4 by render().
         # Do not perform a second unguarded post-publication write.
         print(json.dumps(info, ensure_ascii=False, indent=2))
