@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
 import shutil
@@ -21,16 +23,25 @@ import wave
 from urllib import request
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
-from cinematic import build_filters, gradient_source, transition_plan
+from cinematic import build_filters, gradient_source, transition_plan, xfade_transition_spec
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
-from scene_framing import needs_soft_matte, soft_matte_graph
+from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
+from shot_quality import probe_black_intro
+from shot_cuts import probe_shot_profile
+from exposure_match import balance_exposure, exposure_filter
+from white_balance import balance_white, white_balance_suffix
+from smart_transitions import choose_boundaries
+from final_scene_review import inspect_final_boundaries
+from visual_repair import (encoded_duration_ok, improved_review,
+                           repairable_boundary, targeted_review_improved,
+                           unchanged_scene_integrity)
 
 PALETTE = ("0x0b1025", "0x153653", "0x23315f", "0x234747", "0x45315c", "0x16425b")
 DEFAULT_MODELS = ("llama3.2:1b", "qwen2.5:1.5b", "gemma3:1b")
@@ -259,11 +270,12 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
                "-i", gradient_source(index, width, height, fps)]
         effect = "format=yuv420p"
     elif asset.kind == "image":
+        motion = photo_zoom_filter(width=width, height=height, fps=fps, frames=frames)
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1",
                "-framerate", str(fps), "-i", str(asset.file)]
         effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
-                  f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
+                  f"{motion},"
                   "eq=contrast=1.05:saturation=1.07,"
                   "scale=in_range=auto:out_range=tv,format=yuv420p")
     elif asset.kind == "video":
@@ -274,12 +286,12 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
         cmd.extend(["-i", str(asset.file)])
         effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height},setsar=1,"
-                  "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+                  f"{exposure_filter(asset)}{white_balance_suffix(asset)},format=yuv420p")
     else:
         raise ValueError("Unsupported local media kind")
     if needs_soft_matte(asset):
         graph = soft_matte_graph(0, width=width, height=height, fps=fps,
-                                 prefix=f"legacy{index}", output_name="framed")
+                                 frames=frames, prefix=f"legacy{index}", output_name="framed")
         cmd += ["-an", "-filter_complex_threads", "1",
                 "-filter_complex", ";".join(graph), "-map", "[framed]"]
     else:
@@ -293,9 +305,51 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     return target
 
 
+def _scene_encoding_workers(width: int, height: int, count: int) -> int:
+    """Bound parallel FFmpeg intermediates to multi-scene 720p, never 1080p.
+
+    H.264 codecs and overlays are unchanged; high-resolution decoders are
+    deliberately serialized to prevent excessive peak memory on mobile.
+    """
+    if count < 5 or not (720 <= max(width, height) <= 1280):
+        return 1
+    if width * height > 720 * 1280:
+        return 1
+    return min(2, os.cpu_count() or 1)
+
+
+def encode_media_scenes(
+    assets: list[MediaAsset | None], durations: list[float], work: Path,
+    *, width: int, height: int, fps: int, extra_frames: tuple[int, ...],
+) -> list[Path]:
+    """Create independent numbered scene files, preserving input order.
+
+    Only one worker is used unless several 720p scenes benefit from parallel
+    decoding. Futures must finish before composition; errors propagate instead
+    of permitting a partially composed or published export.
+    """
+    if not assets or len(assets) != len(durations) or len(assets) != len(extra_frames):
+        raise ValueError("Media scene inputs and frame extensions must match")
+
+    def encode(index: int) -> Path:
+        return render_scene(
+            assets[index], durations[index], index, work,
+            width=width, height=height, fps=fps,
+            extra_frames=extra_frames[index],
+        )
+
+    indices = range(len(assets))
+    workers = _scene_encoding_workers(width, height, len(assets))
+    if workers == 1:
+        return [encode(index) for index in indices]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mpt-scene") as executor:
+        return list(executor.map(encode, indices))
+
+
 def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
                              *, width: int, height: int, fps: int,
-                             transition: str = "cut") -> Path:
+                             transition: str = "cut",
+                             boundary_transitions: tuple[str, ...] | None = None) -> Path:
     """Compose CFR media clips, with optionally frame-accurate crossfades.
 
     Each crossfade is centered on the original narration/SRT boundary. The
@@ -306,11 +360,14 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
     if len(assets) != len(durations) or not assets:
         raise ValueError("Each scene must have exactly one media slot")
     plan = transition_plan(durations, fps=fps, transition=transition)
-    scenes = [
-        render_scene(asset, duration, i, work, width=width, height=height, fps=fps,
-                     extra_frames=plan.extra_frames[i])
-        for i, (asset, duration) in enumerate(zip(assets, plan.durations))
-    ]
+    if boundary_transitions is not None and (
+            len(boundary_transitions) != len(assets) - 1 or
+            any(name not in ("cut", "fade") for name in boundary_transitions)):
+        raise ValueError("Invalid scene transition decisions")
+    scenes = encode_media_scenes(
+        assets, plan.durations, work, width=width, height=height, fps=fps,
+        extra_frames=plan.extra_frames,
+    )
     output = work / "background.mp4"
     if len(scenes) == 1:
         # Avoid a redundant FFmpeg remux for a one-scene video.
@@ -326,8 +383,10 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
     previous = "[0:v]"
     for i in range(1, len(scenes)):
         current = f"[xf{i}]"
+        chosen = (boundary_transitions[i-1] if boundary_transitions is not None
+                  else transition)
         filters.append(
-            f"{previous}[{i}:v]xfade=transition={transition}:"
+            f"{previous}[{i}:v]xfade={xfade_transition_spec(chosen)}:"
             f"duration={plan.overlap_frames/fps:.6f}:"
             f"offset={plan.offset_frames[i-1]/fps:.6f}{current}"
         )
@@ -428,9 +487,21 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             warnings.extend(notices)
         # Reused local videos advance through their actual playback timeline.
         # Commons stills and unrelated local images are left untouched.
-        slots, clip_notices = plan_local_video_timeline(slots, durations)
+        slots, clip_notices = plan_local_video_timeline(
+            slots, durations,
+            probe_intro=probe_black_intro if media_dir is not None else None,
+            probe_profile=probe_shot_profile if media_dir is not None else None)
         warnings.extend(clip_notices)
+        if media_dir is not None:
+            slots, exposure_notices = balance_exposure(slots, durations)
+            warnings.extend(exposure_notices)
+            slots, color_notices = balance_white(slots, durations)
+            warnings.extend(color_notices)
         using_media = any(item is not None for item in slots)
+        boundary_transitions: tuple[str, ...] | None = None
+        if transition == "auto" and applied_transition == "fade" and using_media:
+            boundary_transitions, adaptive_notes = choose_boundaries(slots, durations)
+            warnings.extend(adaptive_notes)
         metrics["media_selection_seconds"] = round(time.perf_counter() - stage_started, 3)
         if commons:
             metrics["commons_wall_seconds"] = float(commons_stats.get("wall_seconds", 0))
@@ -441,22 +512,29 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # crossfades, text and subtitles in the FINAL FFmpeg graph. No temporary
         # H.264 scene clips are needed. More complex media retains tested paths.
         plan = transition_plan(durations, fps=fps, transition=applied_transition)
+        if boundary_transitions is not None and plan.overlap_frames == 0:
+            boundary_transitions = tuple("cut" for _ in range(len(slots) - 1))
         direct_abstract = bool(use_fused_xfade and not using_media and len(slots) <= 6)
         # Limit memory for simultaneous decoders, filters and animated images.
-        # Two-source 1080p and up-to-four-source 720p media are validated.
+        # Bound 360p to eight scenes, 720p to four, and 1080p to two.
+        # High-resolution decoders and xfade frames remain conservatively capped.
         direct_media = bool(
             use_fused_xfade and use_media_onepass and using_media and
-            ((resolution <= 720 and len(slots) <= 4) or
+            ((resolution == 360 and len(slots) <= 8) or
+             (resolution == 720 and len(slots) <= 4) or
              (resolution == 1080 and len(slots) <= 2)))
         fused = bool(not (direct_abstract or direct_media) and plan.overlap_frames > 0
                      and use_fused_xfade)
         if fused:
-            clips = [render_scene(asset, length, i, work, width=width,
-                         height=height, fps=fps, extra_frames=plan.extra_frames[i])
-                     for i, (asset, length) in enumerate(zip(slots, plan.durations, strict=True))]
+            clips = encode_media_scenes(
+                slots, plan.durations, work, width=width, height=height,
+                fps=fps, extra_frames=plan.extra_frames,
+            )
         elif not (direct_abstract or direct_media):
             video_background = prepare_media_background(slots, durations, work,
-                width=width, height=height, fps=fps, transition=applied_transition)
+                width=width, height=height, fps=fps,
+                transition=applied_transition,
+                boundary_transitions=boundary_transitions)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
@@ -468,6 +546,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             filters.append("subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=" + str(subtitle_size) + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H00201712,Outline=2,Shadow=0,Alignment=2,MarginV=" + str(max(35, height//8)) + "'")
         staged = work / "result.mp4"
         if direct_abstract:
+            # Abstract animated backgrounds are not source local footage.
+            # Their renderer has no adaptive scene boundaries.
             cmd = build_onepass_abstract_command(
                 durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
@@ -476,11 +556,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd = build_onepass_media_command(
                 slots, durations, width=width, height=height, fps=fps,
                 transition=applied_transition, visual_filters=filters,
-                audio=audio, output=staged, total=total)
+                audio=audio, output=staged, total=total,
+                boundary_transitions=boundary_transitions)
         elif fused:
             cmd = final_xfade_command(clips, plan, fps=fps,
                 transition=applied_transition, overlays=filters, audio=audio,
-                duration=total, output=staged)
+                duration=total, output=staged, boundary_transitions=boundary_transitions)
         else:
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
@@ -504,7 +585,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             warnings.append("Single-pass composition failed; using legacy FFmpeg rendering")
             retry_started = time.perf_counter()
             video_background = prepare_media_background(slots, durations, work,
-                width=width, height=height, fps=fps, transition=applied_transition)
+                width=width, height=height, fps=fps,
+                transition=applied_transition,
+                boundary_transitions=boundary_transitions)
             metrics["scene_encoding_seconds"] = round(time.perf_counter() - retry_started, 3)
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:
@@ -527,6 +610,137 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")
+        # Inspect actual encoded scene boundaries, not only source previews.
+        # Restrict this optional on-device work to multi-scene local footage.
+        # No visual heuristic can reject an otherwise valid MP4.
+        rendered_visual_review = None
+        if media_dir is not None and len(slots) > 1 and any(
+                item is not None and item.source_url == "local"
+                and item.kind == "video" for item in slots):
+            review_start = time.perf_counter()
+            try:
+                chosen_transitions = (list(boundary_transitions) if
+                    boundary_transitions is not None else
+                    [applied_transition if plan.overlap_frames else "cut"]
+                    * (len(slots) - 1))
+                rendered_visual_review = inspect_final_boundaries(
+                    staged, segments, chosen_transitions)
+                # A post-encode isolated flash on an automatically chosen
+                # local-video cut is a *candidate* for one safer fade.
+                # Preserve the first MP4 unless a second actual encode and
+                # a complete re-scan both demonstrably improve the result.
+                if (transition == "auto" and applied_transition == "fade"
+                        and ((direct_media and not fallback) or fused)
+                        and boundary_transitions is not None
+                        and plan.overlap_frames > 0 and fps <= 30
+                        and resolution <= 720 and total <= 60
+                        and 2 <= len(slots) <= 8):
+                    repair_index = repairable_boundary(
+                        rendered_visual_review, boundary_transitions, slots)
+                    if repair_index is not None:
+                        repair_start = time.perf_counter()
+                        alternative = list(boundary_transitions)
+                        alternative[repair_index] = "fade"
+                        alternative_modes = tuple(alternative)
+                        candidate_file = work / "candidate-transition-repair.mp4"
+                        try:
+                            if direct_media:
+                                retry = build_onepass_media_command(
+                                    slots, durations, width=width, height=height,
+                                    fps=fps, transition=applied_transition,
+                                    visual_filters=filters, audio=audio,
+                                    output=candidate_file, total=total,
+                                    boundary_transitions=alternative_modes)
+                                retry_pipeline = "direct-media-onepass"
+                            else:
+                                # Larger montages already have normalized
+                                # clips. Reuse them instead of decoding each
+                                # uploaded source and preparing the scenes again.
+                                retry = final_xfade_command(
+                                    clips, plan, fps=fps,
+                                    transition=applied_transition,
+                                    overlays=filters, audio=audio,
+                                    duration=total, output=candidate_file,
+                                    boundary_transitions=alternative_modes)
+                                retry_pipeline = "reused-normalized-scenes"
+                            metrics["postencode_transition_repair_pipeline"] = retry_pipeline
+                            execute(retry, cwd=work, timeout=210)
+                            # In the larger fused path, an unsuccessful fix
+                            # should not trigger 4–7 unnecessary FFmpeg
+                            # boundary decodes. First inspect only the changed
+                            # boundary; retain a mandatory FULL scan before
+                            # publishing any promising candidate.
+                            preliminary_passed = True
+                            if fused and len(slots) >= 5:
+                                preview_review = inspect_final_boundaries(
+                                    candidate_file, segments, alternative_modes,
+                                    selected_boundaries=(repair_index,))
+                                preliminary_passed = targeted_review_improved(
+                                    rendered_visual_review, preview_review,
+                                    repair_index)
+                                metrics["repair_target_precheck"] = (
+                                    "passed" if preliminary_passed else "rejected")
+                            candidate_review = (
+                                inspect_final_boundaries(
+                                    candidate_file, segments, alternative_modes)
+                                if preliminary_passed else None)
+                            candidate_safe = (
+                                candidate_review is not None
+                                and improved_review(
+                                    rendered_visual_review, candidate_review,
+                                    repair_index)
+                                and encoded_duration_ok(
+                                    candidate_file, expected=total, fps=fps,
+                                    reference=staged))
+                            if candidate_safe:
+                                unchanged = unchanged_scene_integrity(
+                                    staged, candidate_file, segments, repair_index)
+                                metrics["repair_scene_integrity"] = (
+                                    "passed" if unchanged["ok"] else "rejected")
+                                metrics["repair_scene_samples"] = int(
+                                    unchanged["sampled_frames"])
+                                if unchanged["worst_mae"] is not None:
+                                    metrics["repair_scene_worst_pixel_delta"] = (
+                                        unchanged["worst_mae"])
+                                if unchanged.get("minimum_detail_retention") is not None:
+                                    metrics["repair_scene_min_detail_retention"] = (
+                                        unchanged["minimum_detail_retention"])
+                                if unchanged.get("sharpness_regression", False):
+                                    metrics["repair_sharpness_regression"] = "detected"
+                                    warnings.append(
+                                        "Proposed transition repair reduces fine detail "
+                                        "in untouched scenes; original MP4 retained")
+                                candidate_safe = bool(unchanged["ok"])
+                            if candidate_safe:
+                                staged = candidate_file
+                                boundary_transitions = alternative_modes
+                                rendered_visual_review = candidate_review
+                                metrics["postencode_transition_repair"] = "accepted"
+                                metrics["repair_audio_integrity"] = (
+                                    "aac-payload-sha256" if audio is not None
+                                    else "no-audio")
+                                warnings.append(
+                                    f"Boundary {repair_index + 1}: auto-cut flash "
+                                    "repaired by a verified fade")
+                            else:
+                                metrics["postencode_transition_repair"] = "rejected"
+                                warnings.append(
+                                    "Automatic transition repair did not improve "
+                                    "the verified MP4; original video retained")
+                        except (OSError, ValueError, TypeError, RuntimeError,
+                                subprocess.SubprocessError):
+                            metrics["postencode_transition_repair"] = "failed"
+                            warnings.append(
+                                "Automatic transition repair unavailable; "
+                                "original MP4 retained")
+                        metrics["transition_repair_seconds"] = round(
+                            time.perf_counter() - repair_start, 3)
+                warnings.extend(rendered_visual_review["warnings"])
+            except (OSError, ValueError, TypeError, RuntimeError,
+                    subprocess.SubprocessError):
+                warnings.append("Final encoded visual review unavailable; MP4 kept unchanged")
+            metrics["final_visual_review_seconds"] = round(
+                time.perf_counter() - review_start, 3)
         # Prepare every final artifact before changing anything in the public
         # output folder. Failures must not leave a new MP4 with old subtitles
         # or credits from a different render.
@@ -566,6 +780,9 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "semantic_score": asset.semantic_score,
                                "source_start_seconds": (
                                    round(source_seek_seconds(asset), 3) if asset.kind == "video" else None),
+                               "exposure_shift": (asset.exposure_shift if asset.kind == "video" else None),
+                               "white_balance_gains": (asset.white_balance_gains if asset.kind == "video"
+                                                       else None),
                                "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
                                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
@@ -620,14 +837,18 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                  if audio else None),
             "commons_fetch": commons_stats if commons else None,
             "visual_ai": visual_ai,
-            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition, "voice_model": voice_info,
+            "speech_engine": tts if not mute else "muted", "visual_style": visual_style, "scene_transition": applied_transition,
+            "scene_transitions": list(boundary_transitions) if boundary_transitions is not None else
+                                 [applied_transition if plan.overlap_frames else "cut"] * (len(slots) - 1),
+            "voice_model": voice_info,
             "caption_style": caption_style, "caption_timing": (
                 "forced-audio-word-onsets" if caption_meta and not caption_meta["estimated_word_timing"] else
                 "mixed-measured-estimated" if caption_meta and caption_meta["aligned_scenes"] else
                 "estimated-per-word" if caption_meta else "scene-level"),
             "caption_phrases": len(caption_meta["phrases"]) if caption_meta else len(segments),
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
-            "scene_search_queries": queries, "media": media_used, "warnings": warnings,
+            "scene_search_queries": queries, "media": media_used,
+            "final_visual_review": rendered_visual_review, "warnings": warnings,
         }
         metadata_file = work / "prepared-manifest.json"
         metadata_file.write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n",
@@ -653,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resolution", type=int, choices=[360, 720, 1080], default=720)
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
-                        help="Scene transition; auto fades in cinematic mode and cuts in classic mode")
+                        help="Scene transition; auto chooses cut/fade for suitable local video scenes, otherwise preserves original style")
     parser.add_argument("--word-alignment", choices=["estimated", "forced"], default="estimated",
                         help="Optional true acoustic word alignment using CPU stable-ts/Whisper")
     parser.add_argument("--caption-style", choices=["kinetic", "classic"], default="kinetic",

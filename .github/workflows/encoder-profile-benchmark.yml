@@ -1,0 +1,88 @@
+name: Offline encoder profile benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      resolution:
+        description: "Target vertical width (GitHub runner; not Android)"
+        type: choice
+        required: true
+        default: "360"
+        options:
+          - "360"
+          - "720"
+      fps:
+        description: "Frames per second"
+        type: choice
+        required: true
+        default: "12"
+        options:
+          - "12"
+          - "24"
+          - "30"
+      seconds:
+        description: "Seconds per synthetic test scene"
+        type: choice
+        required: true
+        default: "3"
+        options:
+          - "2"
+          - "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: encoder-profile-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ensure FFmpeg and FFprobe are available
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -hide_banner -version | head -1
+      - name: Generate synthetic local encoder profiles
+        env:
+          RESOLUTION: ${{ inputs.resolution }}
+          FPS: ${{ inputs.fps }}
+          BENCHMARK_SECONDS: ${{ inputs.seconds }}
+        run: |
+          set -euo pipefail
+          python encoder_profile_benchmark.py \
+            --output outputs/encoder-benchmark \
+            --resolution "$RESOLUTION" --fps "$FPS" --seconds "$BENCHMARK_SECONDS"
+      - name: Validate factual report and previews
+        run: |
+          set -euo pipefail
+          test -s outputs/encoder-benchmark/metrics.json
+          test -s outputs/encoder-benchmark/report.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("outputs/encoder-benchmark")
+          data = json.loads((root/"metrics.json").read_text())
+          assert data["production_profile_unchanged"] is True
+          assert len(data["profiles"]) == 4
+          assert len(data["scenarios"]) == 2
+          assert len(list((root/"videos").glob("*.mp4"))) == 8
+          assert all(0 <= item["mean_ssim"] <= 1 for item in data["profiles"])
+          PY
+      - name: Downloadable mobile A/B report with 8 MP4s
+        uses: actions/upload-artifact@v4
+        with:
+          name: encoder-profile-benchmark
+          path: outputs/encoder-benchmark/
+          retention-days: 7
+          if-no-files-found: error

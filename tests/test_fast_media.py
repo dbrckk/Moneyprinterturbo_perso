@@ -41,6 +41,46 @@ class MediaOnePassTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fast_media.build_onepass_media_command([SimpleNamespace(kind="other",file=Path("bad")),b],**opts)
 
+    def test_360p_accepts_eight_scenes_but_720p_keeps_memory_cap(self):
+        items = [SimpleNamespace(kind="image", file=Path(f"{i}.jpg")) for i in range(8)]
+        options = dict(durations=[1.5]*8, width=360, height=640, fps=12,
+                       transition="fade", visual_filters=["format=yuv420p"],
+                       audio=None, output=Path("out.mp4"), total=12.0)
+        command = fast_media.build_onepass_media_command(items, **options)
+        graph = command[command.index("-filter_complex") + 1]
+        self.assertEqual(graph.count("xfade="), 7)
+        with self.assertRaises(ValueError):
+            fast_media.build_onepass_media_command(items + items[:1],
+                **(options | {"durations": [1.5]*9, "total": 13.5}))
+        with self.assertRaises(ValueError):
+            fast_media.build_onepass_media_command(items[:5],
+                **(options | {"width": 720, "height": 1280,
+                            "durations": [1.5]*5, "total": 7.5}))
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_real_six_scene_360p_fade_preserves_complete_movie(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            media = root / "source"
+            media.mkdir()
+            for i, color in enumerate(("red", "green", "blue", "yellow", "magenta", "cyan")):
+                ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=360x640:r=1",
+                       "-frames:v", "1", "-update", "1", str(media / f"{i:02}.jpg"))
+            script = "Voici la première scène. Regardons la deuxième scène. Admirons une troisième scène. " \
+                     "Passons à la quatrième scène. Observons une cinquième scène. Terminons cette sixième scène."
+            target = root / "six.mp4"
+            info = free_studio.render("Six scènes", script, target, mute=True,
+                media_dir=media, resolution=360, fps=12, transition="fade",
+                caption_style="classic")
+            self.assertEqual(len(info["segments"]), 6)
+            self.assertEqual(info["render_performance"]["compositing_pipeline"],
+                             "direct-media-onepass")
+            report = video_qa.validate(target, info, target.with_suffix(".srt"),
+                                       video_qa.probe(target))
+            self.assertTrue(report["ok"], report["errors"])
+            self.assertEqual(report["checks"]["pixel_format"], "yuv420p")
+            self.assertGreater(target.stat().st_size, 10000)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"FFmpeg required")
     def test_real_jpeg_mp4_with_fade_cut_wipe_and_legacy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,6 +107,38 @@ class MediaOnePassTests(unittest.TestCase):
                         self.assertTrue(report["ok"],report["errors"])
                         self.assertEqual(report["checks"]["pixel_format"],"yuv420p")
                         self.assertEqual(len(info["media"]),2)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe") and shutil.which("espeak"),
+                         "Voice tools required")
+    def test_real_eight_mixed_sources_keep_narration_and_originals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            media = root / "source"
+            media.mkdir()
+            for index, color in enumerate(("red", "green", "blue", "yellow")):
+                ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=360x640:r=1",
+                       "-frames:v", "1", "-update", "1", str(media / f"{index:02}.jpg"))
+            for index, color in enumerate(("cyan", "magenta", "orange", "purple"), start=4):
+                ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=320x568:r=18:d=3",
+                       "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                       str(media / f"{index:02}.mp4"))
+            original_bytes = {p.name: p.read_bytes() for p in media.iterdir()}
+            script = ("Un premier paysage. Un deuxième paysage. Un troisième paysage. "
+                      "Un quatrième paysage. Une cinquième scène. Une sixième scène. "
+                      "Une septième scène. Et voici la dernière scène.")
+            target = root / "eight.mp4"
+            info = free_studio.render("Huit scènes", script, target, mute=False,
+                media_dir=media, resolution=360, fps=12, transition="fade",
+                caption_style="classic")
+            self.assertEqual(len(info["segments"]), 8)
+            self.assertEqual(info["render_performance"]["compositing_pipeline"],
+                             "direct-media-onepass")
+            report = video_qa.validate(target, info, target.with_suffix(".srt"),
+                                       video_qa.probe(target))
+            self.assertTrue(report["ok"], report["errors"])
+            self.assertEqual(report["checks"]["audio_codec"], "aac")
+            self.assertEqual({p.name: p.read_bytes() for p in media.iterdir()},
+                             original_bytes, "Input media must stay bit-identical")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe") and shutil.which("espeak"),"Voice tools required")
     def test_photo_narration_with_direct_mp4(self):

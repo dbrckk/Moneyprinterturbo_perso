@@ -22,10 +22,20 @@ on:
       - caption_motion.py
       - forced_alignment.py
       - video_qa.py
+      - final_scene_review.py
+      - visual_repair.py
       - media_assets.py
+      - exposure_match.py
+      - white_balance.py
+      - smart_transitions.py
+      - capture_order.py
+      - shot_quality.py
+      - shot_cuts.py
       - video_timeline.py
       - semantic_rank.py
       - visual_benchmark.py
+      - encoder_profile_benchmark.py
+      - .github/workflows/encoder-profile-benchmark.yml
       - .github/workflows/clip-ab-benchmark.yml
       - semantic/**
       - visual_hash.py
@@ -65,8 +75,17 @@ jobs:
             fi
           done
           if (( ${#missing[@]} )); then
-            sudo apt-get update
-            sudo apt-get install -y "${missing[@]}"
+            # Hosted apt mirrors occasionally hang indefinitely. Fail clearly
+            # rather than leaving the entire rendering CI in a stuck install.
+            sudo timeout -k 10s 180s apt-get \
+              -o Acquire::Retries=2 \
+              -o Acquire::http::Timeout=25 \
+              -o Acquire::https::Timeout=25 update
+            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 180s apt-get \
+              -o DPkg::Lock::Timeout=30 \
+              -o Acquire::Retries=2 \
+              -o Acquire::http::Timeout=25 \
+              -o Acquire::https::Timeout=25 install -y "${missing[@]}"
           fi
           ffmpeg -hide_banner -version | head -1
           espeak --version | head -1
@@ -85,11 +104,11 @@ jobs:
           node --check remote/run_lifecycle.mjs
           node --check semantic/clip_rank.mjs
           node --check review_mobile.js
-          node --test tests/test_review_mobile.mjs
+          node --test tests/test_review_mobile.mjs tests/test_media_batch_browser.mjs
           node --test semantic/test_clip_rank.mjs
           node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs tests/test_run_lifecycle.mjs
       - name: Static compilation
-        run: python -m compileall -q scene_framing.py fast_media.py fast_abstract.py free_studio.py video_timeline.py publish_bundle.py workflow_preflight.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py visual_benchmark.py video_qa.py studio_server.py tests
+        run: python -m compileall -q encoder_profile_benchmark.py visual_repair.py final_scene_review.py smart_transitions.py white_balance.py exposure_match.py shot_cuts.py shot_quality.py capture_order.py scene_framing.py fast_media.py fast_abstract.py free_studio.py video_timeline.py publish_bundle.py workflow_preflight.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py visual_benchmark.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests

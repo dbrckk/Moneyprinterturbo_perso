@@ -1,0 +1,112 @@
+"";
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import vm from 'node:vm';
+
+const source = readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
+const OLD = 'a'.repeat(32);
+const NEW = 'b'.repeat(32);
+
+async function simulate({ oldSealed = true, oldMissing = false,
+                          rejectNewDetails = false } = {}) {
+  const elements = new Map();
+  const calls = [];
+  const memory = new Map([['mpt-local-media-batch-v1', OLD]]);
+  class Element {
+    constructor(id) {
+      this.id = id;
+      this.value = '';
+      this.textContent = '';
+      this.checked = false;
+      this.disabled = false;
+      this.hidden = false;
+      this.listeners = new Map();
+      this.classList = { add() {}, remove() {}, toggle() {} };
+      this.files = [];
+    }
+    addEventListener(event, fn) { this.listeners.set(event, fn); }
+    querySelector() { return { disabled: false }; }
+    append() {}
+    replaceChildren() {}
+  }
+  const get = id => {
+    if (!elements.has(id)) elements.set(id, new Element(id));
+    return elements.get(id);
+  };
+  get('script').value = 'Une seule scène.';
+  get('media-files').files = [Object.assign(new Blob(['photo-data']), { name: 'photo.jpg' })];
+  const fetch = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    calls.push(`${method} ${url}`);
+    let data = {};
+    let status = 200;
+    if (url === '/api/health') data = { ok: true };
+    else if (url === '/api/config') data = { has_ollama: false, has_piper: false,
+                                            has_local_media: false };
+    else if (url === '/api/jobs') data = { jobs: [] };
+    else if (url === '/api/media/storage') data = { bytes: 0, limit_bytes: 1000000,
+      batch_count: 2, reclaimable_count: 0, reclaimable_bytes: 0,
+      abandoned_bytes: 0, batches: [] };
+    else if (method === 'POST' && url === '/api/media/batches') {
+      data = { id: NEW }; status = 201;
+    } else if (method === 'POST' && url === `/api/media/batches/${NEW}/files`) {
+      data = { name: '001_photo.jpg' }; status = 201;
+    } else if (method === 'GET' && url === `/api/media/batches/${OLD}`) {
+      if (oldMissing) { status = 503; data = { error: 'Temporary lookup failure' }; }
+      else data = { id: OLD, sealed: oldSealed, files: [{ name: 'old.mp4' }] };
+    } else if (method === 'GET' && url === `/api/media/batches/${NEW}`) {
+      if (rejectNewDetails) { status = 503; data = { error: 'New batch unverified' }; }
+      else data = { id: NEW, ordering: 'name', files: [{ name: '001_photo.jpg' }], sealed: false };
+    } else if (method === 'POST' && url.endsWith('/delete')) data = { deleted: true };
+    else throw new Error(`Unexpected request: ${method} ${url}`);
+    return { ok: status >= 200 && status < 300, status, json: async () => data };
+  };
+  const localStorage = { getItem: name => memory.get(name) || null,
+    setItem: (name, value) => memory.set(name, value),
+    removeItem: name => memory.delete(name) };
+  const context = { document: { getElementById: get,
+        createElement: tag => new Element(tag), querySelectorAll: () => [] },
+    window: { addEventListener() {}, confirm() { return false; } },
+    localStorage, sessionStorage: { getItem: () => null, setItem() {} },
+    Blob, Intl, fetch, URL, setTimeout() {}, clearTimeout() {} };
+  vm.runInNewContext(source, context, { timeout: 2000 });
+  // Allow init() and the API responses to settle before the user upload.
+  for (let i = 0; i < 6; i++) await Promise.resolve();
+  const submit = get('upload-media').listeners.get('click');
+  assert.equal(typeof submit, 'function');
+  await submit();
+  return { calls, stored: memory.get('mpt-local-media-batch-v1'),
+    error: get('error').textContent, note: get('media-note').textContent,
+    selected: get('visuals').value };
+}
+
+test('sealed previous batch is preserved after a successful new upload', async () => {
+  const result = await simulate({ oldSealed: true });
+  assert.equal(result.stored, NEW);
+  assert.equal(result.selected, 'local');
+  assert.ok(result.calls.includes(`GET /api/media/batches/${OLD}`));
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${OLD}/delete`));
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${NEW}/delete`));
+});
+
+test('only an explicitly unsealed prior draft is retired', async () => {
+  const result = await simulate({ oldSealed: false });
+  assert.equal(result.stored, NEW);
+  assert.ok(result.calls.includes(`POST /api/media/batches/${OLD}/delete`));
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${NEW}/delete`));
+});
+
+test('failed previous-batch lookup preserves originals instead of guessing', async () => {
+  const result = await simulate({ oldMissing: true });
+  assert.equal(result.stored, NEW);
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${OLD}/delete`));
+});
+
+test('failed verification of new batch preserves old selection and cleans only new batch', async () => {
+  const result = await simulate({ rejectNewDetails: true });
+  assert.equal(result.stored, OLD);
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${OLD}/delete`));
+  assert.ok(result.calls.includes(`POST /api/media/batches/${NEW}/delete`));
+  assert.match(result.error, /New batch unverified/);
+});

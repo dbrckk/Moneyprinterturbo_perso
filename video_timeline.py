@@ -8,6 +8,7 @@ Local clip audio remains disabled in favour of the narrated soundtrack.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
 import json
 import math
@@ -16,6 +17,7 @@ import subprocess
 from typing import Callable
 
 from media_assets import MediaAsset
+from shot_cuts import ShotProfile, clearer_start, steadier_start
 
 MAX_CLIP_SEEK = 24 * 60 * 60
 
@@ -62,10 +64,19 @@ def probe_clip_duration(path: Path) -> float:
 def plan_local_video_timeline(
     slots: list[MediaAsset | None], durations: list[float], *,
     probe: Callable[[Path], float] = probe_clip_duration,
+    probe_intro: Callable[[Path, float], float] | None = None,
+    probe_cuts: Callable[[Path, float], list[float]] | None = None,
+    probe_profile: Callable[[Path, float], ShotProfile] | None = None,
 ) -> tuple[list[MediaAsset | None], list[str]]:
     """Assign advancing source seek times in narration scene order.
 
-    A file is probed once, even when reused many times. For a short source,
+    A file is probed once, even when reused many times. The optional
+    near-black intro check is also cached per distinct local video.
+    When optional high-confidence hard cuts are available, reused footage
+    can start up to 0.85 seconds later at a real shot boundary, rather than
+    arbitrarily in the middle of a camera shot. The seek cursor advances
+    from the chosen boundary; it never reverses the order of source events.
+    For a short source,
     start times wrap at the source duration rather than asking FFmpeg to seek
     beyond EOF. Failed metadata probes preserve the original beginning for
     that clip, without blocking unrelated media.
@@ -77,6 +88,17 @@ def plan_local_video_timeline(
         raise ValueError("Invalid narration timeline")
     elapsed: dict[Path, float] = {}
     lengths: dict[Path, float | None] = {}
+    openings: dict[Path, float] = {}
+    cuts: dict[Path, list[float]] = {}
+    profiles: dict[Path, ShotProfile] = {}
+    aligned: dict[Path, int] = {}
+    sharpened: dict[Path, int] = {}
+    settled: dict[Path, int] = {}
+    repeated: set[Path] = set()
+    avoided: dict[Path, int] = {}
+    windows: dict[Path, list[tuple[float, float]]] = {}
+    appearances = Counter(asset.file for asset in slots if asset is not None
+                          and asset.kind == "video" and asset.source_url == "local")
     planned: list[MediaAsset | None] = []
     warnings: list[str] = []
     for asset, duration in zip(slots, durations, strict=True):
@@ -91,6 +113,45 @@ def plan_local_video_timeline(
                         or not math.isfinite(length) or not 0.1 <= length <= MAX_CLIP_SEEK):
                     raise ValueError("Invalid source clip duration")
                 lengths[path] = float(length)
+                # Shot analysis is only worthwhile when the same source must
+                # supply multiple scenes. One FFmpeg probe per distinct clip.
+                if probe_profile is not None and appearances[path] > 1:
+                    try:
+                        report = probe_profile(path, float(length))
+                        if not isinstance(report, ShotProfile) or len(report.cuts) > 128:
+                            raise ValueError("Invalid shot profile")
+                        profiles[path] = report
+                        cuts[path] = [point for point in report.cuts
+                                      if type(point) in (float, int)
+                                      and math.isfinite(point)
+                                      and 0.5 <= point < float(length)]
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        profiles[path] = ShotProfile()
+                        cuts[path] = []
+                elif probe_cuts is not None and appearances[path] > 1:
+                    try:
+                        found = probe_cuts(path, float(length))
+                        if not isinstance(found, list) or len(found) > 128:
+                            raise ValueError("Invalid shot boundary list")
+                        cuts[path] = sorted({float(point) for point in found
+                            if type(point) in (float, int) and math.isfinite(point)
+                            and 0.5 <= point < float(length)})
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        cuts[path] = []
+                if probe_intro is not None:
+                    try:
+                        leading = probe_intro(path, float(length))
+                        if (isinstance(leading, bool) or
+                                not isinstance(leading, (float, int)) or
+                                not math.isfinite(leading) or
+                                not 0 <= leading <= min(8.0, length - 1.0)):
+                            leading = 0.0
+                        openings[path] = float(leading)
+                        if leading >= 0.45:
+                            warnings.append(
+                                f"Skipped {leading:.2f}s near-black opening in {path.name}")
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        openings[path] = 0.0
             except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError,
                     subprocess.TimeoutExpired):
                 lengths[path] = None
@@ -102,10 +163,78 @@ def plan_local_video_timeline(
             continue
         # Actual narration durations, not crossfade extension frames, advance
         # the source cursor. The slight xfade overlap stays frame-accurate.
+        previously_used = path in elapsed
         cursor = elapsed.get(path, 0.0)
-        offset = round(cursor % length, 3)
+        intro = openings.get(path, 0.0)
+        usable = length - intro
+        offset = round(intro + cursor % usable, 3)
         if offset >= length:
-            offset = 0.0
+            offset = intro
+        # When a source has a black opening, avoid looping back through it
+        # inside a scene (FFmpeg stream_loop restarts at t=0).
+        if intro and duration <= usable and offset + duration > length:
+            offset = intro
+        # Never jump ahead to a shot boundary on the first use of a clip.
+        # On later scenes, align only to a nearby future change and only if
+        # the complete narration scene still fits before video EOF.
+        chosen = None
+        if previously_used and offset + duration <= length and path in cuts:
+            chosen = next((point for point in cuts[path]
+                           if offset + 0.08 <= point <= offset + 0.85
+                           and point + duration <= length - 0.02), None)
+            if chosen is not None:
+                offset = round(chosen, 3)
+                aligned[path] = aligned.get(path, 0) + 1
+        # A local contrast proxy can identify an out-of-focus moment near a
+        # repeated clip's planned start. Never replace an aligned hard cut,
+        # shift the first use, or change chronological file order.
+        if previously_used and chosen is None and path in profiles:
+            clearer = clearer_start(profiles[path], offset, duration, length)
+            if clearer > offset:
+                offset = clearer
+                sharpened[path] = sharpened.get(path, 0) + 1
+            else:
+                calm = steadier_start(profiles[path], offset, duration, length)
+                if calm > offset:
+                    offset = calm
+                    settled[path] = settled.get(path, 0) + 1
+        # When a local source must be reused after looping, check whether
+        # the chosen span largely replays a span already shown. Only shift
+        # when a substantially less-overlapping *forward* candidate exists;
+        # otherwise preserve the original chronological playback.
+        if previously_used and path in profiles and duration <= usable:
+            visited = windows.get(path, [])
+            def overlap(start: float) -> float:
+                return max((max(0.0, min(start + duration, end) - max(start, begin))
+                            for begin, end in visited), default=0.0)
+            existing = overlap(offset)
+            if existing >= 0.6 * duration and offset + duration <= length:
+                for advance in (0.25, 0.50, 0.75):
+                    candidate = round(offset + advance, 3)
+                    if candidate + duration > length - 0.02:
+                        break
+                    if any(offset - 0.1 <= point <= candidate + 0.1
+                           for point in cuts.get(path, [])):
+                        break
+                    if overlap(candidate) <= min(0.35 * duration, existing * 0.6):
+                        offset = candidate
+                        existing = 0.0
+                        avoided[path] = avoided.get(path, 0) + 1
+                        break
+                if existing >= 0.6 * duration:
+                    repeated.add(path)
+        if offset + duration <= length:
+            windows.setdefault(path, []).append((offset, offset + duration))
         planned.append(replace(asset, source_start_seconds=offset))
-        elapsed[path] = cursor + duration
+        elapsed[path] = offset - intro + duration
+    for path, count in aligned.items():
+        warnings.append(f"Aligned {count} scene(s) to source shot cuts in {path.name}")
+    for path, count in sharpened.items():
+        warnings.append(f"Moved {count} repeated scene(s) toward clearer frames in {path.name}")
+    for path, count in settled.items():
+        warnings.append(f"Avoided {count} brief visually turbulent opening(s) in {path.name}")
+    for path, count in avoided.items():
+        warnings.append(f"Reduced repeated source footage in {count} scene(s) from {path.name}")
+    for path in sorted(repeated):
+        warnings.append(f"Source footage is too short to avoid some repeated moments in {path.name}")
     return planned, warnings

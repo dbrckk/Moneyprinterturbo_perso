@@ -10,9 +10,11 @@ import math
 from pathlib import Path
 from typing import Protocol
 
-from cinematic import gradient_source, transition_plan
-from scene_framing import needs_soft_matte, soft_matte_graph
+from cinematic import gradient_source, transition_plan, xfade_transition_spec
+from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from video_timeline import source_seek_seconds
+from exposure_match import exposure_filter
+from white_balance import white_balance_suffix
 
 
 class SceneMedia(Protocol):
@@ -24,14 +26,17 @@ def build_onepass_media_command(
     assets: list[SceneMedia | None], durations: list[float], *,
     width: int, height: int, fps: int, transition: str,
     visual_filters: list[str], audio: Path | None, output: Path, total: float,
+    boundary_transitions: tuple[str, ...] | None = None,
 ) -> list[str]:
     """Build a bounded filter graph with only one H.264 encode.
 
-    At most four inputs limit concurrent decoder, scaling and xfade memory.
-    The renderer chooses this mode conservatively and can fall back if needed.
+    Up to eight simultaneous scene inputs at 360p are allowed, versus four
+    at higher resolutions. The renderer applies stricter 1080p limits.
+    This prevents high-resolution decoder and xfade memory explosions.
     """
-    if not 1 <= len(assets) <= 4 or len(assets) != len(durations):
-        raise ValueError("Media single-pass mode supports 1–4 matching scenes")
+    max_inputs = 8 if width * height <= 360 * 640 else 4
+    if not 1 <= len(assets) <= max_inputs or len(assets) != len(durations):
+        raise ValueError(f"Media single-pass mode supports 1–{max_inputs} matching scenes at this resolution")
     if not any(asset is not None for asset in assets):
         raise ValueError("At least one real media asset is required")
     if not 240 <= width <= 4096 or not 240 <= height <= 4096 or width % 2 or height % 2:
@@ -43,6 +48,10 @@ def build_onepass_media_command(
     if not math.isfinite(total) or abs(total - sum(durations)) > .02:
         raise ValueError("Narration and scene timeline disagree")
     plan = transition_plan(durations, fps=fps, transition=transition)
+    if boundary_transitions is not None:
+        if (len(boundary_transitions) != len(assets) - 1 or
+                any(name not in ("cut", "fade") for name in boundary_transitions)):
+            raise ValueError("Invalid adaptive boundary list")
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-filter_complex_threads", "1"]
     graph: list[str] = []
     for i, asset in enumerate(assets):
@@ -53,9 +62,10 @@ def build_onepass_media_command(
             effect = "format=yuv420p"
         elif asset.kind == "image":
             cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{runtime:.9f}", "-i", str(asset.file)]
+            motion = photo_zoom_filter(width=width, height=height, fps=fps, frames=frames)
             effect = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                       f"crop={width}:{height},setsar=1,"
-                      f"zoompan=z='min(zoom+0.0008,1.10)':d=1:s={width}x{height}:fps={fps},"
+                      f"{motion},"
                       "eq=contrast=1.05:saturation=1.07,"
                       "scale=in_range=auto:out_range=tv,format=yuv420p")
         elif asset.kind == "video":
@@ -66,7 +76,7 @@ def build_onepass_media_command(
             cmd += ["-t", f"{runtime:.9f}", "-i", str(asset.file)]
             effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
                       f"crop={width}:{height},setsar=1,"
-                      "eq=contrast=1.05:saturation=1.07,format=yuv420p")
+                      f"{exposure_filter(asset)}{white_balance_suffix(asset)},format=yuv420p")
         else:
             raise ValueError("Unsupported media kind")
         # Force a known frame count, PTS origin, frame rate, pixel format and SAR
@@ -75,7 +85,7 @@ def build_onepass_media_command(
                       f"fps={fps},format=yuv420p,setparams=range=limited,setsar=1")
         if needs_soft_matte(asset):
             graph.extend(soft_matte_graph(i, width=width, height=height,
-                fps=fps, prefix=f"soft{i}", output_name=f"s{i}",
+                fps=fps, frames=frames, prefix=f"soft{i}", output_name=f"s{i}",
                 tail_filters=frame_tail))
         else:
             graph.append(f"[{i}:v]{effect},{frame_tail}[s{i}]")
@@ -86,7 +96,9 @@ def build_onepass_media_command(
         if plan.overlap_frames:
             for i in range(1, len(assets)):
                 result = f"[xf{i}]"
-                graph.append(f"{last}[s{i}]xfade=transition={transition}:"
+                chosen = (boundary_transitions[i-1] if boundary_transitions is not None
+                          else transition)
+                graph.append(f"{last}[s{i}]xfade={xfade_transition_spec(chosen)}:"
                              f"duration={plan.overlap_frames/fps:.9f}:"
                              f"offset={plan.offset_frames[i-1]/fps:.9f}{result}")
                 last = result

@@ -17,6 +17,7 @@ import time
 import unicodedata
 from urllib import parse, request
 
+from capture_order import order_media_by_capture
 from visual_hash import near_duplicate, visual_signature
 from semantic_rank import english_visual_prompt, rerank as semantic_rerank
 
@@ -47,6 +48,10 @@ class MediaAsset:
     # Playback position for sequential re-use of user-supplied video footage.
     # Zero for Commons stills, static images and first appearances of a clip.
     source_start_seconds: float = 0.0
+    # Bounded, optional local clip-to-clip exposure adjustment (FFmpeg eq).
+    exposure_shift: float = 0.0
+    # Small optional RGB gains derived from neutral-looking phone footage.
+    white_balance_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -102,7 +107,12 @@ def local_assets(folder: Path) -> tuple[list[MediaAsset], list[str]]:
             continue
         kind = "image" if ext in IMAGE_EXTENSIONS else "video"
         assets.append(MediaAsset(path.resolve(), kind, "local", "user-provided", "user", path.name))
-    return assets, warnings
+    # Prefer actual recorded dates only when every valid local asset supplies
+    # comparable metadata. Otherwise maintain the existing filename ordering.
+    ordered, _source = order_media_by_capture(
+        [asset.file for asset in assets], fallback_key=_local_media_order)
+    by_path = {asset.file: asset for asset in assets}
+    return [by_path[path] for path in ordered], warnings
 
 
 def _plain(value: str) -> str:

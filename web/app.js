@@ -135,6 +135,73 @@
   }
   const collator = new Intl.Collator('fr', {numeric: true, sensitivity: 'base'});
   function mediaNote(value) { $('media-note').textContent = value; }
+  function megabytes(size) { return (size / (1024 * 1024)).toLocaleString('fr-FR', {
+    maximumFractionDigits: 1
+  }) + ' Mo'; }
+  async function refreshStorage() {
+    const usage = await json('/api/media/storage');
+    $('storage-stats').textContent = 'Imports : ' + megabytes(usage.bytes) +
+      ' / ' + megabytes(usage.limit_bytes) +
+      ' · ' + usage.batch_count + ' lot(s) · ' +
+      megabytes(usage.reclaimable_bytes) + ' récupérables après montage · ' +
+      megabytes(usage.abandoned_bytes) + ' anciens brouillons/échecs.';
+    $('clean-media').disabled = !usage.reclaimable_count;
+    // Do not offer cleanup of the batch currently selected for editing.
+    const abandoned = usage.batches.filter(b => b.abandoned && b.id !== state.media_batch);
+    $('clean-abandoned').disabled = !abandoned.length;
+    return usage;
+  }
+  $('clean-media').addEventListener('click', async () => {
+    showError(null);
+    const btn = $('clean-media');
+    btn.disabled = true;
+    try {
+      const snapshot = await refreshStorage();
+      if (!snapshot.reclaimable_count) return;
+      if (!window.confirm('Supprimer les médias importés de ' +
+        snapshot.reclaimable_count + ' montage(s) terminés (' +
+        megabytes(snapshot.reclaimable_bytes) + ') ? ' +
+        'Les MP4 finaux et leurs sous-titres seront conservés.')) return;
+      const result = await post('/api/media/cleanup', {});
+      if (result.deleted_batches.includes(state.media_batch)) {
+        state.media_batch = '';
+        rememberMediaBatch('');
+        $('delete-media').hidden = true;
+        $('media-files').value = '';
+        if (!state.has_local_dir) $('visuals').value = 'commons';
+      }
+      mediaNote('Nettoyage terminé : ' + megabytes(result.reclaimed_bytes) +
+        ' récupérés, ' + result.deleted_batches.length + ' lot(s). ' +
+        'Les vidéos finales restent disponibles.');
+    } catch (err) { showError(err); }
+    finally { await refreshStorage().catch(() => {}); }
+  });
+  $('clean-abandoned').addEventListener('click', async () => {
+    showError(null);
+    const button = $('clean-abandoned'); button.disabled = true;
+    try {
+      const usage = await refreshStorage();
+      const abandoned = usage.batches.filter(b => b.abandoned && b.id !== state.media_batch);
+      if (!abandoned.length) return;
+      const bytes = abandoned.reduce((sum, b) => sum + b.bytes, 0);
+      if (!window.confirm('Supprimer ' + abandoned.length + ' lot(s) de médias ' +
+        'de plus de 7 jours, issus de brouillons abandonnés ou de rendus échoués (' +
+        megabytes(bytes) + ') ? Ces sources ne seront plus récupérables. ' +
+        'Le projet actuellement sélectionné et tous les MP4 finaux sont conservés.')) return;
+      const result = await post('/api/media/cleanup-abandoned',
+                                {protect_batch: state.media_batch});
+      mediaNote('Nettoyage des anciens imports : ' + megabytes(result.reclaimed_bytes) +
+        ' libérés dans ' + result.deleted_batches.length + ' lot(s).');
+    } catch (err) { showError(err); }
+    finally { await refreshStorage().catch(() => {}); }
+  });
+  // On Android, selecting clips is enough: import starts immediately.
+  // Keep the button as an explicit retry for flaky connections.
+  $('media-files').addEventListener('change', () => {
+    if ($('media-files').files.length && !$('upload-media').disabled) {
+      $('upload-media').click();
+    }
+  });
   $('upload-media').addEventListener('click', async () => {
     showError(null);
     const files = [...$('media-files').files].sort((a, b) =>
@@ -149,6 +216,7 @@
       showError('Le projet dépasse 800 Mo de médias.'); return;
     }
     const button = $('upload-media'); button.disabled = true;
+    $('media-files').disabled = true;
     let batch = '';
     try {
       const created = await post('/api/media/batches', {});
@@ -163,26 +231,39 @@
         });
       }
       // Replace an abandoned prior draft only after the full new batch works.
+      // Validate the complete new import before switching the remembered
+      // batch: a transient metadata failure must not discard the previous one.
+      const plan = await json(`/api/media/batches/${batch}`);
       const previous = state.media_batch;
       state.media_batch = batch;
       rememberMediaBatch(batch);
       $('visuals').value = 'local';
       $('delete-media').hidden = false;
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
-                'Ordre numérique des fichiers respecté. Aucune vidéo envoyée à GitHub.');
+                (plan.ordering === 'capture'
+                  ? 'Ordre chronologique établi à partir des dates de capture intégrées.'
+                  : 'Dates de capture absentes, ambiguës ou incomplètes : ordre des noms conservé.') +
+                ' Aucune vidéo envoyée à GitHub.');
       if (previous && previous !== batch) {
-        // Do not remove a sealed batch: it can still be used for a retry
-        // or a later render, and the user may need its original footage.
-        json(`/api/media/batches/${previous}`).then(info => {
-          if (!info.sealed) return post(`/api/media/batches/${previous}/delete`, {});
-        }).catch(() => {});
+        // A sealed import may still be needed for retry/re-render. Never
+        // silently delete it during an unrelated new upload. On a failed
+        // lookup, preserve the original rather than guessing its status.
+        try {
+          const oldBatch = await json(`/api/media/batches/${previous}`);
+          if (oldBatch.sealed === false) {
+            await post(`/api/media/batches/${previous}/delete`, {});
+          }
+        } catch (_) { /* Keep the old batch if its safety is uncertain. */ }
       }
+      await refreshStorage();
     } catch (err) {
       if (batch) await post(`/api/media/batches/${batch}/delete`, {}).catch(() => {});
       mediaNote('Import interrompu : aucun média partiel conservé dans ce nouveau lot.');
       showError(err);
     } finally {
       button.disabled = false;
+      $('media-files').disabled = false;
+      refreshStorage().catch(() => {});
     }
   });
   $('delete-media').addEventListener('click', async () => {
@@ -196,6 +277,7 @@
       $('media-files').value = '';
       if (!state.has_local_dir) $('visuals').value = 'commons';
       mediaNote('Import supprimé du moteur local.');
+      await refreshStorage();
     } catch (err) { showError(err); }
   });
   async function init() {
@@ -214,7 +296,10 @@
           if (existing.files?.length) {
             $('visuals').value = 'local';
             $('delete-media').hidden = false;
-            mediaNote(`${existing.files.length} média(s) retrouvé(s) après recharge de la page.`);
+            mediaNote(`${existing.files.length} média(s) retrouvé(s) après recharge de la page. ` +
+              (existing.ordering === 'capture'
+                ? 'Tri selon les dates de capture.'
+                : 'Tri selon les noms de fichiers.'));
           } else {
             state.media_batch = '';
             rememberMediaBatch('');
@@ -229,6 +314,9 @@
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
+      refreshStorage().catch(() => {
+        $('storage-stats').textContent = 'Impossible de consulter le stockage.';
+      });
     } catch (err) { showError(err); }
   }
   $('auth-form').addEventListener('submit', event => {

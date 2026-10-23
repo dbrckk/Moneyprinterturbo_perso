@@ -25,7 +25,9 @@ import time
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
-from media_assets import IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS, media_dimensions
+from media_assets import (IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS,
+                          _local_media_order, media_dimensions)
+from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 
@@ -38,6 +40,8 @@ MAX_MEDIA_FILES = 24
 MAX_MEDIA_BATCHES = 12
 MAX_MEDIA_STORAGE = 800 * 1024 * 1024
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
+STALE_EMPTY_BATCH_SECONDS = 24 * 60 * 60
+ABANDONED_MEDIA_SECONDS = 7 * 24 * 60 * 60
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
         ".css": "text/css; charset=utf-8", ".mp4": "video/mp4", ".srt": "application/x-subrip; charset=utf-8",
         ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
@@ -111,40 +115,154 @@ class Jobs:
         self.processes: dict[str, subprocess.Popen] = {}
         self.running = False
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._restore_jobs()
+
+    def _checkpoint(self, job: dict) -> None:
+        """Persist *status only*; never duplicate narration, prompts or tokens.
+
+        Atomic rename prevents a killed Android process from leaving a partial
+        JSON record. Full render settings stay in this process and script.txt.
+        """
+        directory = self.output_dir / job["id"]
+        directory.mkdir(mode=0o700, exist_ok=True)
+        summary = {key: job.get(key) for key in ("id", "status", "created", "finished", "error")}
+        summary["topic"] = job["parameters"]["topic"]
+        summary["resolution"] = job["parameters"]["resolution"]
+        summary["media_batch"] = job["parameters"].get("media_batch", "")
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=directory,
+                    prefix=".state-", suffix=".tmp", delete=False) as stream:
+                tmp = Path(stream.name)
+                os.chmod(tmp, 0o600)
+                json.dump(summary, stream, ensure_ascii=False)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, directory / ".job_state.json")
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
+
+    def _restore_jobs(self) -> None:
+        """Recover past outputs after a Termux/process restart, never auto-rerun."""
+        recovered = []
+        for folder in self.output_dir.iterdir():
+            if (folder.is_symlink() or not folder.is_dir()
+                    or not re.fullmatch(r"[a-f0-9]{32}", folder.name)):
+                continue
+            state_file = folder / ".job_state.json"
+            if state_file.is_symlink():
+                continue
+            try:
+                if state_file.is_file():
+                    if state_file.stat().st_size > 4096:
+                        continue
+                    data = json.loads(state_file.read_text(encoding="utf-8"))
+                    if not isinstance(data, dict) or data.get("id") != folder.name:
+                        continue
+                    if data.get("status") not in ("queued", "running", "done", "error", "cancelled"):
+                        continue
+                    if (type(data.get("created")) is not int
+                            or data["created"] < 0):
+                        continue
+                    title = data.get("topic")
+                    if not isinstance(title, str) or len(title) > 140:
+                        continue
+                    resolution = data.get("resolution")
+                    if type(resolution) is not int or resolution not in (360, 720, 1080):
+                        continue
+                    media_batch = data.get("media_batch", "")
+                    if not isinstance(media_batch, str) or (media_batch and
+                           not re.fullmatch(r"[a-f0-9]{32}", media_batch)):
+                        continue
+                    record = {
+                        "id": folder.name, "created": data["created"],
+                        "status": data["status"], "finished": data.get("finished"),
+                        "error": data.get("error"),
+                        "parameters": {"topic": title, "resolution": resolution,
+                                       "media_batch": media_batch},
+                        "metadata": None,
+                    }
+                else:
+                    # Older builds did not write a state checkpoint. Recover
+                    # legitimate completed MP4 + manifest pairs if possible.
+                    if not (folder / "video.mp4").is_file():
+                        continue
+                    record = {
+                        "id": folder.name, "created": int((folder / "video.mp4").stat().st_mtime),
+                        "status": "done", "finished": None, "error": None,
+                        "parameters": {"topic": "Vidéo restaurée", "resolution": 360,
+                                       "media_batch": ""},
+                        "metadata": None,
+                    }
+                manifest = folder / "video.json"
+                video = folder / "video.mp4"
+                if record["status"] == "done":
+                    if (manifest.is_symlink() or video.is_symlink()
+                            or not manifest.is_file() or not video.is_file()
+                            or video.stat().st_size < 1000
+                            or manifest.stat().st_size > 2 * 1024 * 1024):
+                        record["status"] = "error"
+                        record["error"] = "Export incomplet après redémarrage"
+                    else:
+                        payload = json.loads(manifest.read_text(encoding="utf-8"))
+                        if not isinstance(payload, dict) or "segments" not in payload:
+                            raise ValueError("Invalid recovered MP4 manifest")
+                        record["metadata"] = payload
+                if record["status"] in ("queued", "running"):
+                    record["status"] = "error"
+                    record["error"] = "Rendu interrompu par l'arrêt du serveur Android. Relancez-le si nécessaire."
+                    record["finished"] = int(time.time())
+                # Avoid rewriting legacy recovered folders, which may have
+                # different ownership or metadata layout.
+                if state_file.exists() and record["status"] != data["status"]:
+                    self._checkpoint(record)
+                recovered.append(record)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+        for job in sorted(recovered, key=lambda item: (item["created"], item["id"]))[-MAX_JOBS:]:
+            self.jobs[job["id"]] = job
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
-        if job["visuals"] == "local" and not job["media_batch"] and not self.media_dir:
-            raise ValueError("Importez des vidéos ou configurez --media-dir")
         if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
             raise ValueError("Le modèle vocal Piper n'est pas configuré")
-        # Keep the same lock order as delete_media_batch (media_lock -> lock).
-        # A rejected render must never seal a user's media batch.
-        with self.media_lock:
-            if job["media_batch"]:
-                directory = self.upload_root / job["media_batch"]
-                if not directory.is_dir() or not self._batch_files(directory):
-                    raise ValueError("Importez au moins un média valide avant le rendu")
-            with self.lock:
-                finished = [j for j in self.jobs.values()
-                            if j["status"] in ("done", "error", "cancelled")]
-                while len(self.jobs) >= MAX_JOBS and finished:
-                    old = finished.pop(0)
-                    self.jobs.pop(old["id"], None)
-                    # Preserve rendered files for the user.
-                if len(self.jobs) >= MAX_JOBS:
-                    raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
+        # Lock order always media_lock -> lock (same as delete_media_batch).
+        # Validate all options and capacity BEFORE sealing an uploaded batch.
+        with self.media_lock, self.lock:
+            if job["visuals"] == "local":
+                if job["media_batch"]:
+                    directory = self.upload_root / job["media_batch"]
+                    if not directory.is_dir() or not self._batch_files(directory):
+                        raise ValueError("Importez au moins un média valide avant le rendu")
+                elif not self.media_dir:
+                    raise ValueError("Importez des vidéos ou configurez --media-dir")
+            finished = [j for j in self.jobs.values()
+                        if j["status"] in ("done", "error", "cancelled")]
+            if len(self.jobs) - len(finished) >= MAX_JOBS:
+                raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
+            ident = uuid4().hex
+            record = {"id": ident, "status": "queued", "created": int(time.time()),
+                      "finished": None, "error": None, "parameters": job, "metadata": None}
+            # Ensure a successful enqueue can survive a process restart.
+            self._checkpoint(record)
+            try:
                 if job["media_batch"]:
                     (self.upload_root / job["media_batch"] / ".sealed").touch(exist_ok=True)
-                ident = uuid4().hex
-                record = {"id": ident, "status": "queued", "created": int(time.time()),
-                          "finished": None, "error": None, "parameters": job, "metadata": None}
-                self.jobs[ident] = record
-                if not self.running:
-                    self.running = True
-                    threading.Thread(target=self._worker, daemon=True,
-                                     name="mpt-render-queue").start()
-                return self.public(record)
+            except OSError:
+                shutil.rmtree(self.output_dir / ident, ignore_errors=True)
+                raise
+            while len(self.jobs) >= MAX_JOBS and finished:
+                old = finished.pop(0)
+                self.jobs.pop(old["id"], None)
+                # Finished exports remain on disk and can be recovered later.
+            self.jobs[ident] = record
+            if not self.running:
+                self.running = True
+                threading.Thread(target=self._worker, daemon=True, name="mpt-render-queue").start()
+            return self.public(record)
 
     @staticmethod
     def _batch_files(directory: Path) -> list[Path]:
@@ -152,11 +270,211 @@ class Jobs:
                        if p.is_file() and not p.is_symlink() and not p.name.startswith(".")),
                       key=lambda p: p.name)
 
+    @staticmethod
+    def _safe_batch_directory(path: Path) -> bool:
+        return bool(re.fullmatch(r"[a-f0-9]{32}", path.name)
+                    and path.is_dir() and not path.is_symlink())
+
+    def _prune_stale_empty_media_locked(self) -> None:
+        """Only remove old, *empty*, unsealed imports and orphan temp uploads.
+
+        Called under media_lock. Never automatically delete a user media file or
+        a sealed render source, even if the server has been closed for months.
+        """
+        if not self.upload_root.is_dir():
+            return
+        cutoff = time.time() - STALE_EMPTY_BATCH_SECONDS
+        for folder in self.upload_root.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            # A failed, interrupted HTTP transfer can leave a hidden temp file.
+            # Its age is checked independently of the enclosing batch.
+            for candidate in folder.iterdir():
+                if (candidate.name.startswith(".receiving-")
+                        and candidate.is_file() and not candidate.is_symlink()
+                        and candidate.stat().st_mtime < cutoff):
+                    candidate.unlink()
+            # Remove the directory only if it is genuinely empty. Unknown
+            # hidden files or symlinks may belong to the user.
+            if folder.stat().st_mtime >= cutoff or any(folder.iterdir()):
+                continue
+            shutil.rmtree(folder)
+
+    def _finished_source_batches_locked(self) -> set[str]:
+        """Find finished sources, including older jobs evicted from RAM.
+
+        Completion requires the checkpoint AND the original MP4 + manifest on
+        disk; an interrupted/error job is not deemed safe for reclamation.
+        """
+        completed: set[str] = set()
+        for folder in self.output_dir.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            checkpoint = folder / ".job_state.json"
+            video = folder / "video.mp4"
+            manifest = folder / "video.json"
+            if (checkpoint.is_symlink() or video.is_symlink() or manifest.is_symlink()
+                    or not checkpoint.is_file() or checkpoint.stat().st_size > 4096
+                    or not video.is_file() or video.stat().st_size < 1000
+                    or not manifest.is_file() or not 2 <= manifest.stat().st_size <= 2 * 1024 * 1024):
+                continue
+            try:
+                saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+                if not isinstance(saved, dict) or saved.get("status") != "done":
+                    continue
+                ident = saved.get("media_batch")
+                if isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident):
+                    completed.add(ident)
+            except (ValueError, UnicodeError, OSError):
+                continue
+        return completed
+
+    def _batch_job_references_locked(self) -> dict[str, list[tuple[str, float]]]:
+        """Resolve source use from disk and memory, not just the last 20 jobs.
+
+        A batch without a validated on-disk reference is never treated as a
+        failed render; it can qualify only as an old, unsealed draft.
+        """
+        references: dict[str, list[tuple[str, float]]] = {}
+        for folder in self.output_dir.iterdir():
+            if not self._safe_batch_directory(folder):
+                continue
+            state = folder / ".job_state.json"
+            if state.is_symlink() or not state.is_file():
+                continue
+            try:
+                if not 2 <= state.stat().st_size <= 4096:
+                    continue
+                data = json.loads(state.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or data.get("id") != folder.name:
+                    continue
+                ident = data.get("media_batch")
+                status = data.get("status")
+                if (isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident)
+                        and status in ("queued", "running", "done", "error", "cancelled")):
+                    references.setdefault(ident, []).append((status, state.stat().st_mtime))
+            except (OSError, ValueError, UnicodeError):
+                continue
+        with self.lock:
+            for job in self.jobs.values():
+                ident = job["parameters"].get("media_batch")
+                if isinstance(ident, str) and re.fullmatch(r"[a-f0-9]{32}", ident):
+                    checkpoint = self.output_dir / job["id"] / ".job_state.json"
+                    last_change = (checkpoint.stat().st_mtime if checkpoint.is_file()
+                                   and not checkpoint.is_symlink() else time.time())
+                    references.setdefault(ident, []).append((job["status"], last_change))
+        return references
+
+    @staticmethod
+    def _last_batch_change(folder: Path) -> float:
+        # A freshly updated file, even inside an old folder, prevents pruning.
+        return max([folder.stat().st_mtime] +
+                   [p.lstat().st_mtime for p in folder.iterdir()])
+
+    def _media_storage_locked(self) -> dict:
+        """Snapshot under media_lock -> lock; only server-owned batch paths."""
+        with self.lock:
+            active = {j["parameters"].get("media_batch") for j in self.jobs.values()
+                      if j["status"] in ("queued", "running")}
+            completed = self._finished_source_batches_locked()
+        references = self._batch_job_references_locked()
+        cutoff = time.time() - ABANDONED_MEDIA_SECONDS
+        batches = []
+        total = 0
+        if self.upload_root.is_dir():
+            for folder in self.upload_root.iterdir():
+                if not self._safe_batch_directory(folder):
+                    continue
+                regular = [p for p in folder.iterdir()
+                           if p.is_file() and not p.is_symlink()]
+                size = sum(p.stat().st_size for p in regular)
+                count = len(self._batch_files(folder))
+                sealed = (folder / ".sealed").is_file()
+                ready = sealed and folder.name in completed and folder.name not in active
+                job_refs = references.get(folder.name, [])
+                statuses = [status for status, _ in job_refs]
+                last_activity = max([self._last_batch_change(folder)] +
+                                    [changed for _, changed in job_refs])
+                # Never remove active, completed or unclassified sealed media.
+                # A failed batch must have a recorded, *only* terminal failure.
+                abandoned_reason = None
+                if (not ready and folder.name not in active and count
+                        and last_activity < cutoff):
+                    if not sealed and not statuses:
+                        abandoned_reason = "draft"
+                    elif (sealed and statuses and
+                          all(s in ("error", "cancelled") for s in statuses)):
+                        abandoned_reason = "failed"
+                batches.append({"id": folder.name, "bytes": size, "files": count,
+                                "reclaimable": ready, "in_use": folder.name in active,
+                                "abandoned": bool(abandoned_reason),
+                                "abandoned_reason": abandoned_reason})
+                total += size
+        return {"bytes": total, "limit_bytes": MAX_MEDIA_STORAGE,
+                "batch_count": len(batches),
+                "reclaimable_bytes": sum(b["bytes"] for b in batches if b["reclaimable"]),
+                "reclaimable_count": sum(b["reclaimable"] for b in batches),
+                "abandoned_bytes": sum(b["bytes"] for b in batches if b["abandoned"]),
+                "abandoned_count": sum(b["abandoned"] for b in batches),
+                "batches": sorted(batches, key=lambda b: b["id"])}
+
+    def media_storage(self) -> dict:
+        with self.media_lock:
+            return self._media_storage_locked()
+
+    def cleanup_finished_media(self) -> dict:
+        """Explicit action: delete uploaded sources from completed renders only.
+
+        Final MP4, subtitle, project checkpoint, and manifest are untouched.
+        A fresh snapshot under the write lock blocks racing render submissions.
+        """
+        with self.media_lock:
+            before = self._media_storage_locked()
+            deleted = []
+            reclaimed = 0
+            for batch in before["batches"]:
+                if not batch["reclaimable"]:
+                    continue
+                folder = self.upload_root / batch["id"]
+                if not self._safe_batch_directory(folder):
+                    continue
+                shutil.rmtree(folder)
+                deleted.append(batch["id"])
+                reclaimed += batch["bytes"]
+            return {"deleted_batches": deleted, "reclaimed_bytes": reclaimed,
+                    "storage": self._media_storage_locked()}
+
+    def cleanup_abandoned_media(self, *, protect_batch: str = "") -> dict:
+        """Explicit, confirmed-by-client removal of unused uploads >7 days.
+
+        Never remove active render sources, finished render sources, unsealed
+        newer drafts, or any directory selected in the current browser.
+        """
+        if not isinstance(protect_batch, str) or (protect_batch and
+                not re.fullmatch(r"[a-f0-9]{32}", protect_batch)):
+            raise ValueError("Identifiant de projet protégé invalide")
+        with self.media_lock:
+            snapshot = self._media_storage_locked()
+            deleted = []
+            reclaimed = 0
+            for batch in snapshot["batches"]:
+                if not batch["abandoned"] or batch["id"] == protect_batch:
+                    continue
+                folder = self.upload_root / batch["id"]
+                if not self._safe_batch_directory(folder):
+                    continue
+                shutil.rmtree(folder)
+                deleted.append(batch["id"])
+                reclaimed += batch["bytes"]
+            return {"deleted_batches": deleted, "reclaimed_bytes": reclaimed,
+                    "storage": self._media_storage_locked()}
+
     def create_media_batch(self) -> str:
         with self.media_lock:
             self.upload_root.mkdir(parents=True, exist_ok=True)
-            if sum(p.is_dir() for p in self.upload_root.iterdir()) >= MAX_MEDIA_BATCHES:
-                raise ValueError("Limite de lots atteinte : supprimez un ancien import")
+            self._prune_stale_empty_media_locked()
+            if sum(self._safe_batch_directory(p) for p in self.upload_root.iterdir()) >= MAX_MEDIA_BATCHES:
+                raise ValueError("Limite de lots atteinte : nettoyez les imports terminés")
             ident = uuid4().hex
             (self.upload_root / ident).mkdir(mode=0o700)
             return ident
@@ -168,10 +486,11 @@ class Jobs:
             folder = self.upload_root / ident
             if not folder.is_dir():
                 return None
-            files = self._batch_files(folder)
+            files, ordering = order_media_by_capture(
+                self._batch_files(folder), fallback_key=_local_media_order)
             return {"id": ident, "files": [
                 {"name": p.name, "bytes": p.stat().st_size} for p in files],
-                "sealed": (folder / ".sealed").exists()}
+                "ordering": ordering, "sealed": (folder / ".sealed").exists()}
 
     def save_media(self, ident: str, encoded_name: str, size: int, stream) -> dict:
         if not re.fullmatch(r"[a-f0-9]{32}", ident):
@@ -197,8 +516,11 @@ class Jobs:
             files = self._batch_files(directory)
             if len(files) >= MAX_MEDIA_FILES:
                 raise ValueError("Maximum 24 médias par projet")
+            # Include interrupted hidden .receiving-* files in the real
+            # capacity budget: ignoring them could exhaust Android storage.
             used = sum(p.stat().st_size for batch in self.upload_root.iterdir()
-                       if batch.is_dir() for p in self._batch_files(batch))
+                       if self._safe_batch_directory(batch)
+                       for p in batch.iterdir() if p.is_file() and not p.is_symlink())
             if used + size > MAX_MEDIA_STORAGE:
                 raise ValueError("Stockage média local plein (800 Mo maximum)")
             target = directory / f"{len(files) + 1:03d}_{name}"
@@ -264,6 +586,7 @@ class Jobs:
             if job["status"] in ("queued", "running"):
                 job["status"] = "cancelled"
                 job["finished"] = int(time.time())
+                self._checkpoint(job)
                 proc = self.processes.get(ident)
                 if proc is not None:
                     try:
@@ -304,9 +627,10 @@ class Jobs:
                     return
                 queued["status"] = "running"
                 ident = queued["id"]
+                self._checkpoint(queued)
             dest = self.output_dir / ident
             try:
-                dest.mkdir(exist_ok=False)
+                dest.mkdir(exist_ok=True)
                 (dest / "script.txt").write_text(queued["parameters"]["script"], encoding="utf-8")
                 with (dest / "render.log").open("wb") as log:
                     proc = subprocess.Popen(self._arguments(queued, dest), cwd=ROOT,
@@ -339,14 +663,17 @@ class Jobs:
                 with self.lock:
                     queued["metadata"] = metadata
                     queued["status"] = "done"
+                    self._checkpoint(queued)
             except Exception as exc:
                 with self.lock:
                     if queued["status"] != "cancelled":
                         queued["error"] = str(exc)[:250]
                         queued["status"] = "error"
+                        self._checkpoint(queued)
             finally:
                 with self.lock:
                     queued["finished"] = int(time.time())
+                    self._checkpoint(queued)
                     self.processes.pop(ident, None)
 
     def artifact(self, ident: str, name: str) -> Path | None:
@@ -443,6 +770,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                                                 "has_ollama": bool(self.server.ollama_model), "default_resolution": 360})
             if path == "/api/jobs":
                 return self.json_response(200, {"jobs": self.server.jobs.list_jobs()})
+            if path == "/api/media/storage":
+                return self.json_response(200, self.server.jobs.media_storage())
             media = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})", path)
             if media:
                 details = self.server.jobs.batch_info(media.group(1))
@@ -504,10 +833,21 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return self.json_response(200 if deleted else 404, {"deleted": deleted})
             except (ValueError, OSError) as exc:
                 return self.json_response(409, {"error": str(exc)[:250]})
-        if path not in ("/api/draft", "/api/jobs", "/api/media/batches"):
+        if path not in ("/api/draft", "/api/jobs", "/api/media/batches",
+                        "/api/media/cleanup", "/api/media/cleanup-abandoned"):
             return self.json_response(404, {"error": "Introuvable"})
         try:
             payload = self.read_json()
+            if path == "/api/media/cleanup-abandoned":
+                if (not isinstance(payload, dict) or
+                        set(payload) - {"protect_batch"}):
+                    raise ValueError("Requête de nettoyage invalide")
+                return self.json_response(200, self.server.jobs.cleanup_abandoned_media(
+                    protect_batch=payload.get("protect_batch", "")))
+            if path == "/api/media/cleanup":
+                if payload != {}:
+                    raise ValueError("Requête de nettoyage invalide")
+                return self.json_response(200, self.server.jobs.cleanup_finished_media())
             if path == "/api/media/batches":
                 if payload != {}:
                     raise ValueError("Objet de création de lot invalide")

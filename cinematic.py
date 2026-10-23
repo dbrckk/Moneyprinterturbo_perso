@@ -44,6 +44,21 @@ def transition_plan(durations: list[float], *, fps: int, transition: str) -> Tra
                           offsets, sum(frames), overlap)
 
 
+def xfade_transition_spec(name: str) -> str:
+    """Safe per-boundary FFmpeg transition; custom cut is frame-centered.
+
+    FFmpeg's xfade progress P goes from 1 (incoming overlap starts) to 0
+    (incoming overlap ends). The custom expression preserves the outgoing
+    frame until the middle, then selects the incoming frame without blending.
+    Overlap frame accounting therefore stays consistent with audio/SRT.
+    """
+    if name == "cut":
+        return "transition=custom:expr='if(lte(P,0.5),B,A)'"
+    if name in ("fade", "wipeleft"):
+        return f"transition={name}"
+    raise ValueError("Unsupported adaptive transition")
+
+
 import math
 import textwrap
 

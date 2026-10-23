@@ -15,6 +15,9 @@ import re
 import subprocess
 import tempfile
 
+from final_scene_review import inspect_final_boundaries
+from motion_cadence_review import inspect_encoded_motion_cadence
+
 MAX_METADATA_BYTES = 2_000_000
 MAX_SCENES = 18
 SRT_TIME = r"(\d{2}:\d{2}:\d{2},\d{3})"
@@ -452,6 +455,37 @@ def audit(video: Path, *, metadata_path: Path | None = None,
         except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             result["errors"].append(f"Storyboard unavailable: {exc}")
             result["ok"] = False
+        # A separate low-resolution scan checks real *encoded* boundaries,
+        # including unintended black flashes that midpoint-only QA misses.
+        # These are review prompts, never delivery errors: edits may be
+        # intentionally high-contrast and fades do not certify artistry.
+        try:
+            crossings = inspect_final_boundaries(
+                video, metadata["segments"], metadata.get("scene_transitions"))
+            result["boundary_visual_review"] = {
+                key: val for key, val in crossings.items() if key != "warnings"
+            }
+            result["warnings"].extend(crossings["warnings"])
+        except (ValueError, OSError, RuntimeError,
+                subprocess.SubprocessError) as exc:
+            result["warnings"].append(
+                "Encoded scene-boundary review could not be completed: " +
+                type(exc).__name__)
+        # An optional single bounded decode measures motion in the middle of
+        # genuinely video-backed scenes and narration pacing. Flat graphics,
+        # photographs and intentional steady shots are not called failures.
+        try:
+            pacing = inspect_encoded_motion_cadence(
+                video, metadata["segments"], metadata.get("media"))
+            result["motion_cadence_review"] = {
+                key: val for key, val in pacing.items() if key != "warnings"
+            }
+            result["warnings"].extend(pacing["warnings"])
+        except (ValueError, OSError, RuntimeError,
+                subprocess.SubprocessError) as exc:
+            result["warnings"].append(
+                "Encoded motion/cadence review could not be completed: " +
+                type(exc).__name__)
     output_path = output_path or video.with_suffix(".quality.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
