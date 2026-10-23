@@ -14,7 +14,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from studio_server import Jobs, StudioServer, validate_draft
+from studio_server import Jobs, StudioServer, parse_video_range, validate_draft
 
 
 VALID = {"topic": "Énergie solaire", "script": "Le soleil produit de la lumière.",
@@ -37,6 +37,32 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(validate_draft(data)["scene_queries"], ["soleil"])
         with self.assertRaises(ValueError):
             validate_draft({**data, "scene_queries": "soleil|attaque"})
+
+
+class ByteRangeTests(unittest.TestCase):
+    def test_single_range_edges_are_bounded_and_valid(self):
+        cases = {
+            "bytes=0-0": (0, 0),
+            "bytes=50-99": (50, 99),
+            "bytes=50-": (50, 99),
+            "bytes=-10": (90, 99),
+            "bytes=-1000": (0, 99),
+            "bytes=0-200": (0, 99),
+            "bytes=00-009": (0, 9),
+        }
+        for header, expected in cases.items():
+            with self.subTest(header=header):
+                self.assertEqual(parse_video_range(header, 100), expected)
+
+    def test_malformed_or_unsatisfiable_ranges_rejected(self):
+        for header in ("bytes=100-", "bytes=1000-2000", "bytes=7-6",
+                       "bytes=-0", "bytes=-", "bytes=0-5,10-14",
+                       "items=0-3", "bytes=foo-bar", "bytes=-10-20",
+                       "bytes=--", "bytes= 1-5", "bytes=1 - 5"):
+            with self.subTest(header=header):
+                self.assertIsNone(parse_video_range(header, 100))
+        self.assertIsNone(parse_video_range("bytes=0-", 0))
+        self.assertIsNone(parse_video_range("bytes=0-", -5))
 
 
 class ServerTests(unittest.TestCase):
@@ -581,6 +607,96 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(int(headers["Content-Length"]), len(credits))
         status, _, _ = self.request("GET", f"/api/jobs/{job['id']}/../../etc/passwd")
         self.assertEqual(status, 404)
+
+    def test_native_mp4_byte_ranges_stream_and_protect_completed_jobs(self):
+        """Seek into a published MP4 without fetching the whole video."""
+        job_id = "e" * 32
+        folder = self.jobs.output_dir / job_id
+        folder.mkdir()
+        video = (b"\x00\x00\x00\x18ftypisom" +
+                 bytes(range(256)) * 550)
+        (folder / "video.mp4").write_bytes(video)
+        (folder / "video.srt").write_bytes(b"1\n00:00:00,000 --> 00:00:01,000\nTest\n")
+        with self.jobs.lock:
+            self.jobs.jobs[job_id] = {"status": "done"}
+        endpoint = f"/api/jobs/{job_id}/video.mp4"
+        status, headers, body = self.request("GET", endpoint)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, video)
+        self.assertEqual(headers["Accept-Ranges"], "bytes")
+        self.assertIn("inline", headers["Content-Disposition"])
+        self.assertEqual(headers["Content-Type"], "video/mp4")
+        self.assertEqual(int(headers["Content-Length"]), len(video))
+        for value, start, end in (
+            ("bytes=0-0", 0, 0),
+            ("bytes=5-500", 5, 500),
+            ("bytes=500-", 500, len(video) - 1),
+            ("bytes=-32", len(video) - 32, len(video) - 1),
+            ("bytes=0-9999999", 0, len(video) - 1),
+        ):
+            with self.subTest(header=value):
+                status, headers, result = self.request("GET", endpoint,
+                                                     headers={"Range": value})
+                self.assertEqual(status, 206)
+                self.assertEqual(result, video[start:end + 1])
+                self.assertEqual(headers["Content-Range"],
+                                 f"bytes {start}-{end}/{len(video)}")
+                self.assertEqual(int(headers["Content-Length"]), len(result))
+                self.assertEqual(headers["Accept-Ranges"], "bytes")
+        for value in ("bytes=9999999-", "bytes=40-20", "bytes=-0",
+                      "bytes=0-1,3-4", "bogus=0-10"):
+            with self.subTest(malformed=value):
+                status, headers, body = self.request("GET", endpoint,
+                                                    headers={"Range": value})
+                self.assertEqual(status, 416)
+                self.assertEqual(body, b"")
+                self.assertEqual(headers["Content-Range"],
+                                 f"bytes */{len(video)}")
+        # Non-MP4 artifacts retain their ordinary, non-range download contract.
+        status, headers, body = self.request("GET", f"/api/jobs/{job_id}/video.srt",
+                                            headers={"Range": "bytes=0-1"})
+        self.assertEqual(status, 200)
+        self.assertIn(b"Test", body)
+        self.assertIn("attachment", headers["Content-Disposition"])
+        self.assertNotIn("Content-Range", headers)
+        for auth in ({"Authorization": "Bearer wrong"},
+                     {"Origin": "https://untrusted.example"}):
+            status, _, response = self.request("GET", endpoint,
+                                               headers={**auth, "Range": "bytes=0-5"})
+            self.assertIn(status, (401, 403))
+            self.assertNotIn(b"ftyp", response)
+        with self.jobs.lock:
+            self.jobs.jobs[job_id]["status"] = "running"
+        self.assertEqual(self.request("GET", endpoint,
+                                      headers={"Range": "bytes=0-0"})[0], 404)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg and FFprobe required")
+    def test_real_mp4_range_stream_supports_remote_decoder_seeks(self):
+        """Verify HTTP 206 delivery can be decoded and sought by real FFmpeg."""
+        job_id = "f" * 32
+        folder = self.jobs.output_dir / job_id
+        folder.mkdir()
+        video = folder / "video.mp4"
+        command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                   "-f", "lavfi", "-i", "testsrc2=s=180x320:r=12:d=5",
+                   "-an", "-c:v", "libx264", "-preset", "ultrafast",
+                   "-movflags", "+faststart", "-pix_fmt", "yuv420p", str(video)]
+        result = subprocess.run(command, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+        original = video.read_bytes()
+        with self.jobs.lock:
+            self.jobs.jobs[job_id] = {"status": "done"}
+        url = f"http://127.0.0.1:{self.port}/api/jobs/{job_id}/video.mp4"
+        headers = "Authorization: Bearer a-safe-secret-for-tests\r\n"
+        result = subprocess.run([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-headers", headers, "-ss", "3", "-i", url,
+            "-frames:v", "1", "-vf", "scale=18:32", "-pix_fmt", "gray",
+            "-f", "rawvideo", "pipe:1"], capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr[-1200:])
+        self.assertEqual(len(result.stdout), 18 * 32)
+        self.assertEqual(video.read_bytes(), original)
 
     def test_queue_rejection_cancel_and_no_file_read(self):
         status, _, data = self.request("POST", "/api/jobs", {**VALID, "visuals": "local"})

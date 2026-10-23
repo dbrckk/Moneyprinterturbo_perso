@@ -105,23 +105,48 @@
   function statusLabel(status) {
     return {queued: 'EN FILE', running: 'RENDU EN COURS', done: 'TERMINÉ', error: 'ÉCHEC', cancelled: 'ANNULÉ'}[status] || 'EN ATTENTE';
   }
-  async function loadVideo(id) {
+  function releaseVideo() {
+    const player = $('video');
+    player.onerror = null;
+    player.pause();
+    player.removeAttribute('src');
+    // On Chrome Android removing src without load() may retain the decoder's
+    // old network request and memory buffers after selecting another job.
+    if (typeof player.load === 'function') player.load();
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     videoUrl = null;
-    $('video').pause();
-    $('video').removeAttribute('src');
-    $('video').classList.add('hidden');
+    player.classList.add('hidden');
     $('placeholder').classList.remove('hidden');
+  }
+  async function loadVideo(id) {
+    if (currentId !== id) return;
+    releaseVideo();
     try {
-      const media = await api(endpoint(id, 'video.mp4'));
-      const blob = await media.blob();
+      if (!token) {
+        // Local same-origin preview: the native video player issues HTTP
+        // Range requests and does NOT build an entire MP4-sized Blob in RAM.
+        $('video').onerror = () => {
+          if (currentId !== id) return;
+          releaseVideo();
+          $('job-notice').textContent = 'Aperçu indisponible : vérifiez le serveur local et le MP4 exporté.';
+        };
+        $('video').src = endpoint(id, 'video.mp4');
+      } else {
+        // On authenticated LAN sessions the <video> element cannot send
+        // Authorization headers, so preserve the protected fetch/Blob path.
+        const media = await api(endpoint(id, 'video.mp4'));
+        const blob = await media.blob();
+        if (currentId !== id) return;
+        videoUrl = URL.createObjectURL(blob);
+        $('video').src = videoUrl;
+      }
       if (currentId !== id) return;
-      videoUrl = URL.createObjectURL(blob);
-      $('video').src = videoUrl;
       $('video').classList.remove('hidden');
       $('placeholder').classList.add('hidden');
     } catch (err) {
-      $('job-notice').textContent = `Vidéo disponible, mais aperçu impossible : ${err.message}`;
+      if (currentId === id) {
+        $('job-notice').textContent = `Vidéo disponible, mais aperçu impossible : ${err.message}`;
+      }
     }
   }
   async function loadJob(id) {
@@ -142,6 +167,9 @@
     } else {
       $('job-notice').textContent = job.status === 'queued' ? 'Projet ajouté à la file d’attente…' : 'Montage vidéo en cours sur votre machine. Le résultat sera affiché ici.';
     }
+    // A slow authenticated Blob response must never change the state of a
+    // newer project selected while the previous video was still loading.
+    if (currentId !== id) return;
     lastStatus = job.status;
     if (['running', 'queued'].includes(job.status)) {
       pollTimer = setTimeout(() => loadJob(id).catch(showError), 2000);
@@ -152,6 +180,7 @@
   function selectJob(id) {
     clearTimeout(pollTimer);
     currentId = id;
+    releaseVideo();
     lastStatus = '';
     $('downloads').classList.add('hidden');
     $('video').classList.add('hidden');
@@ -419,18 +448,35 @@
   for (const button of document.querySelectorAll('.dl')) {
     button.addEventListener('click', async () => {
       if (!currentId) return;
+      const selectedId = currentId;
+      const name = button.dataset.file;
+      const filename = `${selectedId.slice(0, 8)}-${name}`;
+      let blobUrl = null;
       try {
-        const name = button.dataset.file;
-        const blob = await (await api(endpoint(currentId, name))).blob();
-        const url = URL.createObjectURL(blob);
+        let source = endpoint(selectedId, name);
+        if (token) {
+          // Only protected LAN mode requires the full Blob fallback.
+          const blob = await (await api(source)).blob();
+          blobUrl = URL.createObjectURL(blob);
+          source = blobUrl;
+        }
         const link = document.createElement('a');
-        link.href = url; link.download = `${currentId.slice(0, 8)}-${name}`;
-        document.body.append(link); link.click(); link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 3000);
-      } catch (err) { showError(err); }
+        link.href = source;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        if (blobUrl) setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+      } catch (err) {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        showError(err);
+      }
     });
   }
-  window.addEventListener('pagehide', () => { clearTimeout(pollTimer); if (videoUrl) URL.revokeObjectURL(videoUrl); });
+  window.addEventListener('pagehide', () => {
+    clearTimeout(pollTimer);
+    releaseVideo();
+  });
   showScenes();
   init().catch(err => { $('connection').textContent = 'Serveur inaccessible'; showError(err); });
 })();
