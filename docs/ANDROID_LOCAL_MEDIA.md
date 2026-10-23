@@ -561,6 +561,52 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   jamais considéré comme un échec sûr à effacer. La période de sept jours
   est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
+## Étalonner le moteur H.264 sur le téléphone (facultatif)
+
+Le studio Android propose **Étalonner ce téléphone** sous la sélection
+**Qualité d'encodage H.264**. Un appui volontaire déclenche trois courts
+encodages locaux de **2 secondes chacun, en 360p / 12 images/s** (profils
+`balanced`, `detail`, `premium`). Les médias personnels ne sont ni ouverts
+ni transférés ; seuls des tests graphiques synthétiques sont utilisés.
+Le serveur continue de répondre pendant l'essai. Pour éviter de surcharger le
+téléphone, il **refuse l'étalonnage pendant un montage** et refuse de lancer
+un montage jusqu'à la fin de l'étalonnage.
+
+Une fois terminé, l'interface choisit **Automatique** pour les prochains
+rendus de la session en cours. Le fichier d'étalonnage reste enregistré
+localement dans le répertoire des sorties du serveur, sous le nom caché
+`.encoder_calibration.json` (sans espaces). Il n'est pas envoyé à GitHub.
+
+Le mode `auto` ne consulte les mesures que si elles datent de moins de
+**14 jours**, proviennent du **même environnement système** et contiennent
+trois résultats FFmpeg et FFprobe complets. Sinon, il applique simplement
+les règles conservatrices précédentes. Ces mesures peuvent orienter
+`auto` vers Standard, Détails ou Premium **uniquement pour de petits
+montages 360p**, et uniquement à l'intérieur des plafonds de calcul déjà
+imposés. Un benchmark 360p ne prétend pas prédire les performances 720p
+ou 1080p. Les modes explicitement choisis Standard, Détails et Premium
+n'utilisent jamais cet étalonnage.
+
+On peut également étalonner sous Termux sans interface :
+
+```bash
+python encoder_calibration.py --output outputs/.encoder_calibration.json
+python free_studio.py --topic "Essai" --script "Voici mon premier essai." \\
+  --mute --resolution 360 --fps 12 --encoder-profile auto \\
+  --encoder-calibration outputs/.encoder_calibration.json \\
+  --output outputs/essai.mp4
+```
+
+Le manifeste du MP4 contient
+`encoder_profile.calibration_used` et
+`encoder_profile.policy` pour savoir si une mesure locale a réellement
+influencé le choix. Les résultats de GitHub Actions ne sont **jamais**
+pris pour des mesures du téléphone. L'étalonnage ne mesure ni la
+température, ni la batterie, ni la mémoire réellement disponible ;
+un résultat favorable n'est donc pas une garantie de vitesse soutenue.
+Éviter de lancer l'essai lorsque le téléphone est déjà chaud ou la
+batterie faible.
+
 ## Benchmark local qualité/performance de l'encodage H.264
 
 Pour comparer plusieurs réglages FFmpeg **sans modifier les exports existants** :
