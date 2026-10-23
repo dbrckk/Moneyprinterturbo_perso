@@ -148,6 +148,8 @@ class Jobs:
         self._uploads_in_progress: dict[str, tuple[int, Path]] = {}
         self.upload_root = self.output_dir / "_uploaded_media"
         self.processes: dict[str, subprocess.Popen] = {}
+        self.worker_thread: threading.Thread | None = None
+        self._stopping = False
         self.running = False
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._restore_jobs()
@@ -267,6 +269,8 @@ class Jobs:
         # Lock order always media_lock -> lock (same as delete_media_batch).
         # Validate all options and capacity BEFORE sealing an uploaded batch.
         with self.media_lock, self.lock:
+            if self._stopping:
+                raise ValueError("Serveur en cours d'arrêt : nouveau rendu refusé")
             if job["visuals"] == "local":
                 if job["media_batch"]:
                     if job["media_batch"] in self._uploads_in_progress:
@@ -298,7 +302,9 @@ class Jobs:
             self.jobs[ident] = record
             if not self.running:
                 self.running = True
-                threading.Thread(target=self._worker, daemon=True, name="mpt-render-queue").start()
+                self.worker_thread = threading.Thread(
+                    target=self._worker, daemon=True, name="mpt-render-queue")
+                self.worker_thread.start()
             return self.public(record)
 
     @staticmethod
@@ -649,6 +655,41 @@ class Jobs:
             job = self.jobs.get(ident)
             return self.public(job) if job else None
 
+    @staticmethod
+    def _signal_render_group(proc: subprocess.Popen, sig: int) -> None:
+        """Signal the *whole* isolated renderer process tree on Android/POSIX.
+
+        FFmpeg is normally a child of free_studio.py, not the Popen leader.
+        Killing only that leader leaves the actual encode consuming resources.
+        """
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, sig)
+            elif sig == signal.SIGTERM:
+                proc.terminate()
+            else:
+                proc.kill()
+        except ProcessLookupError:
+            # The leader/group already exited; cancellation is idempotent.
+            pass
+
+    @classmethod
+    def _reap_render_group(cls, proc: subprocess.Popen) -> None:
+        """Bound graceful shutdown; then kill and reap even surviving children.
+
+        Always signal the process group after the leader has exited: FFmpeg may
+        ignore SIGTERM while the Python wrapper has already terminated.
+        """
+        cls._signal_render_group(proc, signal.SIGTERM)
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            cls._signal_render_group(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
+            if proc.poll() is None:
+                proc.wait(timeout=5)
+
     def cancel(self, ident: str) -> dict | None:
         with self.lock:
             job = self.jobs.get(ident)
@@ -658,16 +699,34 @@ class Jobs:
                 job["status"] = "cancelled"
                 job["finished"] = int(time.time())
                 self._checkpoint(job)
-                proc = self.processes.get(ident)
-                if proc is not None:
-                    try:
-                        if os.name == "posix":
-                            os.killpg(proc.pid, signal.SIGTERM)
-                        else:
-                            proc.terminate()
-                    except ProcessLookupError:
-                        pass
+            proc = self.processes.get(ident)
+            if proc is not None and job["status"] == "cancelled":
+                self._signal_render_group(proc, signal.SIGTERM)
             return self.public(job)
+
+    def shutdown(self) -> None:
+        """Cancel all queued/active renders and reap the FFmpeg process tree.
+
+        Called when the Termux server is closed with Ctrl+C. Avoid leaving
+        costly encoders behind after the HTTP listener has stopped. A worker
+        may still be starting Popen, so first mark all jobs cancelled, then
+        wait briefly for that worker to observe their state.
+        """
+        with self.lock:
+            self._stopping = True
+            active = [ident for ident, job in self.jobs.items()
+                      if job["status"] in ("queued", "running")]
+            worker = self.worker_thread
+        for ident in active:
+            self.cancel(ident)
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=8)
+            if worker.is_alive():
+                with self.lock:
+                    processes = list(self.processes.values())
+                for proc in processes:
+                    self._signal_render_group(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
+                worker.join(timeout=3)
 
     def _arguments(self, job: dict, dest: Path) -> list[str]:
         p = job["parameters"]
@@ -702,41 +761,78 @@ class Jobs:
                 ident = queued["id"]
                 self._checkpoint(queued)
             dest = self.output_dir / ident
+            # Isolate FFmpeg/TTS intermediates inside the current job. If an
+            # Android SIGKILL interrupts TemporaryDirectory's normal cleanup,
+            # the supervising worker can still reclaim these private files.
+            scratch = dest / ".render-scratch"
             try:
                 dest.mkdir(exist_ok=True)
+                if scratch.is_symlink():
+                    raise ValueError("Temporary render directory must not be a symlink")
+                scratch.mkdir(mode=0o700, exist_ok=True)
+                render_env = os.environ.copy()
+                render_env["TMPDIR"] = str(scratch)
                 (dest / "script.txt").write_text(queued["parameters"]["script"], encoding="utf-8")
                 with (dest / "render.log").open("wb") as log:
                     proc = subprocess.Popen(self._arguments(queued, dest), cwd=ROOT,
                                             stdout=log, stderr=subprocess.STDOUT,
+                                            env=render_env,
                                             start_new_session=(os.name == "posix"))
                     with self.lock:
                         self.processes[ident] = proc
                         cancelled = queued["status"] == "cancelled"
+                    # The user may have cancelled while Popen was starting,
+                    # before the process was present in self.processes.
                     if cancelled:
-                        self.cancel(ident)
-                    try:
-                        code = proc.wait(timeout=JOB_TIMEOUT)
-                    except subprocess.TimeoutExpired:
-                        self.cancel(ident)
+                        self._signal_render_group(proc, signal.SIGTERM)
+                    deadline = time.monotonic() + JOB_TIMEOUT
+                    while not cancelled:
+                        with self.lock:
+                            cancelled = queued["status"] == "cancelled"
+                        if cancelled:
+                            break
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            # Automatic timeout is a render *error*, not a
+                            # user-initiated cancellation. Keep the correct
+                            # reason visible in the job history and log.
+                            self._reap_render_group(proc)
+                            raise RuntimeError("Délai maximal de rendu dépassé")
                         try:
-                            proc.wait(timeout=8)
+                            code = proc.wait(timeout=min(0.5, remaining))
+                            break
                         except subprocess.TimeoutExpired:
-                            proc.kill()
-                            proc.wait()
-                        raise RuntimeError("Délai maximal de rendu dépassé")
-                with self.lock:
-                    if queued["status"] == "cancelled":
+                            continue
+                    if cancelled:
+                        self._reap_render_group(proc)
                         continue
+                with self.lock:
+                    cancelled = queued["status"] == "cancelled"
+                if cancelled:
+                    # The Python wrapper may exit on SIGTERM before our poll
+                    # notices cancellation, leaving an encoder that ignored
+                    # that signal in the otherwise-live process group.
+                    self._reap_render_group(proc)
+                    continue
                 if code != 0:
+                    self._reap_render_group(proc)
                     raise RuntimeError("Échec du rendu. Vérifiez FFmpeg, eSpeak et la disponibilité des médias")
                 output = dest / "video.mp4"
                 if not output.is_file() or output.stat().st_size < 1000:
                     raise RuntimeError("Fichier MP4 absent ou vide")
                 metadata = json.loads((dest / "video.json").read_text(encoding="utf-8"))
                 with self.lock:
-                    queued["metadata"] = metadata
-                    queued["status"] = "done"
-                    self._checkpoint(queued)
+                    # Final publication and cancellation are mutually
+                    # exclusive, even when the request arrives during JSON
+                    # parsing. Reap any leftover encoder outside the lock.
+                    cancelled = queued["status"] == "cancelled"
+                    if not cancelled:
+                        queued["metadata"] = metadata
+                        queued["status"] = "done"
+                        self._checkpoint(queued)
+                if cancelled:
+                    self._reap_render_group(proc)
+                    continue
             except Exception as exc:
                 with self.lock:
                     if queued["status"] != "cancelled":
@@ -744,6 +840,10 @@ class Jobs:
                         queued["status"] = "error"
                         self._checkpoint(queued)
             finally:
+                # Parent-owned scratch is the only directory removed. Never
+                # touch user-imported media or other jobs' completed exports.
+                if scratch.is_dir() and not scratch.is_symlink():
+                    shutil.rmtree(scratch, ignore_errors=True)
                 with self.lock:
                     queued["finished"] = int(time.time())
                     self._checkpoint(queued)
@@ -1039,12 +1139,25 @@ def main(argv: list[str] | None = None) -> int:
     jobs = Jobs(args.output_dir, media_dir=args.media_dir, piper_model=args.piper_model)
     server = StudioServer((args.host, args.port), jobs, auth_token=args.token, ollama_model=args.ollama_model)
     print(f"Free Studio Web : http://{args.host}:{server.server_port} — Ctrl+C pour arrêter", flush=True)
+    previous_term_handler = None
+    if os.name == "posix" and threading.current_thread() is threading.main_thread():
+        previous_term_handler = signal.getsignal(signal.SIGTERM)
+        def stop_on_term(_signum, _frame):
+            # Gracefully cancel encoder subprocess groups when Android/Termux
+            # requests shutdown instead of leaving an orphan FFmpeg process.
+            raise KeyboardInterrupt
+        signal.signal(signal.SIGTERM, stop_on_term)
     try:
         server.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        if previous_term_handler is not None:
+            signal.signal(signal.SIGTERM, previous_term_handler)
+        try:
+            jobs.shutdown()
+        finally:
+            server.server_close()
     return 0
 
 
