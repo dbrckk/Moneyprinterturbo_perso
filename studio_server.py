@@ -1033,18 +1033,24 @@ class StudioHandler(BaseHTTPRequestHandler):
                 data = self.read_json()
                 if (type(data) is not dict or set(data) != {"resolution", "fps"}):
                     raise ValueError("Choisissez une résolution et une cadence valides")
-                with self.server.jobs.lock:
-                    jobs = self.server.jobs
+                jobs = self.server.jobs
+                # Always acquire media_lock before jobs.lock, matching submit().
+                # Release both before sending an HTTP response: slow mobile
+                # clients must not block background rendering or cancellation.
+                with jobs.media_lock, jobs.lock:
                     if jobs._stopping or any(
                             job["status"] in ("queued", "running")
                             for job in jobs.jobs.values()):
-                        return self.json_response(409, {
-                            "error": "Un rendu est déjà actif. Terminez-le avant la calibration"})
-                    if jobs._uploads_in_progress:
-                        return self.json_response(409, {
-                            "error": "Import de média actif. Terminez-le avant la calibration"})
-                    return self.json_response(202, self.server.calibration.start(
-                        resolution=data["resolution"], fps=data["fps"]))
+                        busy = "Un rendu est déjà actif. Terminez-le avant la calibration"
+                    elif jobs._uploads_in_progress:
+                        busy = "Import de média actif. Terminez-le avant la calibration"
+                    else:
+                        busy = None
+                        result = self.server.calibration.start(
+                            resolution=data["resolution"], fps=data["fps"])
+                if busy:
+                    return self.json_response(409, {"error": busy})
+                return self.json_response(202, result)
             except (ValueError, RuntimeError, OSError) as exc:
                 return self.json_response(400, {"error": str(exc)[:230]})
         match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/cancel", path)
