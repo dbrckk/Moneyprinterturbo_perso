@@ -79,17 +79,36 @@ jobs:
             fi
           done
           if (( ${#missing[@]} )); then
-            # Hosted apt mirrors occasionally hang indefinitely. Fail clearly
-            # rather than leaving the entire rendering CI in a stuck install.
-            sudo timeout -k 10s 180s apt-get \
-              -o Acquire::Retries=2 \
-              -o Acquire::http::Timeout=25 \
-              -o Acquire::https::Timeout=25 update
-            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 480s apt-get \
-              -o DPkg::Lock::Timeout=30 \
-              -o Acquire::Retries=2 \
-              -o Acquire::http::Timeout=25 \
-              -o Acquire::https::Timeout=25 install -y --no-install-recommends "${missing[@]}"
+            # Azure's hosted apt mirror has intermittently taken 8+ minutes
+            # to transfer 64 MB of FFmpeg packages. Prefer official Ubuntu,
+            # and restore the runner's original mirrors if official is down.
+            mirror_file=/etc/apt/apt-mirrors.txt
+            mirror_backup=
+            if [[ -f "$mirror_file" ]]; then
+              mirror_backup=$(mktemp)
+              sudo cp "$mirror_file" "$mirror_backup"
+              printf 'http://archive.ubuntu.com/ubuntu/\n' | sudo tee "$mirror_file" >/dev/null
+            fi
+            install_render_tools() {
+              sudo timeout -k 10s 95s apt-get \
+                -o Acquire::Retries=1 \
+                -o Acquire::http::Timeout=20 \
+                -o Acquire::https::Timeout=20 update &&
+              sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 220s apt-get \
+                -o DPkg::Lock::Timeout=30 \
+                -o Acquire::Retries=1 \
+                -o Acquire::http::Timeout=20 \
+                -o Acquire::https::Timeout=20 install -y --no-install-recommends "${missing[@]}"
+            }
+            if ! install_render_tools; then
+              if [[ -z "$mirror_backup" ]]; then
+                echo 'FFmpeg installation failed and no mirror backup is available' >&2
+                exit 1
+              fi
+              echo 'Official Ubuntu mirror unavailable; trying runner original mirror' >&2
+              sudo cp "$mirror_backup" "$mirror_file"
+              install_render_tools
+            fi
           fi
           ffmpeg -hide_banner -version | head -1
           espeak --version | head -1
