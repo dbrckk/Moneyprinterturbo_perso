@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from http.client import HTTPConnection
+import io
 import json
 from pathlib import Path
 import shutil
@@ -176,6 +177,9 @@ class CalibrationServerTests(unittest.TestCase):
                 "speech_rate": 145, "mute": True})
             self.assertEqual(code, 400)
             self.assertIn("Calibration H.264", payload["error"])
+            batch = self.jobs.create_media_batch()
+            with self.assertRaisesRegex(ValueError, "Calibration H.264"):
+                self.jobs.save_media(batch, "image.jpg", 4, io.BytesIO(b"bad!"))
             release.set()
             self.server.calibration._thread.join(timeout=3)
             _, completed = self.request("GET", "/api/encoder/calibration")
