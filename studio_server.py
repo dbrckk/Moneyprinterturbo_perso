@@ -894,11 +894,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="Vérifier FFmpeg, H.264/AAC, la voix française et le stockage, sans lancer le serveur")
     parser.add_argument("--doctor-json", action="store_true",
                         help="Effectuer le même diagnostic et produire un JSON sans données privées")
+    parser.add_argument("--doctor-full", action="store_true",
+                        help="Tester un vrai montage de 2 scènes synthétiques avec voix, sous-titres et MP4")
+    parser.add_argument("--doctor-full-json", action="store_true",
+                        help="Même test complet, rapport JSON sans fichiers personnels")
     args = parser.parse_args(argv)
-    if args.doctor or args.doctor_json:
+    if args.doctor or args.doctor_json or args.doctor_full or args.doctor_full_json:
         from studio_doctor import diagnose, print_report
-        report = diagnose(args.output_dir)
-        print_report(report, json_output=args.doctor_json)
+        report = diagnose(args.output_dir,
+                          full_render=args.doctor_full or args.doctor_full_json)
+        print_report(report, json_output=args.doctor_json or args.doctor_full_json)
         return 0 if report["ok"] else 1
     if args.host not in ("127.0.0.1", "localhost", "::1") and len(args.token) < 16:
         parser.error("Pour une écoute réseau, fournir --token (au moins 16 caractères aléatoires)")

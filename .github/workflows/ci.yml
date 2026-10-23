@@ -95,6 +95,10 @@ jobs:
         run: |
           python3 studio_server.py --doctor-json > doctor.json
           python3 -c 'import json; x=json.load(open("doctor.json", encoding="utf-8")); assert x["ok"] and any(c["name"]=="h264_aac_encode" and c["status"]=="ok" for c in x["checks"])'
+      - name: Validate complete offline Android-style montage
+        run: |
+          python3 studio_server.py --doctor-full-json > doctor-full.json
+          python3 -c 'import json; x=json.load(open("doctor-full.json", encoding="utf-8")); assert x["ok"] and any(c["name"]=="full_render" and c["status"]=="ok" for c in x["checks"])'
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
