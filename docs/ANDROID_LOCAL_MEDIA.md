@@ -73,8 +73,14 @@ tri temporel vérifié prévaut si toutes les dates sont disponibles).
 
 Les fichiers importés vivent dans `outputs/web/_uploaded_media/`.
 Chaque import appartient à un lot distinct. Un lot est figé dès qu'un
-rendu l'utilise. Le bouton **Effacer l'import** supprime les médias du
-lot, sauf pendant un rendu en cours. Les MP4 finalisés restent disponibles
+rendu l'utilise. **Un nouvel import ne supprime jamais automatiquement un
+ancien lot figé** : il peut servir à relancer un montage. Un brouillon non
+figé est supprimé uniquement après validation complète de son remplacement.
+Si la vérification du nouveau lot échoue, l'ancien import reste sélectionné
+et les fichiers incomplets du nouvel import sont supprimés. Une consultation
+impossible de l'ancien lot conduit à le conserver par précaution.
+Le bouton **Effacer l'import** supprime les médias du lot sélectionné,
+sauf pendant un rendu en cours. Les MP4 finalisés restent disponibles
 dans `outputs/web/<identifiant-de-rendu>/`. Le navigateur mémorise uniquement l'identifiant du lot, pas les vidéos :
 après rechargement de la page, il retrouve automatiquement les fichiers qui
 existent encore dans le moteur local. En cas de suppression du lot ou de

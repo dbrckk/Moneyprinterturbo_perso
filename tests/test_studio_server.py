@@ -87,6 +87,29 @@ class ServerTests(unittest.TestCase):
         conn.close()
         return result
 
+    def test_rejected_jobs_never_seal_existing_media_uploads(self):
+        status, _, response = self.request("POST", "/api/media/batches", {})
+        self.assertEqual(status, 201, response)
+        batch = json.loads(response)["id"]
+        folder = self.jobs.upload_root / batch
+        # The metadata and capacity gate must be exercised on a populated
+        # batch; the media decoder is independently tested in upload tests.
+        (folder / "001_existing.mp4").write_bytes(b"already-imported")
+        options = {**VALID, "visuals": "local", "media_batch": batch}
+        # Unsupported voice must be rejected before the batch is sealed.
+        code, _, payload = self.request("POST", "/api/jobs", {
+            **options, "tts": "piper", "mute": False})
+        self.assertEqual(code, 400, payload)
+        self.assertFalse((folder / ".sealed").exists())
+        # Queue capacity rejection must preserve the same import as well.
+        with patch("studio_server.MAX_JOBS", 1):
+            with self.jobs.lock:
+                self.jobs.jobs["occupied"] = {"status": "queued"}
+            code, _, payload = self.request("POST", "/api/jobs", options)
+            self.assertEqual(code, 400, payload)
+        self.assertFalse((folder / ".sealed").exists())
+        self.assertEqual(self.request("GET", f"/api/media/batches/{batch}")[0], 200)
+
     def test_upload_guards_reject_broken_or_unsafe_media(self):
         status, _, payload = self.request("POST", "/api/media/batches", {})
         self.assertEqual(status, 201, payload)

@@ -231,20 +231,29 @@
         });
       }
       // Replace an abandoned prior draft only after the full new batch works.
+      // Validate the complete new import before switching the remembered
+      // batch: a transient metadata failure must not discard the previous one.
+      const plan = await json(`/api/media/batches/${batch}`);
       const previous = state.media_batch;
       state.media_batch = batch;
       rememberMediaBatch(batch);
       $('visuals').value = 'local';
       $('delete-media').hidden = false;
-      const plan = await json(`/api/media/batches/${batch}`);
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
                 (plan.ordering === 'capture'
                   ? 'Ordre chronologique établi à partir des dates de capture intégrées.'
                   : 'Dates de capture absentes, ambiguës ou incomplètes : ordre des noms conservé.') +
                 ' Aucune vidéo envoyée à GitHub.');
       if (previous && previous !== batch) {
-        post(`/api/media/batches/${previous}/delete`, {})
-          .finally(() => refreshStorage().catch(() => {})).catch(() => {});
+        // A sealed import may still be needed for retry/re-render. Never
+        // silently delete it during an unrelated new upload. On a failed
+        // lookup, preserve the original rather than guessing its status.
+        try {
+          const oldBatch = await json(`/api/media/batches/${previous}`);
+          if (oldBatch.sealed === false) {
+            await post(`/api/media/batches/${previous}/delete`, {});
+          }
+        } catch (_) { /* Keep the old batch if its safety is uncertain. */ }
       }
       await refreshStorage();
     } catch (err) {
