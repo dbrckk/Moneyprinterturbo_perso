@@ -15,6 +15,7 @@ pkg update -y
 pkg install -y python ffmpeg espeak git
 git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git
 cd Moneyprinterturbo_perso
+python studio_server.py --doctor
 python studio_server.py
 ```
 
@@ -23,6 +24,18 @@ python studio_server.py
    appareil (pas sur Internet). Il faut garder le processus Termux actif
    pendant l'import et l'encodage ; Android peut arrêter les tâches longues
    en arrière-plan.
+
+**Diagnostic Android hors ligne :** avant le premier rendu, la commande
+`python studio_server.py --doctor` vérifie la version de Python, FFmpeg,
+FFprobe, les filtres nécessaires, un **véritable mini-MP4 H.264/AAC**,
+une voix eSpeak française et l'espace disponible. Le test n'accède ni à
+la galerie ni au réseau : il utilise des médias de synthèse dans un
+répertoire temporaire, puis les supprime. Si moins de 1 Gio est libre,
+un avertissement invite à libérer du stockage. Le diagnostic ne garantit
+pas à lui seul un rendu long ou la résistance aux interruptions Android.
+Pour un résultat automatisable : `python studio_server.py --doctor-json`.
+Si des dépendances manquent, installer ou réparer les paquets avec :
+`pkg install -y python ffmpeg espeak`. Aucun PC n'est nécessaire.
 
 **État des vérifications :** la chaîne d'import HTTP et le rendu FFmpeg
 sont testés sur Linux dans GitHub Actions. Les performances, la disponibilité

@@ -41,6 +41,7 @@ on:
       - visual_hash.py
       - .github/workflows/free-video.yml
       - studio_server.py
+      - studio_doctor.py
       - web/**
       - tests/**
       - .github/workflows/ci.yml
@@ -90,6 +91,10 @@ jobs:
           fi
           ffmpeg -hide_banner -version | head -1
           espeak --version | head -1
+      - name: Validate Android local render prerequisites
+        run: |
+          python3 studio_server.py --doctor-json > doctor.json
+          python3 -c 'import json; x=json.load(open("doctor.json", encoding="utf-8")); assert x["ok"] and any(c["name"]=="h264_aac_encode" and c["status"]=="ok" for c in x["checks"])'
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

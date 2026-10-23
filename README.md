@@ -21,6 +21,12 @@ de la galerie pour les transmettre automatiquement à GitHub Actions.
 Installation Android, limites, formats et guide d'import :
 [docs/ANDROID_LOCAL_MEDIA.md](docs/ANDROID_LOCAL_MEDIA.md).
 
+Pour vérifier automatiquement les outils installés sur le téléphone,
+le véritable encodage MP4 H.264/AAC, la voix française et le stockage avant
+le lancement : `python studio_server.py --doctor` (diagnostic entièrement
+hors ligne, aucun accès à la galerie). Puis `python studio_server.py`.
+La sortie JSON est disponible avec `--doctor-json` pour le dépannage.
+
 ## Comparaison visuelle IA gratuite — option expérimentale
 
 Le studio Android propose maintenant un choix facultatif **CLIP (CPU)** pour
