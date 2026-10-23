@@ -186,7 +186,10 @@ class CalibrationServerTests(unittest.TestCase):
         with self.jobs.lock:
             self.jobs.jobs["b" * 32] = {
                 "id": "b" * 32, "status": "queued",
-                "parameters": {"topic": "Active", "resolution": 360}}
+                "created": int(time.time()), "finished": None,
+                "error": None, "metadata": None,
+                "parameters": {"topic": "Active", "resolution": 360,
+                               "media_batch": ""}}
         code, response = self.request("POST", "/api/encoder/calibration",
                                       {"resolution": 360, "fps": 24})
         self.assertEqual(code, 409)
