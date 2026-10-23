@@ -591,9 +591,9 @@ On peut également étalonner sous Termux sans interface :
 
 ```bash
 python encoder_calibration.py --output outputs/.encoder_calibration.json
-python free_studio.py --topic "Essai" --script "Voici mon premier essai." \\
-  --mute --resolution 360 --fps 12 --encoder-profile auto \\
-  --encoder-calibration outputs/.encoder_calibration.json \\
+python free_studio.py --topic "Essai" --script "Voici mon premier essai." \
+  --mute --resolution 360 --fps 12 --encoder-profile auto \
+  --encoder-calibration outputs/.encoder_calibration.json \
   --output outputs/essai.mp4
 ```
 
