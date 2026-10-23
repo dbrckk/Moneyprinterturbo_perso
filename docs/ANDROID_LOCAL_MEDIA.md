@@ -580,6 +580,37 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   jamais considéré comme un échec sûr à effacer. La période de sept jours
   est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
+## Calibration depuis l'interface Android (sans commandes)
+
+Dans le studio local (`http://127.0.0.1:8765`), choisir le format
+**Vertical 9:16**, puis une résolution **360p ou 720p**.
+Cliquer sur **Calibrer sur ce téléphone** pour lancer volontairement
+une comparaison FFmpeg *sur le processeur du téléphone*, sans transmettre
+les vidéos personnelles à GitHub. Le moteur encode huit séquences
+**synthétiques de deux secondes** à 24 images/s puis calcule la
+recommandation `Standard`, `Détails` ou `Premium` sur la base
+du cas le plus lent et des limites de ressources du moteur.
+
+Le navigateur affiche l'état en cours, une erreur éventuelle ou le
+résultat mesuré. Le bouton **Choisir le profil conseillé** doit être
+activé manuellement pour sélectionner le réglage ; il ne lance aucun
+rendu et ne modifie aucun fichier source. La recommandation 360p ne
+s'applique ni à 720p ni à 1080p ; le format paysage et le carré
+ne sont pas couverts par ce banc d'essai vertical.
+
+Pour éviter une concurrence CPU excessive, le studio refuse
+une calibration pendant un rendu actif, et inversement. Une seule
+calibration peut fonctionner simultanément. Le processus de mesure
+est interrompu à 5 minutes ou à l'arrêt du serveur.
+Les petits MP4 de test et leurs métriques sont conservés dans
+`outputs/web/_encoder_calibration` (ou dans le dossier de sortie
+personnalisé), et ne sont pas publiés parmi vos vidéos.
+
+**Attention :** 2 secondes par séquence ne caractérisent pas la
+température ni l'autonomie après plusieurs minutes de rendu. La
+mesure peut échouer si l'appareil manque d'espace ou si le téléphone
+est trop lent. Le profil `Standard` demeure le repli sûr.
+
 ## Calibration H.264 locale sur Android (facultative)
 
 Le benchmark synthétique existant peut maintenant produire un **avis
