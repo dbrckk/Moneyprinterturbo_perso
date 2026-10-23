@@ -5,6 +5,8 @@
   let currentId = null;
   let videoUrl = null;
   let pollTimer = null;
+  let encoderPollTimer = null;
+  let lastCalibration = null;
   let lastStatus = '';
   const MEDIA_KEY = 'mpt-local-media-batch-v1';
   const storedBatch = (() => { try { return localStorage.getItem(MEDIA_KEY) || ''; } catch { return ''; } })();
@@ -79,11 +81,55 @@
     return {
       topic: $('topic').value.trim(), lang: $('lang').value,
       script: $('script').value.trim(), aspect: $('aspect').value,
-      resolution: Number($('resolution').value), visuals: $('visuals').value,
+      resolution: Number($('resolution').value),
+      encoder_profile: $('encoder-profile').value, visuals: $('visuals').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
       mute: $('mute').checked, scene_queries: $('queries').value.trim(),
       media_batch: $('visuals').value === 'local' ? state.media_batch : ''
     };
+  }
+  const profileLabel = {balanced: 'Standard', detail: 'Détails', premium: 'Premium'};
+  const calibrationApi = '/api/encoder/calibration';
+  function showCalibration(data) {
+    lastCalibration = data;
+    const btn = $('calibrate-encoder');
+    const apply = $('apply-calibration');
+    const note = $('encoder-calibration-note');
+    const selectedResolution = Number($('resolution').value);
+    const eligible = selectedResolution !== 1080 && $('aspect').value === '9:16';
+    btn.disabled = data.status === 'running' || !eligible;
+    apply.hidden = true;
+    if (!eligible) {
+      note.textContent = 'Calibration 9:16 en 360p ou 720p uniquement. Modifiez le format et la résolution pour tester le téléphone.';
+    } else if (data.status === 'running') {
+      note.textContent = `Calibration locale ${data.resolution}p en cours. 8 courtes vidéos synthétiques, aucune vidéo personnelle envoyée.`;
+    } else if (data.status === 'done' && data.resolution === selectedResolution
+        && data.fps === 24 && data.advice?.applies_automatically === false) {
+      const suggestion = profileLabel[data.suggested_profile] || 'Standard';
+      const rates = data.advice.measured_encoded_fps || {};
+      const detailRate = typeof rates.detail === 'number' ? rates.detail.toFixed(1) : '?';
+      const premiumRate = typeof rates.premium === 'number' ? rates.premium.toFixed(1) : '?';
+      note.textContent = `Conseil pour ${selectedResolution}p/24 ips : ${suggestion}. Mesuré (scène la plus lente) : détails ${detailRate} i/s, premium ${premiumRate} i/s. Résultat indicatif : le test court ne mesure ni batterie ni surchauffe prolongée.`;
+      apply.hidden = !profileLabel[data.suggested_profile];
+    } else if (data.status === 'error') {
+      note.textContent = `Calibration non terminée : ${data.error || 'erreur locale'}. Le profil Standard reste disponible.`;
+    } else if (data.status === 'done') {
+      note.textContent = 'Le dernier test concernait une autre résolution. Lancez un nouveau test si vous souhaitez une recommandation pour ce format.';
+    } else {
+      note.textContent = 'Calibration volontaire : 8 vidéos synthétiques de 2 secondes, sans vos médias. Le téléphone peut chauffer. Aucun profil n’est appliqué sans votre choix.';
+    }
+  }
+  async function refreshCalibration() {
+    clearTimeout(encoderPollTimer);
+    try {
+      const data = await json(calibrationApi);
+      showCalibration(data);
+      if (data.status === 'running') {
+        encoderPollTimer = setTimeout(() => refreshCalibration().catch(showError), 2500);
+      }
+    } catch (err) {
+      $('encoder-calibration-note').textContent = 'État de calibration indisponible : ' + String(err.message || err);
+    }
   }
   function showError(err) { $('error').textContent = err ? String(err.message || err) : ''; }
   function splitSentences(text) {
@@ -404,6 +450,7 @@
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
+      refreshCalibration().catch(showError);
       refreshStorage().catch(() => {
         $('storage-stats').textContent = 'Impossible de consulter le stockage.';
       });
@@ -438,6 +485,33 @@
       loadHistory().catch(() => {});
     } catch (err) { showError(err); } finally { $('render').disabled = false; }
   });
+  $('calibrate-encoder').addEventListener('click', async () => {
+    showError(null);
+    const resolution = Number($('resolution').value);
+    if (resolution === 1080 || $('aspect').value !== '9:16') return;
+    if (!window.confirm('Lancer un benchmark local sur ce téléphone ? Il crée 8 vidéos synthétiques et utilise le processeur pendant plusieurs minutes au maximum. Aucun média personnel n’est transféré.')) return;
+    $('calibrate-encoder').disabled = true;
+    try {
+      const data = await post(calibrationApi, {resolution, fps: 24});
+      showCalibration(data);
+      refreshCalibration().catch(showError);
+    } catch (err) {
+      showError(err);
+      refreshCalibration().catch(() => {});
+    }
+  });
+  $('apply-calibration').addEventListener('click', () => {
+    const data = lastCalibration;
+    if (!data || data.status !== 'done' || data.advice?.applies_automatically !== false
+        || data.resolution !== Number($('resolution').value)
+        || data.fps !== 24 || $('aspect').value !== '9:16'
+        || !profileLabel[data.suggested_profile]) return;
+    $('encoder-profile').value = data.suggested_profile;
+    $('encoder-calibration-note').textContent = 'Profil ' + profileLabel[data.suggested_profile] +
+      ' sélectionné pour votre prochain rendu. Vous pouvez le modifier avant de générer la vidéo.';
+  });
+  $('resolution').addEventListener('change', () => { if (lastCalibration) showCalibration(lastCalibration); });
+  $('aspect').addEventListener('change', () => { if (lastCalibration) showCalibration(lastCalibration); });
   $('script').addEventListener('input', showScenes);
   $('mute').addEventListener('change', () => { $('tts').disabled = $('mute').checked; $('speech-rate').disabled = $('mute').checked; });
   $('cancel').addEventListener('click', async () => {
@@ -475,6 +549,7 @@
   }
   window.addEventListener('pagehide', () => {
     clearTimeout(pollTimer);
+    clearTimeout(encoderPollTimer);
     releaseVideo();
   });
   showScenes();
