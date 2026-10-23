@@ -36,7 +36,8 @@
     return {
       topic: $('topic').value.trim(), lang: $('lang').value,
       script: $('script').value.trim(), aspect: $('aspect').value,
-      resolution: Number($('resolution').value), visuals: $('visuals').value,
+      resolution: Number($('resolution').value),
+      encoder_profile: $('encoder-profile').value, visuals: $('visuals').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
       mute: $('mute').checked, scene_queries: $('queries').value.trim(),
       media_batch: $('visuals').value === 'local' ? state.media_batch : ''
