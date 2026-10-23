@@ -192,8 +192,10 @@ class Jobs:
             calibrate(self.encoder_calibration_file)
             with self.lock:
                 self._calibration_error = None
-        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-            # Do not expose paths, command strings or FFmpeg diagnostics via HTTP.
+        except Exception:
+            # The calibration thread may fail for unexpected OS/FFmpeg
+            # reasons. Always clear its busy state, and never expose private
+            # paths, commands or raw diagnostics via HTTP.
             with self.lock:
                 self._calibration_error = (
                     "L'étalonnage a échoué. Le profil standard reste disponible.")
