@@ -42,6 +42,21 @@
               <div><label for="visuals">Visuels</label><select id="visuals"><option value="commons">Wikimedia Commons · gratuit</option><option value="abstract">Graphismes automatiques</option><option value="local" disabled>Médias locaux · non configuré</option></select></div>
               <div><label for="resolution">Résolution</label><select id="resolution"><option value="360">360p · rapide</option><option value="720" selected>720p · HD</option><option value="1080">1080p · Full HD</option></select></div>
             </div>
+            <div class="media-import encoder-panel" id="encoder-panel">
+              <label for="encoder-profile">Qualité d'encodage H.264</label>
+              <select id="encoder-profile" name="encoder-profile">
+                <option value="balanced" selected>Standard · fiable et rapide</option>
+                <option value="auto">Automatique · budget prudent</option>
+                <option value="detail">Détails · qualité améliorée</option>
+                <option value="premium">Premium · compression plus exigeante</option>
+              </select>
+              <p class="microcopy">Les réglages plus exigeants peuvent augmenter le temps de rendu. Une limite de calcul protège le téléphone.</p>
+              <div class="media-actions">
+                <button id="calibrate-encoder" type="button" class="small-button">Calibrer sur ce téléphone</button>
+                <button id="apply-calibration" type="button" class="text-button" hidden>Choisir le profil conseillé</button>
+              </div>
+              <p id="encoder-calibration-note" class="microcopy" role="status" aria-live="polite">Test volontaire sur ce téléphone : 8 vidéos de 2 secondes, sans médias personnels. 360p/720p, 24 images/s. Le test peut ralentir ou chauffer le téléphone.</p>
+            </div>
             <div class="media-import" id="media-import">
               <label for="media-files">Vidéos et photos de mon téléphone</label>
               <input id="media-files" type="file" multiple accept=".mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,video/*,image/jpeg,image/png,image/webp">

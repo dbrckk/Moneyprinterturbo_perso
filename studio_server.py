@@ -31,6 +31,7 @@ from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 from encoder_profiles import ENCODER_PROFILES
+from studio_calibration import LocalCalibration, CALIBRATION_FPS
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -148,6 +149,7 @@ class Jobs:
         self._uploads_in_progress: dict[str, tuple[int, Path]] = {}
         self.upload_root = self.output_dir / "_uploaded_media"
         self.processes: dict[str, subprocess.Popen] = {}
+        self.calibration: LocalCalibration | None = None
         self.worker_thread: threading.Thread | None = None
         self._stopping = False
         self.running = False
@@ -271,6 +273,8 @@ class Jobs:
         with self.media_lock, self.lock:
             if self._stopping:
                 raise ValueError("Serveur en cours d'arrêt : nouveau rendu refusé")
+            if self.calibration is not None and self.calibration.is_running():
+                raise ValueError("Calibration H.264 en cours : attendez sa fin avant le rendu")
             if job["visuals"] == "local":
                 if job["media_batch"]:
                     if job["media_batch"] in self._uploads_in_progress:
@@ -572,6 +576,8 @@ class Jobs:
         if not isinstance(size, int) or size <= 0 or size > limit:
             raise ValueError("Taille de média invalide ou supérieure à la limite")
         with self.media_lock:
+            if self.calibration is not None and self.calibration.is_running():
+                raise ValueError("Calibration H.264 active : import suspendu pour protéger le téléphone")
             directory = self.upload_root / ident
             if not directory.is_dir() or (directory / ".sealed").exists():
                 raise ValueError("Lot absent ou déjà utilisé pour un rendu")
@@ -981,6 +987,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/"):
             if not self.require_auth():
                 return
+            if path == "/api/encoder/calibration":
+                return self.json_response(200, self.server.calibration.status())
             if path == "/api/config":
                 return self.json_response(200, {"langs": list(LANG_VOICES), "aspects": list(ASPECTS),
                                                 "has_local_media": bool(self.server.jobs.media_dir),
@@ -1022,6 +1030,31 @@ class StudioHandler(BaseHTTPRequestHandler):
         if not self.require_auth():
             return
         path = urlsplit(self.path).path
+        if path == "/api/encoder/calibration":
+            try:
+                data = self.read_json()
+                if (type(data) is not dict or set(data) != {"resolution", "fps"}):
+                    raise ValueError("Choisissez une résolution et une cadence valides")
+                jobs = self.server.jobs
+                # Always acquire media_lock before jobs.lock, matching submit().
+                # Release both before sending an HTTP response: slow mobile
+                # clients must not block background rendering or cancellation.
+                with jobs.media_lock, jobs.lock:
+                    if jobs._stopping or any(
+                            job["status"] in ("queued", "running")
+                            for job in jobs.jobs.values()):
+                        busy = "Un rendu est déjà actif. Terminez-le avant la calibration"
+                    elif jobs._uploads_in_progress:
+                        busy = "Import de média actif. Terminez-le avant la calibration"
+                    else:
+                        busy = None
+                        result = self.server.calibration.start(
+                            resolution=data["resolution"], fps=data["fps"])
+                if busy:
+                    return self.json_response(409, {"error": busy})
+                return self.json_response(202, result)
+            except (ValueError, RuntimeError, OSError) as exc:
+                return self.json_response(400, {"error": str(exc)[:230]})
         match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/cancel", path)
         if match:
             cancelled = self.server.jobs.cancel(match.group(1))
@@ -1098,6 +1131,9 @@ class StudioServer(ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], jobs: Jobs, *, auth_token: str = "", ollama_model: str = ""):
         self.jobs = jobs
+        self.calibration = LocalCalibration(
+            jobs.output_dir, python_executable=jobs.python_executable)
+        jobs.calibration = self.calibration
         self.auth_token = auth_token
         self.ollama_model = ollama_model
         super().__init__(address, StudioHandler)
@@ -1155,6 +1191,7 @@ def main(argv: list[str] | None = None) -> int:
         if previous_term_handler is not None:
             signal.signal(signal.SIGTERM, previous_term_handler)
         try:
+            server.calibration.shutdown()
             jobs.shutdown()
         finally:
             server.server_close()
