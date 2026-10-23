@@ -255,6 +255,19 @@ fonction. Il ne s'agit ni d'un étalonnage professionnel ni d'un contrôle
 de la colorimétrie HDR ; un coucher de soleil volontairement chaud peut
 rester inchangé. Les fichiers originaux restent intacts, sans cloud.
 
+## Mouvement photo continu sur les scènes longues
+
+Les photos JPEG utilisées comme plan visuel bénéficient désormais d'un
+**zoom progressif de durée adaptative**. L'ancienne vitesse fixe pouvait
+atteindre son plafond avant la fin d'une scène longue, créant une image
+immobile au milieu de la narration. Le zoom suit maintenant les images
+réellement encodées sur toute la durée du plan (8 % maximum). Les photos
+panoramiques conservées intégralement sur un fond flouté évoluent aussi
+jusqu'à la dernière image, avec un mouvement plus discret (4 % maximum).
+La logique est identique dans le moteur rapide et le moteur classique,
+y compris pour les images additionnelles de chevauchement des transitions.
+Les originaux, sous-titres, fréquences d'images et codecs sont préservés.
+
 ## Transitions intelligentes entre plans locaux
 
 Le mode `--transition auto` (style cinématique) décide maintenant

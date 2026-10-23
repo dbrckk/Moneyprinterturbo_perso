@@ -74,3 +74,26 @@ measured medians over three trials: 720p 1.681s fused vs 1.229s direct
 reduction). Full video SSIM was 0.993633 and 0.995633 respectively.
 These results concern two synthetic scenes and validate the existing
 single-pass path, *not* the new five-plus-scene parallel pre-encoder.
+
+## Duration-aware photographic camera movement (22 October 2026)
+
+Single-pass media and legacy scene encoders now apply the **same** bounded
+photo zoom progression across the **whole output scene**, including the
+extra frames required by a crossfade. Previously each photo advanced by
+0.0008 zoom units per output frame until hitting 1.10; at 12 FPS, a photo
+longer than about 10 seconds appeared to stop moving before the narration
+ended. Extreme-wide images on a blurred soft matte stopped even earlier
+because their 4% zoom reached its cap after about 67 frames.
+
+The new FFmpeg `zoompan` uses the output-frame index and exact quantized
+scene duration. Full-cover photos advance gradually to at most 1.08× and
+extreme-wide soft-matte photos to at most 1.04×. The end of a long photo
+scene therefore does not contain an unintended static plateau. Video
+clips, original images, FPS and H.264 quality parameters are unchanged;
+no ML/cloud provider, new FFmpeg process or external dependency is added.
+
+Regression coverage includes two actual 15-second JPEG exports (portrait
+and extreme-wide), each rendered through the direct and legacy paths,
+with FFprobe frame-count checks, decoded late-scene pixel comparisons,
+source-byte integrity and matching camera positions. This establishes the
+presence of continued movement, not a subjective claim of artistic quality.
