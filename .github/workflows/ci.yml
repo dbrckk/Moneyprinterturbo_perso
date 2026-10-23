@@ -53,7 +53,8 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Avoid new ubuntu-latest images changing FFmpeg/eSpeak packaging and apt mirror behavior.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
