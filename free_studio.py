@@ -28,6 +28,7 @@ from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
 from encoder_profiles import ENCODER_PROFILES, resolve_encoder_profile, mobile_h264_threads
+from encoder_calibration import read_calibration
 from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
@@ -415,7 +416,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            caption_style: str = "kinetic", word_alignment: str = "estimated",
            use_fused_xfade: bool = True, use_media_onepass: bool = True,
            visual_ai: str = "off", script_mode: str | None = None,
-           encoder_profile: str = "balanced") -> dict[str, object]:
+           encoder_profile: str = "balanced",
+           encoder_calibration_path: Path | None = None) -> dict[str, object]:
     if not isinstance(encoder_profile, str) or encoder_profile not in ENCODER_PROFILES:
         raise ValueError("Unsupported H.264 encoder profile")
     check_program("ffmpeg")
@@ -470,9 +472,12 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         caption_meta = (generate_karaoke_ass(segments, work, width=width, height=height,
                           word_times=word_times) if caption_style == "kinetic" else None)
         total = sum(durations)
+        local_calibration = (read_calibration(encoder_calibration_path)
+                             if encoder_profile == "auto" else None)
         chosen_encoder = resolve_encoder_profile(
             encoder_profile, width=width, height=height, fps=fps,
-            duration=total, scenes=len(sentences))
+            duration=total, scenes=len(sentences),
+            calibration=local_calibration)
         metrics["final_encoder_preset"] = chosen_encoder.preset
         metrics["final_encoder_crf"] = chosen_encoder.crf
         if chosen_encoder.fallback_reason:
@@ -900,6 +905,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--encoder-profile", choices=ENCODER_PROFILES, default="balanced",
                         help="H.264 export mode: balanced (existing default), detail, premium, or conservative auto")
+    parser.add_argument("--encoder-calibration", type=Path,
+                        help="Optional local device calibration file; consulted only in auto mode")
     parser.add_argument("--transition", choices=["auto", "cut", "fade", "wipeleft"], default="auto",
                         help="Scene transition; auto chooses cut/fade for suitable local video scenes, otherwise preserves original style")
     parser.add_argument("--word-alignment", choices=["estimated", "forced"], default="estimated",
@@ -943,7 +950,8 @@ def main(argv: list[str] | None = None) -> int:
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
                       caption_style=args.caption_style, word_alignment=args.word_alignment,
-                      script_mode=mode, encoder_profile=args.encoder_profile)
+                      script_mode=mode, encoder_profile=args.encoder_profile,
+                      encoder_calibration_path=args.encoder_calibration)
         # The manifest was staged and published alongside the MP4 by render().
         # Do not perform a second unguarded post-publication write.
         print(json.dumps(info, ensure_ascii=False, indent=2))
