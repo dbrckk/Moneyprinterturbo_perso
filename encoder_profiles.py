@@ -22,6 +22,12 @@ _DETAIL_PIXEL_FRAMES = 500_000_000
 _PREMIUM_PIXEL_FRAMES = 130_000_000
 
 
+def valid_ffmpeg_settings(preset: object, crf: object) -> bool:
+    """Allow only settings tested by our bounded encoder comparison."""
+    return (type(preset) is str and type(crf) is int
+            and (preset, crf) in frozenset(_PARAMETERS.values()))
+
+
 @dataclass(frozen=True)
 class EncoderSelection:
     requested: str
