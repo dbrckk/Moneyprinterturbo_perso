@@ -12,9 +12,10 @@ async function simulate({ oldSealed = true, oldMissing = false,
                           rejectNewDetails = false, uploadFailure = '',
                           authToken = '', xhrAvailable = true,
                           failStorageAfterUpload = false,
-                          failCleanup = false } = {}) {
+                          failCleanup = false, calibrateClick = false } = {}) {
   const elements = new Map();
   const calls = [];
+  let calibrationReady = false;
   const progressNotes = [];
   const progressValues = [];
   const uploadHeaders = [];
@@ -62,6 +63,16 @@ async function simulate({ oldSealed = true, oldMissing = false,
     else if (url === '/api/config') data = { has_ollama: false, has_piper: false,
                                             has_local_media: false };
     else if (url === '/api/jobs') data = { jobs: [] };
+    else if (method === 'GET' && url === '/api/encoder/calibration') {
+      data = calibrationReady
+        ? {available: true, state: 'ready', encoded_fps: {detail: 48.0}}
+        : {available: false, state: 'idle'};
+    }
+    else if (method === 'POST' && url === '/api/encoder/calibration') {
+      calibrationReady = true;
+      data = {available: false, state: 'running'};
+      status = 202;
+    }
     else if (url === '/api/media/storage') {
       if (failStorageAfterUpload && calls.includes('POST /api/media/batches')) {
         status = 503;
@@ -127,14 +138,31 @@ async function simulate({ oldSealed = true, oldMissing = false,
   vm.runInNewContext(source, context, { timeout: 2000 });
   // Allow init() and the API responses to settle before the user upload.
   for (let i = 0; i < 6; i++) await Promise.resolve();
+  if (calibrateClick) {
+    const calibrate = get('calibrate-encoder').listeners.get('click');
+    assert.equal(typeof calibrate, 'function');
+    await calibrate();
+  }
   const submit = get('upload-media').listeners.get('click');
   assert.equal(typeof submit, 'function');
   await submit();
   return { calls, stored: memory.get('mpt-local-media-batch-v1'),
     error: get('error').textContent, note: get('media-note').textContent,
     selected: get('visuals').value, progressNotes, progressValues,
-    progressHidden: get('upload-progress').hidden, uploadHeaders };
+    progressHidden: get('upload-progress').hidden, uploadHeaders,
+    calibratedProfile: get('encoder-profile').value,
+    calibrationText: get('encoder-calibration-status').textContent };
 }
+
+test('one-tap calibration opts into auto without deleting existing phone imports', async () => {
+  const result = await simulate({calibrateClick: true, oldSealed: true});
+  assert.equal(result.calibratedProfile, 'auto');
+  assert.match(result.calibrationText, /Étalonnage disponible/);
+  assert.ok(result.calls.includes('POST /api/encoder/calibration'));
+  assert.ok(result.calls.includes('GET /api/encoder/calibration'));
+  assert.equal(result.stored, NEW);
+  assert.ok(!result.calls.includes(`POST /api/media/batches/${OLD}/delete`));
+});
 
 test('sealed previous batch is preserved after a successful new upload', async () => {
   const result = await simulate({ oldSealed: true });
