@@ -32,12 +32,54 @@
   async function json(url, options = {}) { return (await api(url, options)).json(); }
   const post = (url, payload) => json(url, {method: 'POST', body: JSON.stringify(payload)});
 
+  function uploadMediaFile(url, file, onProgress) {
+    // Fetch does not expose upload progress in widely deployed Android web
+    // browsers. XHR is limited to this same-origin binary transfer; all
+    // other API requests continue to use the existing authenticated fetch.
+    if (typeof XMLHttpRequest !== 'function') {
+      return api(url, {method: 'POST', body: file,
+        headers: {'Content-Type': 'application/octet-stream',
+                  'X-Media-Name': encodeURIComponent(file.name)}}).then(() => {});
+    }
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.timeout = 20 * 60 * 1000; // whole-file ceiling, not per-chunk timeout
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.setRequestHeader('X-Media-Name', encodeURIComponent(file.name));
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      let previousPercent = -1;
+      xhr.upload.onprogress = event => {
+        if (!file.size || !Number.isFinite(event.loaded)) return;
+        const percent = Math.min(100, Math.max(0,
+          Math.floor(100 * event.loaded / file.size)));
+        if (percent > previousPercent) {
+          previousPercent = percent;
+          onProgress(percent);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+        let message = `Erreur serveur ${xhr.status}`;
+        try {
+          const response = JSON.parse(xhr.responseText);
+          if (typeof response.error === 'string' && response.error) message = response.error;
+        } catch (_) { /* a non-JSON server failure keeps the HTTP status */ }
+        if (xhr.status === 401) $('auth').classList.remove('hidden');
+        reject(new Error(message));
+      };
+      xhr.onerror = () => reject(new Error('Connexion interrompue pendant l’import. Réessayez.'));
+      xhr.onabort = () => reject(new Error('Import interrompu. Réessayez le transfert.'));
+      xhr.ontimeout = () => reject(new Error('Délai d’import dépassé. Réessayez.'));
+      try { xhr.send(file); } catch (err) { reject(err); }
+    });
+  }
+
   function payload() {
     return {
       topic: $('topic').value.trim(), lang: $('lang').value,
       script: $('script').value.trim(), aspect: $('aspect').value,
-      resolution: Number($('resolution').value),
-      encoder_profile: $('encoder-profile').value, visuals: $('visuals').value,
+      resolution: Number($('resolution').value), visuals: $('visuals').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
       mute: $('mute').checked, scene_queries: $('queries').value.trim(),
       media_batch: $('visuals').value === 'local' ? state.media_batch : ''
@@ -218,17 +260,22 @@
     }
     const button = $('upload-media'); button.disabled = true;
     $('media-files').disabled = true;
+    $('upload-progress').value = 0;
+    $('upload-progress').hidden = false;
     let batch = '';
+    let committed = false;
     try {
       const created = await post('/api/media/batches', {});
       batch = created.id;
       let count = 0;
       for (const file of files) {
-        mediaNote(`Import de ${++count}/${files.length} : ${file.name}`);
-        await api(`/api/media/batches/${batch}/files`, {
-          method: 'POST', body: file,
-          headers: {'Content-Type': 'application/octet-stream',
-                    'X-Media-Name': encodeURIComponent(file.name)}
+        const index = ++count;
+        $('upload-progress').value = 0;
+        mediaNote(`Import de ${index}/${files.length} : ${file.name} — 0 %`);
+        await uploadMediaFile(`/api/media/batches/${batch}/files`, file, percent => {
+          $('upload-progress').value = percent;
+          mediaNote(`Import de ${index}/${files.length} : ${file.name} — ` +
+                    (percent === 100 ? '100 % · vérification du média…' : `${percent} %`));
         });
       }
       // Replace an abandoned prior draft only after the full new batch works.
@@ -238,6 +285,7 @@
       const previous = state.media_batch;
       state.media_batch = batch;
       rememberMediaBatch(batch);
+      committed = true; // A valid batch must never be deleted on a later UI failure.
       $('visuals').value = 'local';
       $('delete-media').hidden = false;
       mediaNote(`${files.length} média(s) importé(s), prêts pour le montage local. ` +
@@ -256,14 +304,26 @@
           }
         } catch (_) { /* Keep the old batch if its safety is uncertain. */ }
       }
-      await refreshStorage();
+      // Storage display is noncritical after the batch has been committed.
+      // A temporary 503 must not roll back an otherwise successful upload.
+      await refreshStorage().catch(() => {});
     } catch (err) {
-      if (batch) await post(`/api/media/batches/${batch}/delete`, {}).catch(() => {});
-      mediaNote('Import interrompu : aucun média partiel conservé dans ce nouveau lot.');
+      if (batch && !committed) {
+        let deleted = false;
+        try {
+          const result = await post(`/api/media/batches/${batch}/delete`, {});
+          deleted = result.deleted === true;
+        } catch (_) { /* Server may be offline during mobile disconnect. */ }
+        mediaNote(deleted
+          ? 'Import interrompu : lot incomplet supprimé, vos anciens médias sont conservés.'
+          : 'Import interrompu : ancien lot conservé. Vérifiez le stockage avant de réessayer.');
+      }
       showError(err);
     } finally {
       button.disabled = false;
       $('media-files').disabled = false;
+      $('upload-progress').hidden = true;
+      $('upload-progress').value = 0;
       refreshStorage().catch(() => {});
     }
   });
