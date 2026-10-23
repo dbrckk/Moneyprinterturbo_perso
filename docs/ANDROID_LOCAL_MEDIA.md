@@ -467,6 +467,50 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   jamais considéré comme un échec sûr à effacer. La période de sept jours
   est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
+## Benchmark local qualité/performance de l'encodage H.264
+
+Pour comparer plusieurs réglages FFmpeg **sans modifier les exports existants** :
+
+```bash
+python encoder_profile_benchmark.py --resolution 360 --fps 12 --seconds 3
+```
+
+Le script crée automatiquement deux courts échantillons synthétiques
+(mouvement/couleurs et traits fins) en référence FFV1 sans perte, puis
+**8 MP4 H.264** : quatre profils sur chaque échantillon.
+
+| Profil | Preset x264 | CRF | Usage étudié |
+|---|---|---:|---|
+| `current` | `veryfast` | 23 | Réglage actuel, témoin |
+| `crisper` | `veryfast` | 20 | Davantage de détails, taille potentiellement plus élevée |
+| `compact` | `faster` | 23 | Analyse du compromis compression/vitesse |
+| `detail` | `faster` | 20 | Analyse qualité/vitesse/taille |
+
+Résultats sur le **matériel où la commande s'exécute** :
+- `outputs/encoder-benchmark/metrics.json` : SSIM FFmpeg comparé à la
+  référence sans perte, durée d'encodage mesurée, temps CPU si disponible,
+  taille en octets, cadence et nombre d'images vérifiés via FFprobe ;
+- `outputs/encoder-benchmark/report.html` : comparaison mobile avec
+  lecture des huit MP4, tableaux et compromis mesurés ;
+- `outputs/encoder-benchmark/videos/` : MP4 pour inspection humaine.
+
+Le script est limité à 360p ou 720p, 12/24/30 ips et 2 à 4 secondes par
+échantillon, avec un plafond global pour préserver l'appareil. Il ne
+télécharge **aucune vidéo personnelle**, n'appelle **aucun service distant**
+et conserve un rapport précédent complet si la nouvelle analyse échoue.
+Un SSIM plus élevé n'est **pas** un certificat de qualité artistique.
+
+**Sans ordinateur :** dans GitHub, ouvrir l'onglet **Actions**, sélectionner
+`Offline encoder profile benchmark`, puis **Run workflow**. Après
+exécution, télécharger l'artifact `encoder-profile-benchmark` qui contient
+le rapport et les MP4. Les mesures obtenues sur les machines GitHub ne
+représentent pas les performances, la chaleur ou la batterie du Redmi :
+pour mesurer le téléphone, lancer le script localement sous Termux.
+
+Les profils ne changent **jamais automatiquement** les paramètres de rendu
+actuels. Le benchmark permet de prendre une décision après avoir inspecté
+les résultats sur le matériel et les contenus pertinents.
+
 ## Limites importantes
 
 - Le site distant `https://dbrckk.github.io/Moneyprinterturbo_perso/`
