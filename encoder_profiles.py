@@ -56,6 +56,7 @@ class EncoderSelection:
     crf: int
     fallback_reason: str | None
     policy: str = "conservative-pixel-frame-budget-v1"
+    calibration_used: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -65,12 +66,14 @@ class EncoderSelection:
             "crf": self.crf,
             "fallback_reason": self.fallback_reason,
             "policy": self.policy,
+            "calibration_used": self.calibration_used,
         }
 
 
 def resolve_encoder_profile(
     requested: str, *, width: int, height: int,
     fps: int, duration: float, scenes: int,
+    calibration: dict | None = None,
 ) -> EncoderSelection:
     """Select once from an allowlist, before any final encode or repair retry.
 
@@ -101,10 +104,37 @@ def resolve_encoder_profile(
         and duration <= 45 and pixel_frames <= _PREMIUM_PIXEL_FRAMES)
 
     reason = None
+    used_calibration = False
     if requested == "auto":
         # No device calibration is inferred from a synthetic GitHub benchmark.
         # This is a cautious, deterministic resource policy, not hardware AI.
         chosen = "detail" if can_detail and pixel_frames <= 150_000_000 else "balanced"
+        # A short 360p CPU test cannot validate memory/heat or predict 720p
+        # performance. Host-bound evidence can refine *only* 360p auto mode,
+        # while preserving all the original resource limits above.
+        if (isinstance(calibration, dict)
+                and width * height <= 360 * 640
+                and fps <= 24 and duration <= 45 and scenes <= 6
+                and calibration.get("version") == 1):
+            rows = calibration.get("measurements")
+            if (isinstance(rows, list) and len(rows) == 3
+                    and [row.get("name") if isinstance(row, dict) else None
+                         for row in rows] == ["balanced", "detail", "premium"]
+                    and all(type(row.get("encoded_fps")) in (int, float)
+                            and math.isfinite(row["encoded_fps"])
+                            and 0.1 <= row["encoded_fps"] <= 600
+                            for row in rows)):
+                rates = {row["name"]: row["encoded_fps"] for row in rows}
+                # Multiple times real-time is deliberate headroom for
+                # subtitles, color correction and mobile thermal throttling.
+                used_calibration = True
+                chosen = "balanced"
+                if (can_detail and rates["balanced"] >= 4 * fps
+                        and rates["detail"] >= 3 * fps):
+                    chosen = "detail"
+                if (can_premium and rates["balanced"] >= 5 * fps
+                        and rates["premium"] >= 4 * fps):
+                    chosen = "premium"
     elif requested == "premium":
         chosen = "premium" if can_premium else ("detail" if can_detail else "balanced")
     elif requested == "detail":
@@ -118,4 +148,7 @@ def resolve_encoder_profile(
     preset, crf = _PARAMETERS[chosen]
     return EncoderSelection(
         requested=requested, applied=chosen, preset=preset,
-        crf=crf, fallback_reason=reason)
+        crf=crf, fallback_reason=reason,
+        policy=("local-360p-calibration-v1" if used_calibration
+                else "conservative-pixel-frame-budget-v1"),
+        calibration_used=used_calibration)
