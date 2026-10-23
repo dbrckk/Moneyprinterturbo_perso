@@ -109,7 +109,7 @@
       const rates = data.advice.measured_encoded_fps || {};
       const detailRate = typeof rates.detail === 'number' ? rates.detail.toFixed(1) : '?';
       const premiumRate = typeof rates.premium === 'number' ? rates.premium.toFixed(1) : '?';
-      note.textContent = `Conseil pour ${selectedResolution}p/24 ips : ${suggestion}. Mesuré (scène la plus lente) : détails ${detailRate} i/s, premium ${premiumRate} i/s. Résultat indicatif : le test court ne mesure ni batterie ni surchauffe prolongée.`;
+      note.textContent = `Conseil indicatif pour ${selectedResolution}p/24 ips, 15 s et 3 scènes : ${suggestion}. Mesuré (scène la plus lente) : détails ${detailRate} i/s, premium ${premiumRate} i/s. Les montages plus longs peuvent être automatiquement limités. Le test court ne mesure ni batterie ni surchauffe prolongée.`;
       apply.hidden = !profileLabel[data.suggested_profile];
     } else if (data.status === 'error') {
       note.textContent = `Calibration non terminée : ${data.error || 'erreur locale'}. Le profil Standard reste disponible.`;
