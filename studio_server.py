@@ -890,7 +890,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--piper-model", type=Path, help="Modèle Piper local ONNX (optionnel)")
     parser.add_argument("--ollama-model", default="", help="Modèle Ollama local pour écrire les scénarios")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "outputs" / "web")
+    parser.add_argument("--doctor", action="store_true",
+                        help="Vérifier FFmpeg, H.264/AAC, la voix française et le stockage, sans lancer le serveur")
+    parser.add_argument("--doctor-json", action="store_true",
+                        help="Effectuer le même diagnostic et produire un JSON sans données privées")
     args = parser.parse_args(argv)
+    if args.doctor or args.doctor_json:
+        from studio_doctor import diagnose, print_report
+        report = diagnose(args.output_dir)
+        print_report(report, json_output=args.doctor_json)
+        return 0 if report["ok"] else 1
     if args.host not in ("127.0.0.1", "localhost", "::1") and len(args.token) < 16:
         parser.error("Pour une écoute réseau, fournir --token (au moins 16 caractères aléatoires)")
     if args.media_dir and not args.media_dir.is_dir():
