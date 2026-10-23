@@ -62,6 +62,53 @@ class DoctorTests(unittest.TestCase):
             self.assertIn("storage_space", [c["name"] for c in report["checks"]
                           if c["status"] == "warning"])
 
+    def test_full_diagnostic_failure_reports_safe_error_and_preserves_originals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "private-outputs"
+            folder.mkdir()
+            existing = folder / "original-private-clip.mp4"
+            existing.write_bytes(b"do-not-open-private-media")
+            with patch.object(studio_doctor, "_verify_full_render",
+                              side_effect=RuntimeError(str(existing))), \
+                 redirect_stdout(io.StringIO()) as stdout:
+                exit_code = studio_server.main([
+                    "--doctor-full-json", "--output-dir", str(folder)])
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(report["ok"])
+            self.assertIn("full_render", [item["name"] for item in report["checks"]
+                          if item["status"] == "error"])
+            self.assertNotIn(tmp, stdout.getvalue())
+            self.assertEqual([item.name for item in folder.iterdir()], [existing.name])
+            self.assertEqual(existing.read_bytes(), b"do-not-open-private-media")
+
+    def test_fast_doctor_does_not_launch_optional_full_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(studio_doctor, "_verify_full_render") as full:
+                report = studio_doctor.diagnose(Path(tmp))
+            self.assertNotIn("full_render", [c["name"] for c in report["checks"]])
+            full.assert_not_called()
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("ffmpeg", "ffprobe", "espeak")),
+                         "Local tools required")
+    def test_real_full_doctor_two_scene_video_audio_subtitles_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "private-outputs"
+            folder.mkdir()
+            original = folder / "private-recording.mp4"
+            original.write_bytes(b"existing private media stays untouched")
+            with redirect_stdout(io.StringIO()) as stdout:
+                result = studio_server.main([
+                    "--doctor-full-json", "--output-dir", str(folder)])
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(result, 0, report)
+            self.assertTrue(report["ok"])
+            self.assertIn("full_render", [c["name"] for c in report["checks"]
+                          if c["status"] == "ok"])
+            self.assertEqual([x.name for x in folder.iterdir()], [original.name])
+            self.assertEqual(original.read_bytes(), b"existing private media stays untouched")
+            self.assertNotIn(tmp, stdout.getvalue())
+
     @unittest.skipUnless(all(shutil.which(t) for t in ("ffmpeg", "ffprobe", "espeak")),
                          "FFmpeg/ffprobe/eSpeak required")
     def test_actual_offline_encoding_and_voice_leave_no_media_or_tempfiles(self):

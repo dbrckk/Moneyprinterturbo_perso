@@ -34,6 +34,24 @@ répertoire temporaire, puis les supprime. Si moins de 1 Gio est libre,
 un avertissement invite à libérer du stockage. Le diagnostic ne garantit
 pas à lui seul un rendu long ou la résistance aux interruptions Android.
 Pour un résultat automatisable : `python studio_server.py --doctor-json`.
+
+**Test complet avant utilisation (recommandé) :**
+
+```sh
+python studio_server.py --doctor-full
+```
+
+Cette commande exécute tous les contrôles précédents **puis réalise un vrai
+montage vertical à deux scènes** à partir d'une photo et d'une vidéo
+synthétiques. Elle vérifie le rendu H.264/AAC, la voix française, la présence
+de sous-titres SRT et les images/codes du MP4 final. Les originaux personnels
+ne sont **jamais lus ni modifiés** : toutes les sources et sorties de test
+sont générées dans un répertoire temporaire puis automatiquement effacées.
+Cette vérification est gratuite et hors ligne, mais peut demander plus de temps
+et d'énergie qu'un simple diagnostic sur téléphone. Pour le rapport JSON :
+`python studio_server.py --doctor-full-json`. Un succès confirme seulement
+la chaîne de rendu synthétique sur l'appareil, pas la fiabilité de tout format
+importé ni la résistance aux interruptions Android en arrière-plan.
 Si des dépendances manquent, installer ou réparer les paquets avec :
 `pkg install -y python ffmpeg espeak`. Aucun PC n'est nécessaire.
 
