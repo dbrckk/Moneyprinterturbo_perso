@@ -618,3 +618,15 @@ les résultats sur le matériel et les contenus pertinents.
   l'accès réseau et sans le jeton obligatoire du serveur.
 - Le logiciel ne vérifie pas la propriété ou les droits à l'image :
   importer seulement des médias que l'on a le droit d'utiliser.
+
+## Limitation mémoire des exports 1080p
+
+L'encodage H.264 des vidéos verticales Full HD utilise désormais **2 threads
+libx264** au maximum, afin de limiter la mémoire réservée par le codec et de
+réduire le risque de fermeture Android pendant les projets exigeants. Ce
+choix s'applique également au rendu classique et aux tentatives de
+réparation d'une transition. Les exports 360p et 720p restent inchangés.
+L'export reste sur le téléphone, sans modèle distant. Une mesure sur Linux
+a observé une baisse de mémoire pour un court échantillon synthétique ; la
+consommation réelle sur Redmi dépend de la durée, des médias, des sous-titres,
+de la température et des autres applications ouvertes.
