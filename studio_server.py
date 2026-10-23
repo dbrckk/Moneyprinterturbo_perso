@@ -576,6 +576,8 @@ class Jobs:
         if not isinstance(size, int) or size <= 0 or size > limit:
             raise ValueError("Taille de média invalide ou supérieure à la limite")
         with self.media_lock:
+            if self.calibration is not None and self.calibration.is_running():
+                raise ValueError("Calibration H.264 active : import suspendu pour protéger le téléphone")
             directory = self.upload_root / ident
             if not directory.is_dir() or (directory / ".sealed").exists():
                 raise ValueError("Lot absent ou déjà utilisé pour un rendu")
