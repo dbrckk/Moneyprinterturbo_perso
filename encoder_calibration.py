@@ -33,13 +33,20 @@ MAX_MANIFEST_BYTES = 8192
 
 def _host_binding() -> str:
     """Non-reversible host-environment label, not a device serial/IMEI."""
-    scope = "|".join((platform.system(), platform.machine(), platform.release()))
+    scope = "|".join((platform.system(), platform.machine(),
+                      platform.release(), platform.node()))
     return hashlib.sha256(("mpt-encoder-calibration-v1|" + scope).encode()).hexdigest()
 
 
 def _valid_fps(value: object) -> bool:
     return (type(value) in (float, int) and math.isfinite(value)
             and 0.1 <= value <= 600.0)
+
+
+def _valid_wall_seconds(value: object) -> bool:
+    # Fast hosts can finish 24 frames in less than one tenth of a second.
+    return (type(value) in (float, int) and math.isfinite(value)
+            and 0.001 <= value <= MAX_ENCODER_TIMEOUT)
 
 
 def read_calibration(path: Path | None, *, now: float | None = None) -> dict | None:
@@ -72,7 +79,7 @@ def read_calibration(path: Path | None, *, now: float | None = None) -> dict | N
             if (not isinstance(item, dict) or item.get("name") != name
                     or item.get("preset") != preset or item.get("crf") != crf
                     or not _valid_fps(item.get("encoded_fps"))
-                    or not _valid_fps(item.get("wall_seconds"))
+                    or not _valid_wall_seconds(item.get("wall_seconds"))
                     or abs(item["encoded_fps"] - SAMPLE_FRAMES / item["wall_seconds"])
                     > max(0.25, 0.05 * item["encoded_fps"])):
                 return None
