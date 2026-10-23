@@ -103,6 +103,20 @@ numérotés aux clips et éviter des dates de capture contradictoires (le
 tri temporel vérifié prévaut si toutes les dates sont disponibles).
 
 Les fichiers importés vivent dans `outputs/web/_uploaded_media/`.
+Chaque import appartient à un lot distinct. Le transfert des gros fichiers
+fonctionne maintenant sans monopoliser le verrou du stockage : l'historique,
+l'espace disponible et les autres lots restent consultables pendant l'envoi.
+Le moteur réserve dès le début la taille déclarée de chaque fichier, même
+si seulement une partie des octets est arrivée ; deux imports concurrents
+ne peuvent donc pas dépasser ensemble la limite totale de **800 Mo**.
+Un même lot ne peut recevoir qu'un fichier à la fois ; supprimer ce lot ou
+l'utiliser pour un rendu est interdit tant qu'un upload est en cours. En
+cas de transfert incomplet ou de déconnexion, le fichier temporaire est
+effacé et sa réservation est libérée. Le serveur ferme les connexions POST
+après réponse pour éviter de réinterpréter les octets non lus d'une requête.
+Chaque lecture d'un morceau de fichier doit progresser en moins de **90 s**,
+faute de quoi l'import est considéré comme interrompu.
+
 Chaque import appartient à un lot distinct. Un lot est figé dès qu'un
 rendu l'utilise. **Un nouvel import ne supprime jamais automatiquement un
 ancien lot figé** : il peut servir à relancer un montage. Un brouillon non

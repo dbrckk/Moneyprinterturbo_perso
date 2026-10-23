@@ -111,6 +111,10 @@ class Jobs:
         self.jobs: dict[str, dict] = {}
         self.lock = threading.RLock()
         self.media_lock = threading.RLock()
+        # Protect reservations only for brief bookkeeping. Never hold the
+        # media lock while a phone streams hundreds of megabytes or ffprobe
+        # examines the file: status, history and other imports must respond.
+        self._uploads_in_progress: dict[str, tuple[int, Path]] = {}
         self.upload_root = self.output_dir / "_uploaded_media"
         self.processes: dict[str, subprocess.Popen] = {}
         self.running = False
@@ -234,6 +238,8 @@ class Jobs:
         with self.media_lock, self.lock:
             if job["visuals"] == "local":
                 if job["media_batch"]:
+                    if job["media_batch"] in self._uploads_in_progress:
+                        raise ValueError("Import en cours : terminez l'envoi avant le rendu")
                     directory = self.upload_root / job["media_batch"]
                     if not directory.is_dir() or not self._batch_files(directory):
                         raise ValueError("Importez au moins un média valide avant le rendu")
@@ -285,7 +291,7 @@ class Jobs:
             return
         cutoff = time.time() - STALE_EMPTY_BATCH_SECONDS
         for folder in self.upload_root.iterdir():
-            if not self._safe_batch_directory(folder):
+            if not self._safe_batch_directory(folder) or folder.name in self._uploads_in_progress:
                 continue
             # A failed, interrupted HTTP transfer can leave a hidden temp file.
             # Its age is checked independently of the enclosing batch.
@@ -390,7 +396,9 @@ class Jobs:
                 size = sum(p.stat().st_size for p in regular)
                 count = len(self._batch_files(folder))
                 sealed = (folder / ".sealed").is_file()
-                ready = sealed and folder.name in completed and folder.name not in active
+                uploading = folder.name in self._uploads_in_progress
+                ready = (sealed and folder.name in completed and
+                         folder.name not in active and not uploading)
                 job_refs = references.get(folder.name, [])
                 statuses = [status for status, _ in job_refs]
                 last_activity = max([self._last_batch_change(folder)] +
@@ -398,8 +406,8 @@ class Jobs:
                 # Never remove active, completed or unclassified sealed media.
                 # A failed batch must have a recorded, *only* terminal failure.
                 abandoned_reason = None
-                if (not ready and folder.name not in active and count
-                        and last_activity < cutoff):
+                if (not ready and folder.name not in active and not uploading
+                        and count and last_activity < cutoff):
                     if not sealed and not statuses:
                         abandoned_reason = "draft"
                     elif (sealed and statuses and
@@ -407,6 +415,7 @@ class Jobs:
                         abandoned_reason = "failed"
                 batches.append({"id": folder.name, "bytes": size, "files": count,
                                 "reclaimable": ready, "in_use": folder.name in active,
+                                "uploading": uploading,
                                 "abandoned": bool(abandoned_reason),
                                 "abandoned_reason": abandoned_reason})
                 total += size
@@ -492,6 +501,22 @@ class Jobs:
                 {"name": p.name, "bytes": p.stat().st_size} for p in files],
                 "ordering": ordering, "sealed": (folder / ".sealed").exists()}
 
+    def _reserved_unwritten_media_bytes_locked(self) -> int:
+        """Count declared, not-yet-written upload bytes towards total capacity.
+
+        Actual bytes, including orphan .receiving files, are accounted for
+        by the normal disk scan. Only the remaining declared bytes need to be
+        added; counting the full reservation would double-count partials.
+        """
+        reserved = 0
+        for size, partial in self._uploads_in_progress.values():
+            try:
+                already_written = partial.stat().st_size
+            except OSError:
+                already_written = 0
+            reserved += max(0, size - already_written)
+        return reserved
+
     def save_media(self, ident: str, encoded_name: str, size: int, stream) -> dict:
         if not re.fullmatch(r"[a-f0-9]{32}", ident):
             raise ValueError("Lot de médias inconnu")
@@ -513,41 +538,56 @@ class Jobs:
             directory = self.upload_root / ident
             if not directory.is_dir() or (directory / ".sealed").exists():
                 raise ValueError("Lot absent ou déjà utilisé pour un rendu")
+            if ident in self._uploads_in_progress:
+                raise ValueError("Import déjà en cours sur ce lot")
             files = self._batch_files(directory)
             if len(files) >= MAX_MEDIA_FILES:
                 raise ValueError("Maximum 24 médias par projet")
-            # Include interrupted hidden .receiving-* files in the real
-            # capacity budget: ignoring them could exhaust Android storage.
+            # Reserve the full *declared* size of all concurrent uploads,
+            # while counting written partial files only once. Include orphan
+            # .receiving files from interrupted Android processes as before.
             used = sum(p.stat().st_size for batch in self.upload_root.iterdir()
                        if self._safe_batch_directory(batch)
                        for p in batch.iterdir() if p.is_file() and not p.is_symlink())
-            if used + size > MAX_MEDIA_STORAGE:
+            if used + self._reserved_unwritten_media_bytes_locked() + size > MAX_MEDIA_STORAGE:
                 raise ValueError("Stockage média local plein (800 Mo maximum)")
             target = directory / f"{len(files) + 1:03d}_{name}"
-            temporary = None
-            try:
-                with tempfile.NamedTemporaryFile(dir=directory, prefix=".receiving-",
-                                                 suffix=suffix, delete=False) as output:
-                    temporary = Path(output.name)
-                    remaining = size
-                    while remaining:
-                        chunk = stream.read(min(256 * 1024, remaining))
-                        if not chunk:
-                            raise ValueError("Transfert incomplet : réessayez le fichier")
-                        output.write(chunk)
-                        remaining -= len(chunk)
-                if not media_dimensions(temporary):
-                    raise ValueError("Média illisible par FFprobe : import refusé")
+            # A unique upload per batch prevents duplicate numeric names and
+            # stale response races; different batches may transfer concurrently.
+            output = tempfile.NamedTemporaryFile(
+                dir=directory, prefix=".receiving-", suffix=suffix, delete=False)
+            temporary = Path(output.name)
+            self._uploads_in_progress[ident] = (size, temporary)
+        try:
+            # The slow section deliberately runs WITHOUT media_lock.
+            with output:
+                remaining = size
+                while remaining:
+                    chunk = stream.read(min(256 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("Transfert incomplet : réessayez le fichier")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+            if not media_dimensions(temporary):
+                raise ValueError("Média illisible par FFprobe : import refusé")
+            with self.media_lock:
+                # Submit/delete cannot race an active reservation, and no
+                # client can overwrite committed originals during validation.
+                if not directory.is_dir() or (directory / ".sealed").exists():
+                    raise ValueError("Lot supprimé ou déjà utilisé")
                 os.replace(temporary, target)
                 return {"name": target.name, "bytes": size, "count": len(files) + 1}
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
+        finally:
+            with self.media_lock:
+                self._uploads_in_progress.pop(ident, None)
+                temporary.unlink(missing_ok=True)
 
     def delete_media_batch(self, ident: str) -> bool:
         if not re.fullmatch(r"[a-f0-9]{32}", ident):
             return False
         with self.media_lock:
+            if ident in self._uploads_in_progress:
+                raise ValueError("Import en cours : suppression impossible")
             directory = self.upload_root / ident
             if not directory.is_dir():
                 return False
@@ -800,6 +840,10 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self) -> None:
+        # Several endpoints intentionally do not consume a request body
+        # (cancel/delete). Closing after POST prevents leftover JSON bytes
+        # from being interpreted as a new HTTP/1.1 request on keep-alive.
+        self.close_connection = True
         if not self.require_auth():
             return
         path = urlsplit(self.path).path
@@ -809,6 +853,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             return self.json_response(200, cancelled) if cancelled else self.json_response(404, {"error": "Projet introuvable"})
         upload = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})/files", path)
         if upload:
+            # An abandoned phone connection cannot monopolize a reservation
+            # indefinitely; apply a generous inactivity timeout per socket.
+            self.connection.settimeout(90)
             # A failed upload must never leave unread body bytes on a persistent
             # connection, where they could be mistaken for the next request.
             self.close_connection = True
