@@ -580,6 +580,32 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   jamais considéré comme un échec sûr à effacer. La période de sept jours
   est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
+## Calibration H.264 locale sur Android (facultative)
+
+Le benchmark synthétique existant peut maintenant produire un **avis
+conservateur** sur le profil final adapté au téléphone, sans modifier
+automatiquement les réglages. Dans Termux, avec FFmpeg installé :
+
+```bash
+python encoder_profile_benchmark.py --resolution 360 --fps 12 --seconds 3
+python encoder_local_advice.py --width 360 --height 640 --fps 12 --duration 15 --scenes 3
+```
+
+Le second programme lit `outputs/encoder-benchmark/metrics.json`,
+compare les cadences d'encodage **mesurées sur cet appareil** et propose
+`balanced`, `detail` ou `premium`. Il exige une marge de vitesse
+d'au moins deux fois la cadence demandée et ne recommande jamais un
+profil interdit par les limites de charge de production. Il refuse
+d'extrapoler un benchmark 360p vers un export 720p, ou 12 i/s vers 24 i/s.
+
+Le champ `applies_automatically: false` est intentionnel : pour
+appliquer le profil recommandé, le sélectionner dans le studio ou
+passer `--encoder-profile <profil>`. Une mesure sur GitHub Actions
+**ne calibre pas** un téléphone Android. Un test de 2 à 4 secondes
+ne mesure pas l'échauffement prolongé, la batterie, la mémoire vive
+ni la qualité visuelle subjective. Si le téléphone chauffe ou ralentit,
+revenir au mode `balanced`.
+
 ## Benchmark local qualité/performance de l'encodage H.264
 
 Pour comparer plusieurs réglages FFmpeg **sans modifier les exports existants** :
