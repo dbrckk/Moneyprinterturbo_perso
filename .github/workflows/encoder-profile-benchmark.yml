@@ -57,12 +57,12 @@ jobs:
         env:
           RESOLUTION: ${{ inputs.resolution }}
           FPS: ${{ inputs.fps }}
-          SECONDS: ${{ inputs.seconds }}
+          BENCHMARK_SECONDS: ${{ inputs.seconds }}
         run: |
           set -euo pipefail
           python encoder_profile_benchmark.py \
             --output outputs/encoder-benchmark \
-            --resolution "$RESOLUTION" --fps "$FPS" --seconds "$SECONDS"
+            --resolution "$RESOLUTION" --fps "$FPS" --seconds "$BENCHMARK_SECONDS"
       - name: Validate factual report and previews
         run: |
           set -euo pipefail
