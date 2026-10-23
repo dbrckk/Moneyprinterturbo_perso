@@ -97,3 +97,31 @@ and extreme-wide), each rendered through the direct and legacy paths,
 with FFprobe frame-count checks, decoded late-scene pixel comparisons,
 source-byte integrity and matching camera positions. This establishes the
 presence of continued movement, not a subjective claim of artistic quality.
+
+## Encodage H.264 1080p : nombre de threads borné (23 octobre 2026)
+
+Les rendus Full HD 1080 × 1920 limitent désormais le **codeur** libx264 à
+**2 threads** au moment de l'encodage, quel que soit le chemin de montage
+(scenes normalisées, fond avec fondus, encodage final et seconde tentative de
+réparation). Le calcul des filtres, la fréquence d'images, les sous-titres,
+les presets et le CRF restent inchangés. Les sorties 360p et 720p conservent
+le choix de threads précédent. La politique évite d'augmenter sans limite
+les tampons internes de x264 sur un smartphone ; elle ne garantit pas une
+limite globale de RSS à toute la chaîne FFmpeg.
+
+Sur un échantillon synthétique `testsrc2` de 96 images à 1080 × 1920,
+24 images/s, libx264 veryfast CRF 23 (Linux, 23 octobre 2026), une seule
+mesure de chaque option a fourni :
+
+| x264 | Pic RSS FFmpeg | Durée d'encodage | SSIM vs auto |
+|---|---:|---:|---:|
+| Threads automatiques | 438 012 KiB | 1,62 s | référence |
+| 2 threads | 329 848 KiB | 1,12 s | 0,995334 |
+| 4 threads | 375 736 KiB | 1,04 s | 0,995336 |
+
+Soit **24,7 % de RSS en moins** dans cette mesure pour 2 threads versus
+threads automatiques. Le choix privilégie la mémoire plutôt que la vitesse
+maximale. Ce n'est pas un benchmark sur Android et ces gains ne doivent pas
+être généralisés à toutes les sources, tous les filtres, ni toutes les
+configurations matérielles. Les tests automatisés vérifient la politique
+de préparation des commandes et la validité des fichiers réels.

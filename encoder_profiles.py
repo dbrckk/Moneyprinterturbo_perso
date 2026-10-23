@@ -22,10 +22,30 @@ _DETAIL_PIXEL_FRAMES = 500_000_000
 _PREMIUM_PIXEL_FRAMES = 130_000_000
 
 
+
 def valid_ffmpeg_settings(preset: object, crf: object) -> bool:
     """Allow only settings tested by our bounded encoder comparison."""
     return (type(preset) is str and type(crf) is int
             and (preset, crf) in frozenset(_PARAMETERS.values()))
+
+
+def mobile_h264_threads(command: list[str], *, width: int, height: int) -> list[str]:
+    """Bound 1080p x264 worker memory without changing CRF/preset or sources.
+
+    Insert the *output* codec thread cap directly before the destination, not
+    before input paths. 720p and below retain original FFmpeg decisions.
+    """
+    if (type(width) is not int or type(height) is not int or
+            width <= 0 or height <= 0):
+        raise ValueError("Invalid encoder dimensions")
+    if (width * height < 1080 * 1920 or
+            not command or not isinstance(command[-1], str) or
+            not any(command[i:i + 2] == ["-c:v", "libx264"]
+                    for i in range(len(command) - 1))):
+        return list(command)
+    if "-threads:v" in command:
+        return list(command)
+    return [*command[:-1], "-threads:v", "2", command[-1]]
 
 
 @dataclass(frozen=True)
