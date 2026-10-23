@@ -25,6 +25,47 @@ class EncoderPolicyTests(unittest.TestCase):
         data.update(overrides)
         return ep.resolve_encoder_profile(name, **data)
 
+    def test_1080p_encoder_threads_are_bounded_without_changing_other_flags(self):
+        original = ["ffmpeg", "-i", "source.mp4", "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "23", "-movflags",
+                    "+faststart", "result.mp4"]
+        for w, h in ((1080, 1920), (1920, 1080)):
+            result = ep.mobile_h264_threads(original, width=w, height=h)
+            self.assertEqual(result[-3:], ["-threads:v", "2", "result.mp4"])
+            self.assertEqual(result[:-3], original[:-1])
+            self.assertEqual(original[-1], "result.mp4")
+            self.assertEqual(result, ep.mobile_h264_threads(result, width=w, height=h))
+        for w, h in ((720, 1280), (360, 640)):
+            self.assertEqual(ep.mobile_h264_threads(original, width=w, height=h), original)
+        self.assertEqual(ep.mobile_h264_threads(
+            ["ffmpeg", "-i", "video.mp4", "-c:v", "copy", "result.mp4"],
+            width=1080, height=1920),
+            ["ffmpeg", "-i", "video.mp4", "-c:v", "copy", "result.mp4"])
+        for dims in ((True, 1920), (0, 1920), (1080, "1920")):
+            with self.subTest(dims=dims), self.assertRaises(ValueError):
+                ep.mobile_h264_threads(original, width=dims[0], height=dims[1])
+
+    def test_all_1080p_final_builders_accept_single_shared_thread_policy(self):
+        args = dict(width=1080, height=1920, fps=12,
+                    transition="fade", visual_filters=["format=yuv420p"],
+                    audio=None, output=Path("result.mp4"), total=5.)
+        a = fast_abstract.build_onepass_abstract_command([2.5, 2.5], **args)
+        m = fast_media.build_onepass_media_command(
+            [type("Picture", (), {"kind": "image", "file": Path("p.jpg")})(), None],
+            [2.5, 2.5], **args)
+        plan = transition_plan([2.5, 2.5], fps=12, transition="fade")
+        x = final_xfade_command(
+            [Path("a.mp4"), Path("b.mp4")], plan, fps=12,
+            transition="fade", overlays=["format=yuv420p"], duration=5.,
+            output=Path("result.mp4"))
+        for name, command in (("abstract", a), ("media", m), ("xfade", x)):
+            with self.subTest(name=name):
+                prepared = ep.mobile_h264_threads(command, width=1080, height=1920)
+                self.assertEqual(prepared[-3:-1], ["-threads:v", "2"])
+                self.assertEqual(prepared[-1], "result.mp4")
+                self.assertEqual(prepared[prepared.index("-crf")+1], "23")
+                self.assertEqual(prepared[prepared.index("-preset")+1], "veryfast")
+
     def test_old_export_is_bit_identical_in_encoder_configuration(self):
         base = self.choice()
         self.assertEqual((base.requested, base.applied, base.preset, base.crf),

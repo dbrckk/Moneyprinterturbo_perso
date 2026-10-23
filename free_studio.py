@@ -27,7 +27,7 @@ from cinematic import build_filters, gradient_source, transition_plan, xfade_tra
 from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
-from encoder_profiles import ENCODER_PROFILES, resolve_encoder_profile
+from encoder_profiles import ENCODER_PROFILES, resolve_encoder_profile, mobile_h264_threads
 from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
@@ -300,7 +300,7 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     cmd += ["-frames:v", str(frames), "-r", str(fps),
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
             str(target)]
-    execute(cmd, timeout=240)
+    execute(mobile_h264_threads(cmd, width=width, height=height), timeout=240)
     if target.stat().st_size < 1000:
         raise RuntimeError("Media scene output is empty")
     return target
@@ -399,7 +399,7 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
     cmd += ["-filter_complex", ";".join(filters), "-map", previous,
             "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
             "-pix_fmt", "yuv420p", "-frames:v", str(plan.total_frames), str(output)]
-    execute(cmd, timeout=300)
+    execute(mobile_h264_threads(cmd, width=width, height=height), timeout=300)
     if not output.exists() or output.stat().st_size < 1000:
         raise RuntimeError("No valid transition output")
     return output
@@ -590,7 +590,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
         fallback = False
         try:
-            execute(cmd, cwd=work, timeout=360)
+            execute(mobile_h264_threads(cmd, width=width, height=height),
+                    cwd=work, timeout=360)
         except (RuntimeError, OSError, subprocess.SubprocessError):
             if not (direct_abstract or direct_media):
                 raise
@@ -615,7 +616,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             else:
                 cmd += ["-an"]
             cmd += ["-movflags", "+faststart", "-t", f"{total:.3f}", str(staged)]
-            execute(cmd, cwd=work, timeout=360)
+            execute(mobile_h264_threads(cmd, width=width, height=height),
+                    cwd=work, timeout=360)
         metrics["compositing_pipeline"] = ("legacy-media-onepass-fallback" if fallback and direct_media else
                                            "legacy-single-pass-fallback" if fallback else
                                            "direct-abstract-onepass" if direct_abstract else
@@ -684,7 +686,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                     crf=chosen_encoder.crf)
                                 retry_pipeline = "reused-normalized-scenes"
                             metrics["postencode_transition_repair_pipeline"] = retry_pipeline
-                            execute(retry, cwd=work, timeout=210)
+                            execute(mobile_h264_threads(retry, width=width, height=height),
+                                    cwd=work, timeout=210)
                             # In the larger fused path, an unsuccessful fix
                             # should not trigger 4–7 unnecessary FFmpeg
                             # boundary decodes. First inspect only the changed
