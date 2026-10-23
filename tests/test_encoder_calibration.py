@@ -61,6 +61,12 @@ class CalibrationSchemaTests(unittest.TestCase):
                 calibration_file.write_text(json.dumps(document), encoding="utf-8")
                 with self.subTest(mutated=mutated):
                     self.assertIsNone(calibration.read_calibration(calibration_file))
+            # Very quick valid encodes must not be mislabeled corrupt due
+            # to elapsed time below 0.1 second.
+            calibration_file.write_text(json.dumps(fake_evidence(
+                rates=valid_measurements(balanced=300, detail=280, premium=220))),
+                encoding="utf-8")
+            self.assertIsNotNone(calibration.read_calibration(calibration_file))
             calibration_file.write_text("bad JSON", encoding="utf-8")
             self.assertIsNone(calibration.read_calibration(calibration_file))
             calibration_file.write_text(json.dumps(fake_evidence()), encoding="utf-8")
