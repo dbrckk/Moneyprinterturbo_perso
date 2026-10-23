@@ -30,6 +30,7 @@ from media_assets import (IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, VIDEO_EXTENSIONS,
 from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
+from encoder_profiles import ENCODER_PROFILES
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -71,6 +72,9 @@ def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
     resolution = value.get("resolution", 360)
     if type(resolution) is not int or resolution not in (360, 720, 1080):
         raise ValueError("Résolution invalide")
+    encoder_profile = value.get("encoder_profile", "balanced")
+    if type(encoder_profile) is not str or encoder_profile not in ENCODER_PROFILES:
+        raise ValueError("Profil vidéo H.264 non pris en charge")
     visuals = value.get("visuals", "abstract")
     if visuals not in ("abstract", "commons", "local"):
         raise ValueError("Source des visuels invalide")
@@ -97,7 +101,8 @@ def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
     if media_batch and visuals != "local":
         raise ValueError("Le lot de médias nécessite le mode local")
     return {"media_batch": media_batch, "topic": topic.strip(), "lang": lang, "script": script.strip(), "sentences": sentences,
-            "aspect": aspect, "resolution": resolution, "visuals": visuals, "speech_rate": speech_rate,
+            "aspect": aspect, "resolution": resolution, "encoder_profile": encoder_profile,
+            "visuals": visuals, "speech_rate": speech_rate,
             "mute": mute, "tts": tts, "scene_queries": queries}
 
 
@@ -603,7 +608,9 @@ class Jobs:
         args = [self.python_executable, str(ROOT / "free_studio.py"), "--topic", p["topic"],
                 "--script-file", str(dest / "script.txt"), "--lang", p["lang"],
                 "--aspect", p["aspect"], "--resolution", str(p["resolution"]),
-                "--speech-rate", str(p["speech_rate"]), "--output", str(dest / "video.mp4")]
+                "--speech-rate", str(p["speech_rate"]),
+                "--encoder-profile", p.get("encoder_profile", "balanced"),
+                "--output", str(dest / "video.mp4")]
         if p["mute"]:
             args.append("--mute")
         if p["tts"] == "piper" and not p["mute"]:
