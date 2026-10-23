@@ -75,7 +75,7 @@ def diagnose(output_dir: Path) -> dict:
                         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
                         "-c:a", "aac", "-b:a", "96k", "-shortest", str(sample),
                     ], capture_output=True, timeout=35, check=True)
-                    if sample.stat().st_size < 1000:
+                    if not sample.is_file() or sample.stat().st_size < 1000:
                         raise ValueError("Empty output")
                 except (OSError, subprocess.SubprocessError, ValueError):
                     add("h264_aac_encode", "error", "Échec d'encodage MP4 H.264/AAC avec FFmpeg.")
@@ -102,7 +102,7 @@ def diagnose(output_dir: Path) -> dict:
                         tools["espeak"], "-v", "fr", "-s", "145", "-w", str(voice),
                         "Vérification du moteur vocal français.",
                     ], capture_output=True, timeout=20, check=True)
-                    if voice.stat().st_size < 1000:
+                    if not voice.is_file() or voice.stat().st_size < 1000:
                         raise ValueError("Empty voice")
                 except (OSError, subprocess.SubprocessError, ValueError):
                     add("french_voice", "error", "Impossible de produire une voix française avec eSpeak.")
