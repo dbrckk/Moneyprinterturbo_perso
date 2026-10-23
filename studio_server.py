@@ -31,6 +31,7 @@ from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 from encoder_profiles import ENCODER_PROFILES
+from encoder_calibration import calibrate, status_for
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
@@ -149,8 +150,56 @@ class Jobs:
         self.upload_root = self.output_dir / "_uploaded_media"
         self.processes: dict[str, subprocess.Popen] = {}
         self.running = False
+        self._calibration_running = False
+        self._calibration_error: str | None = None
+        self.encoder_calibration_file = self.output_dir / ".encoder_calibration.json"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._restore_jobs()
+
+    def encoder_calibration_status(self) -> dict[str, object]:
+        """Short, non-identifying status for Android Web UI polling."""
+        with self.lock:
+            active, error = self._calibration_running, self._calibration_error
+        snapshot = status_for(self.encoder_calibration_file)
+        snapshot["state"] = ("running" if active else "error" if error
+                             else "ready" if snapshot["available"] else "idle")
+        if error:
+            snapshot["error"] = error
+        return snapshot
+
+    def start_encoder_calibration(self) -> dict[str, object]:
+        """User-triggered only: no overlapping encoder load and queued renders."""
+        with self.lock:
+            if self._calibration_running:
+                raise RuntimeError("Étalonnage déjà en cours")
+            if self.running or any(
+                job["status"] in ("queued", "running") for job in self.jobs.values()
+            ):
+                raise RuntimeError("Un montage est en cours : terminez-le avant l'étalonnage")
+            self._calibration_running = True
+            self._calibration_error = None
+            try:
+                threading.Thread(
+                    target=self._calibration_worker, daemon=True,
+                    name="mpt-encoder-calibration").start()
+            except Exception:
+                self._calibration_running = False
+                raise
+        return self.encoder_calibration_status()
+
+    def _calibration_worker(self) -> None:
+        try:
+            calibrate(self.encoder_calibration_file)
+            with self.lock:
+                self._calibration_error = None
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            # Do not expose paths, command strings or FFmpeg diagnostics via HTTP.
+            with self.lock:
+                self._calibration_error = (
+                    "L'étalonnage a échoué. Le profil standard reste disponible.")
+        finally:
+            with self.lock:
+                self._calibration_running = False
 
     def _checkpoint(self, job: dict) -> None:
         """Persist *status only*; never duplicate narration, prompts or tokens.
@@ -267,6 +316,8 @@ class Jobs:
         # Lock order always media_lock -> lock (same as delete_media_batch).
         # Validate all options and capacity BEFORE sealing an uploaded batch.
         with self.media_lock, self.lock:
+            if self._calibration_running:
+                raise ValueError("Étalonnage en cours : attendez la fin avant de lancer un rendu")
             if job["visuals"] == "local":
                 if job["media_batch"]:
                     if job["media_batch"] in self._uploads_in_progress:
@@ -676,6 +727,7 @@ class Jobs:
                 "--aspect", p["aspect"], "--resolution", str(p["resolution"]),
                 "--speech-rate", str(p["speech_rate"]),
                 "--encoder-profile", p.get("encoder_profile", "balanced"),
+                "--encoder-calibration", str(self.encoder_calibration_file),
                 "--output", str(dest / "video.mp4")]
         if p["mute"]:
             args.append("--mute")
@@ -888,6 +940,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                                                 "has_ollama": bool(self.server.ollama_model), "default_resolution": 360})
             if path == "/api/jobs":
                 return self.json_response(200, {"jobs": self.server.jobs.list_jobs()})
+            if path == "/api/encoder/calibration":
+                return self.json_response(200, self.server.jobs.encoder_calibration_status())
             if path == "/api/media/storage":
                 return self.json_response(200, self.server.jobs.media_storage())
             media = re.fullmatch(r"/api/media/batches/([a-f0-9]{32})", path)
@@ -956,10 +1010,18 @@ class StudioHandler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 return self.json_response(409, {"error": str(exc)[:250]})
         if path not in ("/api/draft", "/api/jobs", "/api/media/batches",
-                        "/api/media/cleanup", "/api/media/cleanup-abandoned"):
+                        "/api/media/cleanup", "/api/media/cleanup-abandoned",
+                        "/api/encoder/calibration"):
             return self.json_response(404, {"error": "Introuvable"})
         try:
             payload = self.read_json()
+            if path == "/api/encoder/calibration":
+                if payload != {}:
+                    raise ValueError("L'étalonnage ne prend aucun paramètre externe")
+                try:
+                    return self.json_response(202, self.server.jobs.start_encoder_calibration())
+                except RuntimeError as exc:
+                    return self.json_response(409, {"error": str(exc)[:250]})
             if path == "/api/media/cleanup-abandoned":
                 if (not isinstance(payload, dict) or
                         set(payload) - {"protect_batch"}):
