@@ -28,7 +28,6 @@ on:
         options:
           - "2"
           - "3"
-          - "4"
 
 permissions:
   contents: read
