@@ -76,6 +76,10 @@ def advise(report: dict, *, width: int, height: int,
         throughput[key] = _finite_positive(entry.get("mean_encoded_fps"))
 
     # Each scenario must include actual measurements of the same codec.
+    # A mean FPS can hide the worst (fine-detail) clip: decide from the
+    # slowest actually measured scenario instead.
+    scenario_fps: dict[str, list[float]] = {k: [] for k in _PAIRS}
+    scenario_by_benchmark = {v[0]: k for k, v in _PAIRS.items()}
     for case in cases:
         entries = case.get("encodes")
         if type(entries) is not list or len(entries) != 4:
@@ -92,10 +96,18 @@ def advise(report: dict, *, width: int, height: int,
             if item.get("preset") != p.get("preset") or item.get("crf") != p.get("crf"):
                 raise ValueError("Inconsistent scenario encoder flags")
             _finite_positive(item.get("encode_wall_seconds"))
-            _finite_positive(item.get("encoded_fps"))
+            measured_fps = _finite_positive(item.get("encoded_fps"))
             _finite_positive(item.get("encoded_size_bytes"))
+            if name in scenario_by_benchmark:
+                scenario_fps[scenario_by_benchmark[name]].append(measured_fps)
         if len(seen) != 4:
             raise ValueError("Incomplete scenario profile coverage")
+
+    for key, samples in scenario_fps.items():
+        if len(samples) != len(SCENARIOS):
+            raise ValueError("Missing measured scenario FPS")
+        # The benchmark's display-only mean is not a safety limit.
+        throughput[key] = min(samples)
 
     baseline = resolve_encoder_profile(
         "balanced", width=width, height=height, fps=fps,
@@ -110,7 +122,7 @@ def advise(report: dict, *, width: int, height: int,
     # Never extrapolate an undersized synthetic clip to higher resolution/FPS.
     same_scale = width * height <= resolution * round(resolution * 16 / 9)
     same_rate = fps <= rate
-    # 2x+ throughput headroom and at least 1.5x the baseline's throughput.
+    # 2x+ throughput headroom and a minimum 67% of baseline FPS.
     # This is advice, not an automatic policy change.
     enough = lambda key: (throughput[key] >= fps * 2.0 and
                           throughput[key] >= throughput["balanced"] * 0.67)
@@ -130,6 +142,7 @@ def advise(report: dict, *, width: int, height: int,
         "benchmark": {"resolution": resolution, "fps": rate,
                       "seconds": seconds, "machine": str(report.get("machine", "unknown"))[:80]},
         "measured_encoded_fps": {k: round(v, 2) for k, v in throughput.items()},
+        "throughput_basis": "slowest-encoded-scenario-fps",
         "reason": reason,
         "applies_automatically": False,
         "warning": ("Advisory only. Synthetic 2–4s encodes do not measure thermal "
