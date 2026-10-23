@@ -15,6 +15,8 @@ import unittest
 from unittest.mock import patch
 
 from studio_server import Jobs, StudioServer, parse_video_range, validate_draft
+import studio_server
+import encoder_calibration
 
 
 VALID = {"topic": "Énergie solaire", "script": "Le soleil produit de la lumière.",
@@ -112,6 +114,102 @@ class ServerTests(unittest.TestCase):
         result = response.status, response.read()
         conn.close()
         return result
+
+    def test_encoder_calibration_auth_does_not_block_status_or_run_concurrently(self):
+        started = threading.Event()
+        finish = threading.Event()
+
+        def fake_calibration(output):
+            started.set()
+            if not finish.wait(timeout=3):
+                raise RuntimeError("Calibration fixture timed out")
+            self.assertEqual(output, self.jobs.encoder_calibration_file)
+            measurements = []
+            for name, preset, crf in encoder_calibration.PROFILES:
+                measurements.append({
+                    "name": name, "preset": preset, "crf": crf,
+                    "wall_seconds": 0.4, "encoded_fps": 60.0})
+            result = {
+                "version": 1, "source": "synthetic-local-x264",
+                "host_binding": encoder_calibration._host_binding(),
+                "created_at": int(time.time()),
+                "sample": {"width": 360, "height": 640, "fps": 12, "frames": 24},
+                "measurements": measurements}
+            output.write_text(json.dumps(result), encoding="utf-8")
+            return encoder_calibration.status_for(output)
+
+        with patch.object(studio_server, "calibrate", side_effect=fake_calibration):
+            try:
+                initial, _, body = self.request("GET", "/api/encoder/calibration")
+                self.assertEqual(initial, 200)
+                self.assertEqual(json.loads(body)["state"], "idle")
+                self.assertEqual(self.request(
+                    "GET", "/api/encoder/calibration",
+                    headers={"Authorization": "Bearer incorrect"})[0], 401)
+                self.assertEqual(self.request(
+                    "POST", "/api/encoder/calibration", {"preset": "slow"})[0], 400)
+                status, _, body = self.request("POST", "/api/encoder/calibration", {})
+                self.assertEqual(status, 202, body)
+                self.assertTrue(started.wait(timeout=2))
+                self.assertEqual(json.loads(body)["state"], "running")
+                self.assertEqual(self.request("GET", "/api/jobs")[0], 200)
+                self.assertEqual(self.request(
+                    "POST", "/api/encoder/calibration", {})[0], 409)
+                status, _, body = self.request("POST", "/api/jobs", VALID)
+                self.assertEqual(status, 400, body)
+                self.assertIn("Étalonnage", json.loads(body)["error"])
+            finally:
+                finish.set()
+                deadline = time.monotonic() + 3
+                while self.jobs.encoder_calibration_status()["state"] == "running" and time.monotonic() < deadline:
+                    time.sleep(.02)
+        status, _, body = self.request("GET", "/api/encoder/calibration")
+        self.assertEqual(status, 200, body)
+        result = json.loads(body)
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["state"], "ready")
+        self.assertEqual(set(result["encoded_fps"]),
+                         {"balanced", "detail", "premium"})
+        self.assertNotIn("host_binding", body.decode("utf-8"))
+
+    def test_calibration_rejects_existing_render_and_falls_back_on_failure(self):
+        with self.jobs.lock:
+            self.jobs.running = True
+        try:
+            status, _, response = self.request(
+                "POST", "/api/encoder/calibration", {})
+            self.assertEqual(status, 409, response)
+            self.assertIn("montage", json.loads(response)["error"])
+        finally:
+            with self.jobs.lock:
+                self.jobs.running = False
+        with patch.object(studio_server, "calibrate",
+                          side_effect=RuntimeError("Unavailable")), patch.object(
+                          studio_server, "status_for",
+                          wraps=encoder_calibration.status_for):
+            status, _, body = self.request("POST", "/api/encoder/calibration", {})
+            self.assertEqual(status, 202, body)
+            deadline = time.monotonic() + 3
+            while self.jobs.encoder_calibration_status()["state"] == "running" and time.monotonic() < deadline:
+                time.sleep(.02)
+        status, _, body = self.request("GET", "/api/encoder/calibration")
+        self.assertEqual(status, 200, body)
+        failed = json.loads(body)
+        self.assertEqual(failed["state"], "error")
+        self.assertFalse(failed["available"])
+        self.assertNotIn("Unavailable", json.dumps(failed))
+
+    def test_android_has_visible_encoder_selector_and_local_calibration_control(self):
+        html = (studio_server.ROOT / "web" / "index.html").read_text(
+            encoding="utf-8")
+        app = (studio_server.ROOT / "web" / "app.js").read_text(
+            encoding="utf-8")
+        self.assertIn('id="encoder-profile"', html)
+        self.assertIn('value="auto"', html)
+        self.assertIn('id="calibrate-encoder"', html)
+        self.assertIn('id="encoder-calibration-status"', html)
+        self.assertIn("encoder_profile: $('encoder-profile').value", app)
+        self.assertIn("/api/encoder/calibration", app)
 
     def test_rejected_jobs_never_seal_existing_media_uploads(self):
         status, _, response = self.request("POST", "/api/media/batches", {})
