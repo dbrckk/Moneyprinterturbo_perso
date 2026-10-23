@@ -15,6 +15,7 @@ from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
 from video_timeline import source_seek_seconds
 from exposure_match import exposure_filter
 from white_balance import white_balance_suffix
+from encoder_profiles import valid_ffmpeg_settings
 
 
 class SceneMedia(Protocol):
@@ -27,6 +28,7 @@ def build_onepass_media_command(
     width: int, height: int, fps: int, transition: str,
     visual_filters: list[str], audio: Path | None, output: Path, total: float,
     boundary_transitions: tuple[str, ...] | None = None,
+    preset: str = "veryfast", crf: int = 23,
 ) -> list[str]:
     """Build a bounded filter graph with only one H.264 encode.
 
@@ -47,6 +49,8 @@ def build_onepass_media_command(
         raise ValueError("Missing visual overlays")
     if not math.isfinite(total) or abs(total - sum(durations)) > .02:
         raise ValueError("Narration and scene timeline disagree")
+    if not valid_ffmpeg_settings(preset, crf):
+        raise ValueError("Unsupported final encoder settings")
     plan = transition_plan(durations, fps=fps, transition=transition)
     if boundary_transitions is not None:
         if (len(boundary_transitions) != len(assets) - 1 or
@@ -112,7 +116,7 @@ def build_onepass_media_command(
         cmd += ["-map", f"{len(assets)}:a:0", "-c:a", "copy"]
     else:
         cmd += ["-an"]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(crf),
             "-pix_fmt", "yuv420p", "-frames:v", str(plan.total_frames),
             "-movflags", "+faststart", "-t", f"{total:.3f}", str(output)]
     return cmd

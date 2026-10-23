@@ -9,12 +9,14 @@ import math
 from pathlib import Path
 
 from cinematic import gradient_source, transition_plan
+from encoder_profiles import valid_ffmpeg_settings
 
 
 def build_onepass_abstract_command(
     durations: list[float], *, width: int, height: int, fps: int,
     transition: str, visual_filters: list[str], audio: Path | None,
     output: Path, total: float,
+    preset: str = "veryfast", crf: int = 23,
 ) -> list[str]:
     """Make one graph for backgrounds, transitions and final overlays.
 
@@ -29,6 +31,8 @@ def build_onepass_abstract_command(
     plan = transition_plan(durations, fps=fps, transition=transition)
     if not math.isfinite(total) or abs(total - sum(durations)) > 0.02:
         raise ValueError("Narration and video duration mismatch")
+    if not valid_ffmpeg_settings(preset, crf):
+        raise ValueError("Unsupported final encoder settings")
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
            "-filter_complex_threads", "1"]
     for idx, frames_duration in enumerate(plan.durations):
@@ -60,7 +64,7 @@ def build_onepass_abstract_command(
         cmd.extend(["-map", f"{len(durations)}:a:0", "-c:a", "copy"])
     else:
         cmd.append("-an")
-    cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    cmd.extend(["-c:v", "libx264", "-preset", preset, "-crf", str(crf),
                 "-pix_fmt", "yuv420p", "-frames:v", str(plan.total_frames),
                 "-movflags", "+faststart", "-t", f"{total:.3f}", str(output)])
     return cmd

@@ -531,6 +531,49 @@ dans l'occupation, pour ne pas masquer un risque de saturation du téléphone.
   jamais considéré comme un échec sûr à effacer. La période de sept jours
   est mesurée depuis la dernière modification des sources ou du suivi du rendu.
 
+## Qualité d'encodage configurable dans le studio Android
+
+Le studio local propose maintenant un réglage **Qualité d'encodage H.264**
+avant de lancer un montage. La valeur initiale `Standard` reproduit
+l'ancien encodage final, sans changement implicite. Depuis Termux :
+
+```bash
+python free_studio.py --topic "Essai" --script "Bonjour. Voici la suite." \
+  --mute --resolution 360 --fps 12 --encoder-profile detail \
+  --output outputs/essai.mp4
+```
+
+| Profil | Paramètres H.264 finaux | Comportement |
+|---|---|---|
+| `balanced` | `veryfast`, CRF 23 | Comportement historique ; choix initial |
+| `auto` | CRF 20 sur montage local peu exigeant, sinon standard | Décision prudente selon pixels, images/s et durée, **pas** selon la batterie |
+| `detail` | `veryfast`, CRF 20 | Préserve davantage de détails, fichier généralement plus gros |
+| `premium` | `faster`, CRF 20 | Profil plus exigeant en CPU ; aucune garantie de gain visuel perçu |
+
+Pour protéger les smartphones, une demande `detail` ou `premium`
+peut être **réduite automatiquement** à un profil moins coûteux lorsque
+le nombre de pixels, la cadence, la durée ou le nombre de scènes dépasse
+des plafonds prudents. Cette décision est prise **avant l'encodage final**
+pour ne pas dépenser inutilement le temps CPU et la batterie.
+Elle s'applique à tous les chemins (encodage direct, transitions fondues,
+encodage classique de secours, seconde passe de réparation). Les clips
+intermédiaires continuent avec leur réglage stable précédent ; seules les
+images du MP4 final utilisent le profil choisi.
+
+Le fichier `video.json` contient `encoder_profile.requested`,
+`encoder_profile.applied`, `encoder_profile.preset`,
+`encoder_profile.crf` et, si nécessaire,
+`encoder_profile.fallback_reason`. Les paramètres effectivement choisis
+sont aussi présents dans `render_performance`. Ce rapport permet
+de vérifier si le profil demandé a été limité sur le téléphone.
+
+Ces budgets sont **des garde-fous conservateurs**, pas des mesures réelles
+de température, mémoire vive ou consommation électrique. Le benchmark
+optionnel ci-dessous aide à comparer les compromis, mais **ne change pas
+les réglages automatiquement** et ne promet pas de meilleur rendu sur
+tous les contenus. Utiliser d'abord `balanced` ou `auto` sur un
+téléphone peu puissant.
+
 ## Benchmark local qualité/performance de l'encodage H.264
 
 Pour comparer plusieurs réglages FFmpeg **sans modifier les exports existants** :
