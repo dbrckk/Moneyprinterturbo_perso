@@ -5,6 +5,8 @@
   let currentId = null;
   let videoUrl = null;
   let pollTimer = null;
+  let encoderCalibrationTimer = null;
+  let encoderCalibrationRequested = false;
   let lastStatus = '';
   const MEDIA_KEY = 'mpt-local-media-batch-v1';
   const storedBatch = (() => { try { return localStorage.getItem(MEDIA_KEY) || ''; } catch { return ''; } })();
@@ -80,11 +82,43 @@
       topic: $('topic').value.trim(), lang: $('lang').value,
       script: $('script').value.trim(), aspect: $('aspect').value,
       resolution: Number($('resolution').value), visuals: $('visuals').value,
+      encoder_profile: $('encoder-profile').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
       mute: $('mute').checked, scene_queries: $('queries').value.trim(),
       media_batch: $('visuals').value === 'local' ? state.media_batch : ''
     };
   }
+  async function refreshEncoderCalibration() {
+    clearTimeout(encoderCalibrationTimer);
+    const status = await json('/api/encoder/calibration');
+    const active = status.state === 'running';
+    $('calibrate-encoder').disabled = active;
+    const output = $('encoder-calibration-status');
+    if (active) {
+      output.textContent = 'Étalonnage en cours sur cet appareil… Ne lancez pas de montage.';
+      encoderCalibrationTimer = setTimeout(() => {
+        refreshEncoderCalibration().catch(err => {
+          output.textContent = 'Étalonnage : suivi momentanément indisponible.';
+          showError(err);
+        });
+      }, 1800);
+    } else if (status.state === 'ready' && status.available) {
+      const rates = status.encoded_fps || {};
+      const speed = Number.isFinite(rates.detail) ? ` · détails : ${Math.round(rates.detail)} images/s` : '';
+      output.textContent = `Étalonnage disponible sur cet appareil${speed}. Valable 14 jours. Seul le mode Automatique l'utilise.`;
+      if (encoderCalibrationRequested) {
+        $('encoder-profile').value = 'auto';
+        encoderCalibrationRequested = false;
+      }
+    } else if (status.state === 'error') {
+      output.textContent = status.error || 'Étalonnage impossible. Utilisez le profil Standard.';
+      encoderCalibrationRequested = false;
+    } else {
+      output.textContent = 'Pas d’étalonnage récent. Standard et Automatique restent disponibles sans lui.';
+      encoderCalibrationRequested = false;
+    }
+  }
+
   function showError(err) { $('error').textContent = err ? String(err.message || err) : ''; }
   function splitSentences(text) {
     const compact = text.replace(/[ \t\f\v]+/g, ' ').trim();
@@ -404,6 +438,10 @@
       $('script-note').textContent = config.has_ollama ? 'Scénario générable avec Ollama local.' : 'Brouillon déterministe, sans génération IA.';
       $('auth').classList.add('hidden');
       loadHistory().catch(showError);
+      refreshEncoderCalibration().catch(err => {
+        $('encoder-calibration-status').textContent = 'État de l’étalonnage indisponible.';
+        showError(err);
+      });
       refreshStorage().catch(() => {
         $('storage-stats').textContent = 'Impossible de consulter le stockage.';
       });
@@ -437,6 +475,20 @@
       selectJob(job.id);
       loadHistory().catch(() => {});
     } catch (err) { showError(err); } finally { $('render').disabled = false; }
+  });
+  $('calibrate-encoder').addEventListener('click', async () => {
+    showError(null);
+    $('calibrate-encoder').disabled = true;
+    encoderCalibrationRequested = true;
+    try {
+      await post('/api/encoder/calibration', {});
+      await refreshEncoderCalibration();
+    } catch (err) {
+      encoderCalibrationRequested = false;
+      $('calibrate-encoder').disabled = false;
+      showError(err);
+      refreshEncoderCalibration().catch(() => {});
+    }
   });
   $('script').addEventListener('input', showScenes);
   $('mute').addEventListener('change', () => { $('tts').disabled = $('mute').checked; $('speech-rate').disabled = $('mute').checked; });
@@ -475,6 +527,7 @@
   }
   window.addEventListener('pagehide', () => {
     clearTimeout(pollTimer);
+    clearTimeout(encoderCalibrationTimer);
     releaseVideo();
   });
   showScenes();
