@@ -50,6 +50,18 @@ class EncoderAdviceTests(unittest.TestCase):
                                       "compact": 10., "detail": 10.})
         self.assertEqual(evaluate(report)["suggested_profile"], "balanced")
 
+    def test_one_slow_scene_overrides_optimistic_mean(self):
+        report = fixture()
+        # Other synthetic scene stays fast, aggregate summary stays fast:
+        # even one unacceptably slow measured clip must prevent premium.
+        for clip in report["scenarios"][0]["encodes"]:
+            if clip["name"] == "detail":
+                clip["encoded_fps"] = 6.0
+        result = evaluate(report)
+        self.assertEqual(result["suggested_profile"], "detail")
+        self.assertEqual(result["measured_encoded_fps"]["premium"], 6.0)
+        self.assertEqual(result["throughput_basis"], "slowest-encoded-scenario-fps")
+
     def test_cannot_extrapolate_to_720p_or_higher_fps(self):
         report = fixture()
         self.assertEqual(evaluate(report, width=720, height=1280)["suggested_profile"],
@@ -59,7 +71,7 @@ class EncoderAdviceTests(unittest.TestCase):
     def test_existing_policy_remains_stricter_than_benchmark(self):
         report = fixture()
         self.assertEqual(evaluate(report, duration=70)["suggested_profile"], "detail")
-        self.assertEqual(evaluate(report, duration=180)["suggested_profile"], "balanced")
+        self.assertEqual(evaluate(report, duration=185)["suggested_profile"], "balanced")
 
     def test_rejects_corrupt_incomplete_and_mismatched_reports(self):
         good = fixture()
