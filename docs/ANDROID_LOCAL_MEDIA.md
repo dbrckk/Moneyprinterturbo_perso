@@ -161,6 +161,25 @@ mémoire ; le gain principal concerne le serveur local sans jeton. Les tests
 vérifient les sauts dans un véritable MP4 H.264, les plages invalides,
 l'interdiction d'accès aux projets non finalisés et les sessions protégées.
 
+## Annuler un rendu long sans laisser FFmpeg actif
+
+Le bouton **Annuler** arrête le projet en cours et ses sous-processus
+FFmpeg/eSpeak : le serveur signale d'abord le groupe de processus, puis
+force son arrêt si nécessaire après un délai de grâce de **3 secondes**.
+Il vérifie aussi les annulations reçues pendant le lancement ou juste avant
+la publication pour éviter de marquer à tort un projet annulé comme terminé.
+Un dépassement de la limite de durée du rendu est signalé comme une
+**erreur explicite**, et non comme une annulation volontaire.
+
+Les fichiers temporaires du moteur sont isolés dans le sous-dossier privé
+`.render-scratch` du projet et nettoyés à la fin, en cas d'échec ou d'annulation.
+Les vidéos d'origine importées et les exports déjà achevés ne sont pas
+supprimés. Arrêter normalement le serveur avec **Ctrl+C** ou un signal
+**SIGTERM** déclenche la même séquence d'arrêt pour les projets encore actifs.
+Une fermeture forcée de toute l'application Android par le système (SIGKILL)
+ne laisse pas à Python l'occasion d'effectuer ces nettoyages : ce cas
+nécessite une vérification du stockage après redémarrage.
+
 ## Récupération des projets après fermeture de Termux
 
 Lorsqu'Android coupe le moteur ou que le terminal se ferme, ouvrir
