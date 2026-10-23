@@ -136,6 +136,31 @@ après rechargement de la page, il retrouve automatiquement les fichiers qui
 existent encore dans le moteur local. En cas de suppression du lot ou de
 changement de serveur, un nouvel import est nécessaire.
 
+## Prévisualisation MP4 à faible mémoire sur Android
+
+Une fois le rendu terminé, l'aperçu vidéo local s'ouvre maintenant **en
+lecture progressive** sans copier l'intégralité du MP4 dans un objet Blob du
+navigateur. Le moteur répond aux requêtes HTTP `Range` standard avec `206
+Partial Content` : déplacer le curseur du lecteur récupère seulement les
+parties utiles, et les vidéos longues peuvent être lues plus tôt en utilisant
+moins de mémoire JavaScript sur le téléphone. La vidéo reste stockée sur
+l'appareil ; aucune plateforme externe n'intervient.
+
+Le bouton **Télécharger MP4** utilise également le téléchargement natif du
+navigateur en mode local, sans charger d'abord tout le fichier en mémoire.
+Le lecteur relâche ses ressources quand on sélectionne un autre projet ou
+qu'on quitte la page. Les téléchargements des sous-titres et métadonnées
+fonctionnent toujours.
+
+**Sécurité :** la lecture partielle conserve les mêmes contrôles de connexion,
+d'origine et d'autorisation que les autres fichiers privés du studio. En mode
+réseau protégé par jeton, la lecture et le téléchargement conservent le
+chargement authentifié historique, car une balise vidéo native ne peut pas
+envoyer un en-tête `Authorization`. Ce mode reste plus consommateur de
+mémoire ; le gain principal concerne le serveur local sans jeton. Les tests
+vérifient les sauts dans un véritable MP4 H.264, les plages invalides,
+l'interdiction d'accès aux projets non finalisés et les sessions protégées.
+
 ## Récupération des projets après fermeture de Termux
 
 Lorsqu'Android coupe le moteur ou que le terminal se ferme, ouvrir

@@ -48,6 +48,32 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; cha
         ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
 
 
+def parse_video_range(header: str, size: int) -> tuple[int, int] | None:
+    """Parse a *single* HTTP byte range with inclusive ends.
+
+    Browsers seek with ``bytes=start-`` or ``bytes=-suffix``. Multipart
+    requests and malformed/unsatisfiable ranges are deliberately rejected
+    (416) instead of constructing an unbounded in-memory response.
+    """
+    if not isinstance(header, str) or type(size) is not int or size <= 0:
+        return None
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
+    if not match or not (match.group(1) or match.group(2)):
+        return None
+    try:
+        first, last = match.groups()
+        if not first:
+            suffix = int(last)
+            return (max(0, size - suffix), size - 1) if suffix > 0 else None
+        start = int(first)
+        end = min(size - 1, int(last)) if last else size - 1
+        if start >= size or end < start:
+            return None
+        return start, end
+    except ValueError:
+        return None
+
+
 def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
     if not isinstance(value, dict):
         raise ValueError("Objet JSON requis")
@@ -803,6 +829,51 @@ class StudioHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("JSON invalide") from exc
 
+    def serve_artifact(self, item: Path, filename: str) -> None:
+        """Stream MP4 files with bounded memory, allowing native seeking.
+
+        Only `Jobs.artifact()` can select a published deliverable. Keep all
+        existing security checks in `do_GET` before this is reached.
+        """
+        if filename != "video.mp4":
+            self._headers(200, MIME[item.suffix], item.stat().st_size,
+                          Content_Disposition=f'attachment; filename="{filename}"')
+            with item.open("rb") as stream:
+                shutil.copyfileobj(stream, self.wfile, length=256 * 1024)
+            return
+        with item.open("rb") as stream:
+            size = os.fstat(stream.fileno()).st_size
+            requested = self.headers.get("Range")
+            headers = {"Accept_Ranges": "bytes",
+                       "Content_Disposition": 'inline; filename="video.mp4"'}
+            if requested is not None:
+                interval = parse_video_range(requested, size)
+                if interval is None:
+                    self._headers(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                                  "video/mp4", 0,
+                                  Accept_Ranges="bytes",
+                                  Content_Range=f"bytes */{size}")
+                    return
+                first, last = interval
+                headers["Content_Range"] = f"bytes {first}-{last}/{size}"
+                code = HTTPStatus.PARTIAL_CONTENT
+            else:
+                first, last = 0, size - 1
+                code = HTTPStatus.OK
+            remaining = last - first + 1
+            self._headers(code, "video/mp4", remaining, **headers)
+            stream.seek(first)
+            try:
+                while remaining:
+                    chunk = stream.read(min(256 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                # Android video controls cancel range requests on seek.
+                return
+
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         if path == "/api/health":
@@ -830,10 +901,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     item = self.server.jobs.artifact(ident, asset_name)
                     if not item:
                         return self.json_response(404, {"error": "Fichier indisponible"})
-                    self._headers(200, MIME[item.suffix], item.stat().st_size, Content_Disposition=f'attachment; filename="{asset_name}"')
-                    with item.open("rb") as stream:
-                        shutil.copyfileobj(stream, self.wfile, length=256 * 1024)
-                    return
+                    return self.serve_artifact(item, asset_name)
                 job = self.server.jobs.get(ident)
                 if job:
                     return self.json_response(200, job)

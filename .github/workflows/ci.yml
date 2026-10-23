@@ -115,7 +115,7 @@ jobs:
           node --check remote/run_lifecycle.mjs
           node --check semantic/clip_rank.mjs
           node --check review_mobile.js
-          node --test tests/test_review_mobile.mjs tests/test_media_batch_browser.mjs
+          node --test tests/test_review_mobile.mjs tests/test_media_batch_browser.mjs tests/test_streaming_preview.mjs
           node --test semantic/test_clip_rank.mjs
           node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs tests/test_run_lifecycle.mjs
       - name: Static compilation
