@@ -23,6 +23,21 @@ def advice(profile="detail"):
             "warning": "Synthetic short-run only"}
 
 
+class CalibrationUiWiringTests(unittest.TestCase):
+    def test_mobile_page_controls_and_explicit_selection(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        for element in ('id="encoder-profile"', 'id="calibrate-encoder"',
+                        'id="apply-calibration"', 'id="encoder-calibration-note"'):
+            self.assertIn(element, page)
+        self.assertIn("encoder_profile: $('encoder-profile').value", js)
+        self.assertIn("post(calibrationApi, {resolution, fps: 24})", js)
+        self.assertIn("$('apply-calibration').addEventListener('click'", js)
+        self.assertIn("data.advice?.applies_automatically !== false", js)
+        self.assertIn("clearTimeout(encoderPollTimer)", js)
+
+
 class CalibrationWorkerTests(unittest.TestCase):
     def test_explicit_work_and_no_silent_encoder_change(self):
         with tempfile.TemporaryDirectory() as temp:
