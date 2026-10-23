@@ -76,25 +76,29 @@ class LocalCalibration:
 
     @staticmethod
     def _terminate(proc: subprocess.Popen) -> None:
-        if proc.poll() is not None:
-            return
+        # The Python benchmark may have exited while its child FFmpeg still
+        # runs. Signal the entire isolated process group, even if the leader
+        # has already exited, and reap the parent when possible.
         if os.name == "posix":
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
-                return
-        else:
+                pass
+        elif proc.poll() is None:
             proc.terminate()
         try:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                proc.kill()
+            pass
+        # Force-stop still-living grandchildren (or the wrapper) after grace.
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif proc.poll() is None:
+            proc.kill()
+        if proc.poll() is None:
             proc.wait(timeout=4)
 
     def _measure(self, resolution: int, fps: int) -> dict[str, object]:
@@ -152,7 +156,8 @@ class LocalCalibration:
                     self._state.update(
                         status="done", suggested_profile=advice["suggested_profile"],
                         advice=advice, finished=int(time.time()))
-        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        except Exception as exc:
+            # A worker failure must never leave the UI stuck at "running".
             with self._lock:
                 if not self._closed:
                     self._state.update(
