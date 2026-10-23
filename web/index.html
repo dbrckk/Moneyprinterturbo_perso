@@ -42,14 +42,6 @@
               <div><label for="visuals">Visuels</label><select id="visuals"><option value="commons">Wikimedia Commons · gratuit</option><option value="abstract">Graphismes automatiques</option><option value="local" disabled>Médias locaux · non configuré</option></select></div>
               <div><label for="resolution">Résolution</label><select id="resolution"><option value="360">360p · rapide</option><option value="720" selected>720p · HD</option><option value="1080">1080p · Full HD</option></select></div>
             </div>
-            <label for="encoder-profile">Qualité d'encodage H.264</label>
-            <select id="encoder-profile" name="encoder-profile">
-              <option value="balanced" selected>Standard · compatible et rapide</option>
-              <option value="auto">Automatique · prudent sur mobile</option>
-              <option value="detail">Détails améliorés · fichier plus volumineux</option>
-              <option value="premium">Premium · encodage plus exigeant</option>
-            </select>
-            <p class="microcopy">Le moteur adapte les profils exigeants aux capacités estimées du montage. Un profil réduit est indiqué dans le rapport MP4 ; aucun benchmark GitHub ne remplace un test sur le téléphone.</p>
             <div class="media-import" id="media-import">
               <label for="media-files">Vidéos et photos de mon téléphone</label>
               <input id="media-files" type="file" multiple accept=".mp4,.mov,.webm,.mkv,.jpg,.jpeg,.png,.webp,video/*,image/jpeg,image/png,image/webp">
@@ -58,6 +50,7 @@
                 <button id="delete-media" class="text-button" type="button" hidden>Effacer l'import</button>
               </div>
               <p id="media-note" class="microcopy" role="status" aria-live="polite">Choisissez les fichiers : l'import démarre automatiquement sur cet appareil, sans transfert vers GitHub. Le bouton permet de réessayer si nécessaire.</p>
+              <progress id="upload-progress" class="media-upload-progress" max="100" value="0" hidden aria-label="Progression du transfert du média"></progress>
               <div class="media-storage">
                 <p id="storage-stats" class="microcopy" role="status" aria-live="polite">Stockage des imports : vérification…</p>
                 <button id="clean-media" class="text-button" type="button" disabled>Libérer les imports déjà montés</button>
