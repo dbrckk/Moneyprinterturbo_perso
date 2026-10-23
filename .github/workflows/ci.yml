@@ -56,7 +56,7 @@ jobs:
   verify:
     # Avoid new ubuntu-latest images changing FFmpeg/eSpeak packaging and apt mirror behavior.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,7 +83,7 @@ jobs:
               -o Acquire::Retries=2 \
               -o Acquire::http::Timeout=25 \
               -o Acquire::https::Timeout=25 update
-            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 180s apt-get \
+            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 480s apt-get \
               -o DPkg::Lock::Timeout=30 \
               -o Acquire::Retries=2 \
               -o Acquire::http::Timeout=25 \

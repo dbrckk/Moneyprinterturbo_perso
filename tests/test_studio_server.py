@@ -110,6 +110,96 @@ class ServerTests(unittest.TestCase):
         self.assertFalse((folder / ".sealed").exists())
         self.assertEqual(self.request("GET", f"/api/media/batches/{batch}")[0], 200)
 
+    def test_large_phone_upload_does_not_block_status_and_guards_active_batch(self):
+        """A slow phone upload must never stall unrelated HTTP status requests."""
+        class PausedUpload:
+            def __init__(self, data):
+                self.payload = data
+                self.position = 0
+                self.ready = threading.Event()
+                self.release = threading.Event()
+            def read(self, limit):
+                if self.position:
+                    self.ready.set()
+                    if not self.release.wait(8):
+                        raise TimeoutError("test did not resume stream")
+                block = self.payload[self.position:self.position + min(limit, 300)]
+                self.position += len(block)
+                return block
+
+        first = self.jobs.create_media_batch()
+        second = self.jobs.create_media_batch()
+        payload = b"streamed-phone-footage" * 60
+        paused = PausedUpload(payload)
+        results = []
+        errors = []
+        def upload():
+            try:
+                results.append(self.jobs.save_media(first, "footage.mp4",
+                                                    len(payload), paused))
+            except Exception as exc:
+                errors.append(exc)
+        with patch("studio_server.media_dimensions", return_value=(320, 240)):
+            worker = threading.Thread(target=upload, daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(paused.ready.wait(3), "phone stream did not pause")
+                started = time.monotonic()
+                status, _, snapshot = self.request("GET", "/api/media/storage")
+                self.assertEqual(status, 200)
+                self.assertLess(time.monotonic() - started, 3.0,
+                                "slow upload blocked another HTTP request")
+                entries = {x["id"]: x for x in json.loads(snapshot)["batches"]}
+                self.assertTrue(entries[first]["uploading"])
+                self.assertFalse(entries[second]["uploading"])
+                self.assertEqual(self.jobs.batch_info(first)["files"], [])
+                self.assertEqual(self.request("POST",
+                    f"/api/media/batches/{first}/delete", {})[0], 409)
+                with self.assertRaisesRegex(ValueError, "Import en cours"):
+                    self.jobs.submit({**VALID, "visuals": "local",
+                                      "media_batch": first})
+                self.assertFalse((self.jobs.upload_root / first / ".sealed").exists())
+                with self.assertRaisesRegex(ValueError, "Import déjà en cours"):
+                    self.jobs.save_media(first, "duplicate.mp4", 10,
+                                         io.BytesIO(b"0" * 10))
+                # Concurrent uploads on *different* batches must reserve
+                # their full declared size, even while bytes are in flight.
+                with patch("studio_server.MAX_MEDIA_STORAGE", len(payload) + 99):
+                    with self.assertRaisesRegex(ValueError, "Stockage média local plein"):
+                        self.jobs.save_media(second, "over-capacity.mp4", 100,
+                                             io.BytesIO(b"0" * 100))
+                committed = self.jobs.save_media(
+                    second, "independent.mp4", 10, io.BytesIO(b"1234567890"))
+                self.assertEqual(committed["count"], 1)
+            finally:
+                paused.release.set()
+                worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual((self.jobs.upload_root / first /
+                          "001_footage.mp4").read_bytes(), payload)
+        self.assertEqual(self.jobs._uploads_in_progress, {})
+        self.assertFalse(any(batch["uploading"] for batch in
+                             self.jobs.media_storage()["batches"]))
+        self.assertTrue(self.jobs.delete_media_batch(first))
+
+    def test_failed_stream_releases_capacity_and_partial_files(self):
+        batch = self.jobs.create_media_batch()
+        folder = self.jobs.upload_root / batch
+        with patch("studio_server.media_dimensions", return_value=(320, 240)):
+            with self.assertRaisesRegex(ValueError, "Transfert incomplet"):
+                self.jobs.save_media(batch, "interrupted.mp4", 60,
+                                     io.BytesIO(b"truncated"))
+            self.assertEqual(self.jobs._uploads_in_progress, {})
+            self.assertEqual(list(folder.iterdir()), [])
+            with patch("studio_server.MAX_MEDIA_STORAGE", 60):
+                # Entire original reservation must have been relinquished.
+                result = self.jobs.save_media(batch, "retry.mp4", 60,
+                                              io.BytesIO(b"R" * 60))
+                self.assertEqual(result["bytes"], 60)
+        self.assertEqual(len(self.jobs._batch_files(folder)), 1)
+
     def test_upload_guards_reject_broken_or_unsafe_media(self):
         status, _, payload = self.request("POST", "/api/media/batches", {})
         self.assertEqual(status, 201, payload)
