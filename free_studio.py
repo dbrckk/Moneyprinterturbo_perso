@@ -36,6 +36,7 @@ from scene_framing import (needs_soft_matte, needs_video_soft_matte,
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
+from social_publish import prepare_publication, render_publication_text
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
 from motion_framing import crop_filter, plan_motion_crops
@@ -947,6 +948,14 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         elif tts == "espeak":
             credits.append("Voice: eSpeak synthetic speech produced locally; review applicable voice rights before publication.")
         credits_path.write_text("\n".join(credits) + "\n", encoding="utf-8")
+        # Build an editable, platform-specific publication kit from actual
+        # narrated sentences, not from media guesses or fictional claims.
+        publication = prepare_publication(topic, sentences, lang=lang, aspect=aspect)
+        publication["filename"] = output.with_suffix(".publish.txt").name
+        publication_path = work / "prepared-publication.txt"
+        publication_path.write_text(render_publication_text(publication),
+                                    encoding="utf-8")
+        publications[output.with_suffix(".publish.txt")] = publication_path
         metrics["total_seconds"] = round(time.perf_counter() - render_started, 3)
         info: dict[str, object] = {
             "output": str(output), "script_mode": script_mode or "provided-script",
@@ -977,6 +986,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             "visual_mode": ("media" if all(slots) else "mixed-media" if using_media else "abstract-fallback"),
             "scene_search_queries": queries, "media": media_used,
             "final_visual_review": rendered_visual_review, "warnings": warnings,
+            "publication": publication,
         }
         metadata_file = work / "prepared-manifest.json"
         metadata_file.write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n",

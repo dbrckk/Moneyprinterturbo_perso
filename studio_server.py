@@ -761,6 +761,8 @@ class Jobs:
                 "topic": job["parameters"]["topic"], "resolution": job["parameters"]["resolution"],
                 "duration_seconds": metadata.get("duration_seconds"), "visual_mode": metadata.get("visual_mode"),
                 "warnings": metadata.get("warnings", []), "has_credits": bool(metadata.get("media")),
+                "has_publication": bool(isinstance(metadata.get("publication"), dict)
+                    and metadata["publication"].get("filename") == "video.publish.txt"),
                 "segments": metadata.get("segments", []), "speech_engine": metadata.get("speech_engine")}
 
     def list_jobs(self) -> list[dict]:
@@ -990,7 +992,8 @@ class Jobs:
                     self.processes.pop(ident, None)
 
     def artifact(self, ident: str, name: str) -> Path | None:
-        if name not in ("video.mp4", "video.srt", "video.json", "video.credits.txt"):
+        if name not in ("video.mp4", "video.srt", "video.json", "video.credits.txt",
+                         "video.publish.txt"):
             return None
         with self.lock:
             j = self.jobs.get(ident)
@@ -1136,7 +1139,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             if media:
                 details = self.server.jobs.batch_info(media.group(1))
                 return self.json_response(200, details) if details else self.json_response(404, {"error": "Lot introuvable"})
-            match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(video\.mp4|video\.srt|video\.json|video\.credits\.txt))?", path)
+            match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/(video\.mp4|video\.srt|video\.json|video\.credits\.txt|video\.publish\.txt))?", path)
             if match:
                 ident, asset_name = match.groups()
                 if asset_name:

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MP4_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME,
   SUBTITLES_ARTIFACT_NAME, QUALITY_ARTIFACT_NAME,
-  CREDITS_ARTIFACT_NAME, MANIFEST_ARTIFACT_NAME,
+  CREDITS_ARTIFACT_NAME, MANIFEST_ARTIFACT_NAME, PUBLISH_ARTIFACT_NAME,
   findDirectMp4, findDirectStoryboard, findDirectSubtitles, findDirectQuality,
-  findDirectCredits, findDirectManifest,
+  findDirectCredits, findDirectManifest, findDirectPublication,
   directMp4Url, runArtifactsEndpoint } from '../remote/downloads.mjs';
 
 test('only nonexpired, nonempty v7 MP4 artifact is eligible', () => {
@@ -89,4 +89,22 @@ test('artifact metadata must be a positive integer byte count, never a coerced s
   for(const id of ['01','1e3','1.0',' 1',true,1.5]) {
     assert.equal(findDirectMp4([{...valid,id}]),null);
   }
+});
+
+
+test('social publication kit requires exact valid GitHub artifact and expires safely', () => {
+  const options=[
+    {id:210,name:PUBLISH_ARTIFACT_NAME,expired:true,size_in_bytes:2000},
+    {id:211,name:PUBLISH_ARTIFACT_NAME,expired:false,size_in_bytes:0},
+    {id:212,name:PUBLISH_ARTIFACT_NAME,expired:false,size_in_bytes:2200},
+    {id:213,name:'video.credits.txt',expired:false,size_in_bytes:2200},
+  ];
+  assert.equal(PUBLISH_ARTIFACT_NAME,'video.publish.txt');
+  assert.equal(findDirectPublication(options).id,212);
+  assert.equal(findDirectPublication(options.slice(0,2)),null);
+  assert.equal(findDirectPublication(null),null);
+  assert.equal(findDirectPublication([{...options[2],id:'0'}]),null);
+  assert.equal(findDirectPublication([{...options[2],size_in_bytes:'2200'}]),null);
+  assert.equal(directMp4Url(30, findDirectPublication(options).id),
+    'https://github.com/dbrckk/Moneyprinterturbo_perso/actions/runs/30/artifacts/212');
 });

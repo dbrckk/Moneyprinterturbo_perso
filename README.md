@@ -56,6 +56,23 @@ bilan seulement après toutes les réponses et exporter les votes en CSV
 sans ordinateur, sans API payante et sans connexion après téléchargement.
 Cette expérience ne démontre pas une meilleure qualité CLIP à elle seule.
 
+## Kit de publication automatique (TikTok, Instagram, YouTube)
+
+Chaque MP4 produit maintenant un fichier **`video.publish.txt`** contenant
+des titres, légendes et hashtags prêts à **copier, relire et modifier** pour
+Instagram Reels, TikTok et YouTube Shorts. Le texte est dérivé uniquement du
+sujet et des phrases effectivement narrées, y compris quand l'IA a généré
+ces phrases ; aucun article, fait ou tendance n'est inventé par ce module.
+La version 16:9 prépare une description **YouTube classique** et indique
+les limites de cadrage vertical des autres plateformes.
+
+Le fichier se télécharge depuis le studio local Android ou, en fichier
+individuel sans ZIP, depuis le studio distant HTTPS et son rendu GitHub Actions.
+Il est également livré avec les autres fichiers dans l'archive complète,
+et référencé dans `video.json`. **Aucune vidéo n'est publiée directement**
+sur les plateformes. Il faut encore vérifier la véracité, le cadrage, la
+musique, les droits médias, les crédits et les règles des plateformes.
+
 ## Utilisation gratuite sur Android (sans ordinateur)
 
 1. Ouvrir **Actions → Générer une vidéo gratuite → Run workflow** dans ce dépôt.

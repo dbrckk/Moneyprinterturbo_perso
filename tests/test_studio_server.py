@@ -605,6 +605,19 @@ class ServerTests(unittest.TestCase):
         self.assertIn(b"Original animated graphic backgrounds", credits)
         self.assertIn(b"Voice: None", credits)
         self.assertEqual(int(headers["Content-Length"]), len(credits))
+        self.assertTrue(result["has_publication"])
+        self.assertTrue(recovered.get(job["id"])["has_publication"])
+        status, headers, publication = self.request(
+            "GET", f"/api/jobs/{job['id']}/video.publish.txt")
+        self.assertEqual(status, 200)
+        self.assertIn(b"INSTAGRAM REELS", publication)
+        self.assertIn(b"TIKTOK", publication)
+        self.assertIn(b"YOUTUBE SHORTS", publication)
+        self.assertIn(b"video.credits.txt", publication)
+        self.assertEqual(int(headers["Content-Length"]), len(publication))
+        self.assertIn("text/plain", headers["Content-Type"])
+        self.assertEqual(recovered.artifact(job["id"], "video.publish.txt"),
+                         self.jobs.artifact(job["id"], "video.publish.txt"))
         status, _, _ = self.request("GET", f"/api/jobs/{job['id']}/../../etc/passwd")
         self.assertEqual(status, 404)
 

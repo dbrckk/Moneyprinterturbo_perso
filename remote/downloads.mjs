@@ -4,6 +4,7 @@ export const STORYBOARD_ARTIFACT_NAME = 'video.storyboard.png';
 export const SUBTITLES_ARTIFACT_NAME = 'video.srt';
 export const QUALITY_ARTIFACT_NAME = 'video.quality.json';
 export const CREDITS_ARTIFACT_NAME = 'video.credits.txt';
+export const PUBLISH_ARTIFACT_NAME = 'video.publish.txt';
 export const MANIFEST_ARTIFACT_NAME = 'video.json';
 export const REPO = 'dbrckk/Moneyprinterturbo_perso';
 
@@ -50,6 +51,11 @@ export function findDirectQuality(artifacts) {
 export function findDirectCredits(artifacts) {
   if (!Array.isArray(artifacts)) return null;
   return artifacts.find(a => validArtifact(a, CREDITS_ARTIFACT_NAME)) ?? null;
+}
+
+export function findDirectPublication(artifacts) {
+  if (!Array.isArray(artifacts)) return null;
+  return artifacts.find(a => validArtifact(a, PUBLISH_ARTIFACT_NAME)) ?? null;
 }
 
 export function findDirectManifest(artifacts) {
