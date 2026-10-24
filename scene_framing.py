@@ -92,6 +92,45 @@ def video_soft_matte_graph(
     ]
 
 
+def video_focus_crop(asset: object, *, width: int, height: int) -> str:
+    """Bounded optical framing anchor for a moving video, no zoom or resample.
+
+    A focus anchor can be attached to a MediaAsset by a trusted local visual
+    analyzer or a future editor. 0.0 means the left/top edge, 0.5 means
+    center, 1.0 means right/bottom. For absent, malformed or low-confidence
+    anchors, retain exactly the old centered crop. Only one axis can be
+    cropped, so the other axis is always centered.
+    """
+    if (getattr(asset, "kind", None) != "video"
+            or type(width) is not int or type(height) is not int
+            or not 240 <= width <= 4096 or not 240 <= height <= 4096
+            or width % 2 or height % 2):
+        return f"crop={width}:{height}"
+    anchor = getattr(asset, "framing_focus", None)
+    confidence = getattr(asset, "framing_confidence", None)
+    if (type(anchor) not in (tuple, list) or len(anchor) != 2
+            or type(confidence) not in (float, int)
+            or not math.isfinite(confidence) or confidence < 0.80
+            or confidence > 1.0
+            or any(type(value) not in (int, float)
+                   or not math.isfinite(value) or not 0 <= value <= 1
+                   for value in anchor)):
+        return f"crop={width}:{height}"
+    sw = getattr(asset, "source_width", None)
+    sh = getattr(asset, "source_height", None)
+    if (type(sw) is not int or type(sh) is not int
+            or sw < 64 or sh < 64):
+        return f"crop={width}:{height}"
+    if sw / sh > width / height:
+        x = min(0.9, max(0.1, float(anchor[0])))
+        # FFmpeg crop x is relative to the *scaled* source; preserve bounds.
+        return f"crop={width}:{height}:x=(in_w-out_w)*{x:.4f}:y=(in_h-out_h)/2"
+    if sw / sh < width / height:
+        y = min(0.9, max(0.1, float(anchor[1])))
+        return f"crop={width}:{height}:x=(in_w-out_w)/2:y=(in_h-out_h)*{y:.4f}"
+    return f"crop={width}:{height}"
+
+
 def photo_zoom_filter(*, width: int, height: int, fps: int, frames: int,
                       zoom_percent: float = 0.08) -> str:
     """Keep a restrained Ken Burns move active across the ENTIRE scene.
