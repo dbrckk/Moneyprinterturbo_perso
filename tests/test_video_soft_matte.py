@@ -208,8 +208,9 @@ class RealVideoMatteTests(unittest.TestCase):
         graph = command[command.index("-filter_complex") + 1]
         self.assertNotIn("split=2", graph)
         self.assertIn("crop=360:640", graph)
+        before = portrait.read_bytes()
         ffmpeg(*command[1:])
-        self.assertEqual(portrait.read_bytes(), portrait.read_bytes())
+        self.assertEqual(portrait.read_bytes(), before)
 
 
 if __name__ == "__main__":
