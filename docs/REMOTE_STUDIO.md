@@ -4,6 +4,22 @@
 
 Le site `remote/` fonctionne avec HTML/CSS/JavaScript natif. Il pilote le workflow GitHub Actions `free-video.yml`, qui effectue le vrai rendu FFmpeg sur un runner public standard. Le navigateur ne réalise pas l'encodage vidéo.
 
+## Kit de publication après le rendu
+
+Chaque vidéo créée depuis le studio HTTPS dispose maintenant d'un fichier
+`video.publish.txt` : titre et description pour Reels, TikTok et
+YouTube (Shorts pour les exports carrés/verticaux, vidéo classique en 16:9),
+avec quelques hashtags extraits du vrai sujet. Il est consultable depuis
+le lien **« Descriptions TikTok, Instagram, Shorts · TXT »** après une
+exécution réussie et la vérification de l'artefact GitHub. Pas de ZIP
+nécessaire. Le fichier est aussi inclus dans l'archive complète et dans
+le studio local Android.
+
+Il ne s'agit **pas** d'un appel à une IA supplémentaire, ni d'une
+publication automatique. Le texte reste éditable et les droits/licences
+doivent être vérifiés avant de poster. Les anciens rendus qui ne possèdent
+pas ce fichier n'affichent pas de bouton trompeur.
+
 ## Mode d'emploi Android
 
 1. Ouvrir l'adresse HTTPS du studio distant (indiquée dans le README principal).
