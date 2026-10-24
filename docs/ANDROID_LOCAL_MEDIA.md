@@ -448,6 +448,36 @@ opposés ne déclenchent pas de correction fiable : le centre reste
 alors l'option la plus sûre. L'analyse locale peut coûter quelques
 secondes de FFmpeg avant le rendu selon le processeur Android.
 
+### Séquences longues : préserver les sujets qui changent de côté
+
+Une scène de **7 secondes ou plus** ne doit plus être cadrée d'après
+ses trois premières secondes uniquement. Le détecteur vérifie maintenant
+un second échantillon de **trois secondes à la fin de la scène** avant
+de déplacer le recadrage.
+
+- Si les deux fenêtres confirment un déplacement sur le **même côté**
+  avec un cadrage compatible (écart inférieur ou égal à 0,10), le studio
+  applique **un cadrage fixe moyen**, sans créer de panoramique artificiel.
+- Si deux déplacements nets apparaissent sur **les côtés opposés**,
+  aucun recadrage fixe ne peut protéger les deux sujets. Le moteur utilise
+  la vidéo complète sur son **fond flouté animé**, même lorsque le clip
+  est seulement modérément plus large que la sortie. Cela préserve les
+  deux extrémités de l'image au prix d'une image centrale plus petite.
+- Si les observations sont ambiguës, contradictoires sans preuve forte
+  ou impossibles à lire, le **recadrage centré** est conservé.
+
+Le budget reste strictement plafonné à **quatre petites lectures vidéo
+par export**, jamais plus. Une longue scène nécessite deux lectures
+distinctes ; si le budget n'est pas disponible, l'analyse est ignorée
+plutôt que d'appliquer un décentrement non vérifié.
+
+Les scénarios de régression comprennent désormais une vraie vidéo MP4
+synthétique de **9 secondes**, avec un bloc mobile passant du bord droit
+au bord gauche. Les tests décodent les MP4 issus **des deux moteurs
+d'encodage**, contrôlent les **108 images**, la visibilité du marqueur
+à deux instants et l'intégrité de la source. Il ne s'agit pas de
+reconnaissance d'athlètes ou d'un suivi par IA.
+
 Le manifeste JSON d'export indique `render_framing` pour chaque
 média : `motion-guided-horizontal-crop`, `soft-matte-full-video`,
 `soft-matte-full-image` ou `cover-center-crop`.
