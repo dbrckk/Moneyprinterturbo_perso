@@ -32,7 +32,10 @@ export function productionMode(values, requested = 'recommended') {
     // A custom script has priority over generated narration. A previously
     // saved custom script is never deleted to enable the Ollama option.
     script_mode: hasScript || requested === 'preview' ? 'template' : 'local-ai',
-    scene_queries: hasScript ? String(values.scene_queries ?? '') : '',
+    // Abstract previews cannot accept Commons search overrides. The saved
+    // form is only changed after the user selects this explicit preset.
+    scene_queries: requested === 'preview' ? '' :
+                   hasScript ? String(values.scene_queries ?? '') : '',
     voice: requested === 'preview' || lang !== 'fr' ? 'espeak' : 'piper-fr-siwis',
     visuals: requested === 'preview' ? 'abstract' : 'commons',
     visual_ai: requested === 'deep' ? 'clip' : 'off',
