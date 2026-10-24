@@ -28,7 +28,11 @@ export function productionMode(values, requested = 'recommended') {
   if (!ASPECTS.includes(values.aspect)) throw new Error('Format vidéo invalide.');
   const hasScript = typeof values.script === 'string' && values.script.trim().length > 0;
   const base = {
-    ...values,
+    // A strict key list avoids copying the GitHub token or unrelated future
+    // browser state into any draft or GitHub workflow payload.
+    topic: values.topic,
+    script: typeof values.script === 'string' ? values.script : '',
+    lang, aspect: values.aspect,
     // A custom script has priority over generated narration. A previously
     // saved custom script is never deleted to enable the Ollama option.
     script_mode: hasScript || requested === 'preview' ? 'template' : 'local-ai',
@@ -49,7 +53,5 @@ export function productionMode(values, requested = 'recommended') {
   // The exact rules are shared with the GitHub workflow dispatch. Fail now
   // instead of losing a long CPU render to invalid field combinations.
   const checked = validateDraft(base);
-  // Preserve fields that are valid for the browser but not echoed by the
-  // normalized workflow form if additional safe UI fields appear later.
-  return {...base, ...checked};
+  return checked;
 }
