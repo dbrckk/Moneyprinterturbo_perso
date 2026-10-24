@@ -301,6 +301,13 @@ jobs:
           archive: false
           retention-days: 7
           if-no-files-found: error
+      - name: Descriptions et hashtags pour publier sur Android (sans ZIP)
+        uses: actions/upload-artifact@v7
+        with:
+          path: outputs/video.publish.txt
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
       - name: Fiche des scènes et paramètres directement sur Android (sans ZIP)
         uses: actions/upload-artifact@v7
         with:
@@ -321,5 +328,6 @@ jobs:
             outputs/video.quality.json
             outputs/video.storyboard.png
             outputs/video.credits.txt
+            outputs/video.publish.txt
           retention-days: 7
           if-no-files-found: error
