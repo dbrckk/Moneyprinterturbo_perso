@@ -820,8 +820,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "exposure_shift": (asset.exposure_shift if asset.kind == "video" else None),
                                "white_balance_gains": (asset.white_balance_gains if asset.kind == "video"
                                                        else None),
-                               "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
-                                                  else "cover-center-crop"),
+                               "crop_horizontal_anchor": (asset.crop_horizontal_anchor
+                                                          if asset.kind == "video" else None),
+                               "render_framing": (
+                                   "soft-matte-full-image" if needs_soft_matte(asset)
+                                   else "soft-matte-full-video" if needs_video_soft_matte(
+                                       asset, width=width, height=height)
+                                   else "motion-guided-horizontal-crop" if asset.kind == "video"
+                                        and getattr(asset, "crop_horizontal_anchor", None) is not None
+                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
         credits_path = work / "prepared-credits.txt"
         voice_info = None
