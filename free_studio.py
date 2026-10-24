@@ -316,6 +316,62 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     return target
 
 
+# A simultaneous 720p decode + encode pair can consume several hundred MiB
+# beyond the Python process and the Android/browser UI. Use 2 workers only when
+# Linux reports enough free headroom *at the moment encoding starts*. This is
+# intentionally a conservative heuristic, not an Android low-memory guarantee.
+PARALLEL_SCENE_MIN_FREE_BYTES = 2 * 1024 ** 3
+
+
+def _available_render_memory_bytes() -> int | None:
+    """Estimate current memory headroom without extra dependencies/permissions.
+
+    Honour the lower of global MemAvailable and a readable memory cgroup's
+    remaining allocation. Both cgroup v2 and common v1 mount locations are
+    supported. If global memory is hidden, choose serial encoding rather than
+    trusting a misleading machine-wide total.
+    """
+    try:
+        info = Path("/proc/meminfo").read_text(encoding="ascii")
+        match = re.search(r"^MemAvailable:\s*(\d+)\s+kB$", info, re.MULTILINE)
+        if not match:
+            return None
+        available = int(match.group(1)) * 1024
+    except (OSError, ValueError, UnicodeError):
+        return None
+    if available <= 0:
+        return None
+    for limit_name, current_name in (
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
+         "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+    ):
+        limit_path = Path(limit_name)
+        try:
+            raw_limit = limit_path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            # The host lacks this cgroup layout.
+            continue
+        except (OSError, ValueError, UnicodeError):
+            return 0
+        if raw_limit == "max":
+            continue
+        try:
+            limit = int(raw_limit)
+            # Linux cgroup v1 uses very large pseudo-limits for "unlimited".
+            if limit >= 1 << 60:
+                continue
+            used = int(Path(current_name).read_text(encoding="ascii").strip())
+            if limit < 0 or used < 0:
+                return 0
+            available = min(available, max(0, limit - used))
+        except (OSError, ValueError, UnicodeError):
+            # A finite cgroup limit without a reliable usage value must not
+            # authorize extra parallel FFmpeg workers.
+            return 0
+    return available
+
+
 def _scene_encoding_workers(width: int, height: int, count: int) -> int:
     """Bound parallel FFmpeg intermediates to multi-scene 720p, never 1080p.
 
@@ -326,12 +382,16 @@ def _scene_encoding_workers(width: int, height: int, count: int) -> int:
         return 1
     if width * height > 720 * 1280:
         return 1
-    return min(2, os.cpu_count() or 1)
+    if (os.cpu_count() or 1) < 2:
+        return 1
+    headroom = _available_render_memory_bytes()
+    return 2 if headroom is not None and headroom >= PARALLEL_SCENE_MIN_FREE_BYTES else 1
 
 
 def encode_media_scenes(
     assets: list[MediaAsset | None], durations: list[float], work: Path,
     *, width: int, height: int, fps: int, extra_frames: tuple[int, ...],
+    stage_metrics: dict[str, float | str | int] | None = None,
 ) -> list[Path]:
     """Create independent numbered scene files, preserving input order.
 
@@ -351,6 +411,8 @@ def encode_media_scenes(
 
     indices = range(len(assets))
     workers = _scene_encoding_workers(width, height, len(assets))
+    if stage_metrics is not None:
+        stage_metrics["scene_encoding_workers"] = workers
     if workers == 1:
         return [encode(index) for index in indices]
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="mpt-scene") as executor:
@@ -360,7 +422,8 @@ def encode_media_scenes(
 def prepare_media_background(assets: list[MediaAsset | None], durations: list[float], work: Path,
                              *, width: int, height: int, fps: int,
                              transition: str = "cut",
-                             boundary_transitions: tuple[str, ...] | None = None) -> Path:
+                             boundary_transitions: tuple[str, ...] | None = None,
+                             stage_metrics: dict[str, float | str | int] | None = None) -> Path:
     """Compose CFR media clips, with optionally frame-accurate crossfades.
 
     Each crossfade is centered on the original narration/SRT boundary. The
@@ -377,7 +440,7 @@ def prepare_media_background(assets: list[MediaAsset | None], durations: list[fl
         raise ValueError("Invalid scene transition decisions")
     scenes = encode_media_scenes(
         assets, plan.durations, work, width=width, height=height, fps=fps,
-        extra_frames=plan.extra_frames,
+        extra_frames=plan.extra_frames, stage_metrics=stage_metrics,
     )
     output = work / "background.mp4"
     if len(scenes) == 1:
@@ -550,16 +613,19 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
              (resolution == 1080 and len(slots) <= 2)))
         fused = bool(not (direct_abstract or direct_media) and plan.overlap_frames > 0
                      and use_fused_xfade)
+        metrics["scene_encoding_workers"] = 0  # Single-pass paths need no intermediates.
         if fused:
             clips = encode_media_scenes(
                 slots, plan.durations, work, width=width, height=height,
                 fps=fps, extra_frames=plan.extra_frames,
+                stage_metrics=metrics,
             )
         elif not (direct_abstract or direct_media):
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps,
                 transition=applied_transition,
-                boundary_transitions=boundary_transitions)
+                boundary_transitions=boundary_transitions,
+                stage_metrics=metrics)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
@@ -617,7 +683,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             video_background = prepare_media_background(slots, durations, work,
                 width=width, height=height, fps=fps,
                 transition=applied_transition,
-                boundary_transitions=boundary_transitions)
+                boundary_transitions=boundary_transitions,
+                stage_metrics=metrics)
             metrics["scene_encoding_seconds"] = round(time.perf_counter() - retry_started, 3)
             cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video_background)]
             if audio:

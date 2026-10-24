@@ -1,0 +1,67 @@
+name: Long Local Montage Benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      resolution:
+        description: 'Synthetic output size: 360 or 720 (short side)'
+        type: choice
+        required: true
+        default: '720'
+        options: ['360', '720']
+      compare_workers:
+        description: 'Do the 1-vs-2 FFmpeg scene-worker comparison (720p only)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  long-local-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ensure FFmpeg, FFprobe and French eSpeak
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg || ! command -v ffprobe || ! command -v espeak; then
+            sudo timeout -k 10s 180s apt-get -o Acquire::Retries=2 update
+            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 420s apt-get \
+              -o Acquire::Retries=2 install -y --no-install-recommends ffmpeg espeak
+          fi
+      - name: Render six synthetic local scenes and verify audio, captions, media integrity
+        env:
+          OUTPUT_RESOLUTION: ${{ inputs.resolution }}
+          COMPARE_WORKERS: ${{ inputs.compare_workers }}
+        run: |
+          set -euo pipefail
+          args=(--resolution "$OUTPUT_RESOLUTION" --out-dir outputs/long-montage-stress)
+          if [[ "$COMPARE_WORKERS" == 'true' ]]; then args+=(--compare-workers); fi
+          python bench/long_mobile_montage.py "${args[@]}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('outputs/long-montage-stress')
+          report = json.loads((root/'long-montage-report.json').read_text(encoding='utf-8'))
+          assert report['rows']
+          assert all(row['scenes'] == 6 and row['QA'] == 'passed'
+                     and row['output_codec'] == 'h264'
+                     and row['output_pixel_format'] == 'yuv420p'
+                     and row['audio_codec'] == 'aac' for row in report['rows'])
+          assert all((root/f"finished-{row['workers']}.srt").is_file()
+                     for row in report['rows'])
+          print('Long-form FFmpeg/voice/caption QA passed')
+          PY
+      - name: Upload benchmark report and playable MP4 samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-local-montage-${{ inputs.resolution }}p
+          path: |
+            outputs/long-montage-stress/long-montage-report.json
+            outputs/long-montage-stress/finished-*.mp4
+            outputs/long-montage-stress/finished-*.srt
+            outputs/long-montage-stress/finished-*.json
+          retention-days: 7
+          if-no-files-found: error
