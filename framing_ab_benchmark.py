@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline, reviewable A/B benchmark for geometric and motion-guided video crops.
 
-All seven videos are generated locally by FFmpeg and contain NO user footage.
+All eight source videos are generated locally by FFmpeg and contain NO user footage.
 The goal is regression evidence, not a trained detector or artistic-quality
 score. A GitHub-hosted run measures a GitHub machine, never a phone.
 """
@@ -190,6 +190,9 @@ def render_report(metrics: dict[str, object]) -> str:
             ' · obtenu : ' + escape(case["applied"]) +
             ' · proportion rouge visible A : ' + escape(case["center_red_fraction"]) +
             ' · B : ' + escape(case["guided_red_fraction"]) +
+            (' · fin A : ' + escape(case["late_center_red_fraction"]) +
+             ' · fin B : ' + escape(case["late_guided_red_fraction"]) if
+             case.get("late_center_red_fraction") is not None else '') +
             '</p><div class="pair">' + ''.join(videos) + '</div></section>')
     css = """
     body{background:#101624;color:#f8fafc;font:16px system-ui,sans-serif;
@@ -209,9 +212,9 @@ def render_report(metrics: dict[str, object]) -> str:
             ' media-src &#39;self&#39;;">'
             '<title>MoneyPrinter — A/B cadrage réel</title><style>' + css +
             '</style></head><body><h1>Comparaison A/B du cadrage</h1>'
-            '<p>Sept séquences <strong>synthétiques</strong> avec contenus '
+            '<p>Huit séquences <strong>synthétiques</strong> avec contenus '
             'connus : mouvement sportif latéral, caméra mobile, deux sujets, '
-            'faible lumière, lumière clignotante et panorama. '
+            'faible lumière, lumière clignotante, panorama et déplacement de bord à bord sur neuf secondes. '
             'Deux vrais MP4 par cas. La mesure rouge porte sur des marqueurs '
             'de test et n’est <strong>ni une métrique de qualité artistique '
             'ni une précision sur des personnes réelles</strong>. '
