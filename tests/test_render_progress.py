@@ -111,8 +111,13 @@ class ProgressSidecarTests(unittest.TestCase):
                     time.sleep(.04)
                 self.assertTrue(seen, "HTTP job polling never observed actual child status")
                 self.assertEqual(jobs.get(ident)["status"], "done", jobs.get(ident))
-                self.assertIsNone(jobs.get(ident)["progress"])
+                # `done` is published before the worker's general finally
+                # cleanup. Join that worker before testing scratch removal.
+                # The stage file itself must already be absent at `done`.
                 self.assertFalse((jobs.output_dir / ident / PROGRESS_NAME).exists())
+                self.assertIsNone(jobs.get(ident)["progress"])
+                jobs.worker_thread.join(timeout=5)
+                self.assertFalse(jobs.worker_thread.is_alive())
                 self.assertFalse((jobs.output_dir / ident / ".render-scratch").exists())
                 self.assertTrue((jobs.output_dir / ident / "video.mp4").exists())
 
