@@ -28,7 +28,8 @@ from xfade_final import final_xfade_command
 from fast_abstract import build_onepass_abstract_command
 from fast_media import build_onepass_media_command
 from encoder_profiles import ENCODER_PROFILES, resolve_encoder_profile, mobile_h264_threads
-from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
+from scene_framing import (needs_soft_matte, needs_video_soft_matte,
+                           soft_matte_graph, video_soft_matte_graph, photo_zoom_filter)
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
@@ -293,6 +294,13 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
     if needs_soft_matte(asset):
         graph = soft_matte_graph(0, width=width, height=height, fps=fps,
                                  frames=frames, prefix=f"legacy{index}", output_name="framed")
+        cmd += ["-an", "-filter_complex_threads", "1",
+                "-filter_complex", ";".join(graph), "-map", "[framed]"]
+    elif needs_video_soft_matte(asset, width=width, height=height):
+        graph = video_soft_matte_graph(
+            0, width=width, height=height, fps=fps,
+            prefix=f"legacyvideo{index}", output_name="framed",
+            color_filters=f"{exposure_filter(asset)}{white_balance_suffix(asset)}")
         cmd += ["-an", "-filter_complex_threads", "1",
                 "-filter_complex", ";".join(graph), "-map", "[framed]"]
     else:

@@ -368,6 +368,39 @@ La logique est identique dans le moteur rapide et le moteur classique,
 y compris pour les images additionnelles de chevauchement des transitions.
 Les originaux, sous-titres, fréquences d'images et codecs sont préservés.
 
+## Cadrage complet des vidéos panoramiques du téléphone
+
+Lorsqu'une vidéo locale est beaucoup plus large ou plus haute que le format
+de sortie, un recadrage centré peut éliminer la majeure partie du contenu.
+Par exemple, un plan paysage **16:9** au milieu d'un montage **9:16**
+ne conserverait normalement qu'environ **32 %** de l'image d'origine.
+
+Le studio peut désormais conserver **l'intégralité des images vidéo**
+dans un premier plan non recadré, posé sur un **fond flouté animé**
+issu de la même vidéo. Ce cadrage s'active seulement quand la géométrie
+indique que moins de **40 %** de la surface source serait conservée.
+
+- Les dimensions affichées proviennent du FFprobe **déjà utilisé lors de
+  l'import** : la rotation vidéo de 90°/270° est respectée pour éviter de
+  traiter à tort un film portrait comme un paysage. Aucun décodage
+  supplémentaire n'est lancé.
+- Un unique flux vidéo est normalisé à la cadence cible **avant** d'être
+  partagé entre le premier plan et le fond : pas de décalage ni de
+  congélation causée par le zoom des photographies.
+- Le flou est calculé sur un fond réduit avant l'agrandissement, ce qui
+  limite les ressources demandées à FFmpeg sur Android.
+- Les vidéos presque au bon format, les dimensions non fiables et les
+  photos panoramiques conservent leur stratégie de cadrage précédente.
+  Ce choix repose sur le **ratio géométrique**, pas sur une analyse de
+  visages ou du sujet présent à l'écran.
+
+La correction fonctionne avec le montage direct à un seul encodage et
+la préparation des scènes du moteur classique. Elle conserve les
+transitions, les sous-titres, l'audio de narration et les sources originales.
+Elle n'ajoute aucun service payant. Le fond flouté est un compromis visuel
+volontaire : il évite de couper les côtés, mais donne une image centrale
+moins grande qu'un cadrage pleine largeur.
+
 ## Transitions intelligentes entre plans locaux
 
 Le mode `--transition auto` (style cinématique) décide maintenant

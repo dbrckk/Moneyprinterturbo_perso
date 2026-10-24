@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Protocol
 
 from cinematic import gradient_source, transition_plan, xfade_transition_spec
-from scene_framing import needs_soft_matte, soft_matte_graph, photo_zoom_filter
+from scene_framing import (needs_soft_matte, needs_video_soft_matte,
+                           soft_matte_graph, video_soft_matte_graph, photo_zoom_filter)
 from video_timeline import source_seek_seconds
 from exposure_match import exposure_filter
 from white_balance import white_balance_suffix
@@ -91,6 +92,14 @@ def build_onepass_media_command(
             graph.extend(soft_matte_graph(i, width=width, height=height,
                 fps=fps, frames=frames, prefix=f"soft{i}", output_name=f"s{i}",
                 tail_filters=frame_tail))
+        elif needs_video_soft_matte(asset, width=width, height=height):
+            # Preserve both horizontal edges of actual footage instead of
+            # turning a landscape shot into an arbitrary middle-only crop.
+            # Both matte branches share the exact CFR clock of the source.
+            graph.extend(video_soft_matte_graph(
+                i, width=width, height=height, fps=fps, prefix=f"vid{i}",
+                output_name=f"s{i}", tail_filters=frame_tail,
+                color_filters=f"{exposure_filter(asset)}{white_balance_suffix(asset)}"))
         else:
             graph.append(f"[{i}:v]{effect},{frame_tail}[s{i}]")
     if audio is not None:
