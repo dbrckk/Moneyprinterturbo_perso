@@ -151,6 +151,33 @@
   function statusLabel(status) {
     return {queued: 'EN FILE', running: 'RENDU EN COURS', done: 'TERMINÉ', error: 'ÉCHEC', cancelled: 'ANNULÉ'}[status] || 'EN ATTENTE';
   }
+  const renderStageNames = Object.freeze({
+    voice: 'Préparation de la voix et des sous-titres',
+    assets: 'Analyse et sélection des médias',
+    scenes: 'Préparation des scènes et des transitions',
+    encode: 'Encodage de la vidéo MP4',
+    review: 'Vérification du montage terminé',
+    publish: 'Finalisation des fichiers exportés'
+  });
+  function displayRenderProgress(job) {
+    const panel = $('render-stage-panel');
+    const progress = job.status === 'running' ? job.progress : null;
+    const valid = progress && Object.hasOwn(renderStageNames, progress.stage) &&
+      Number.isInteger(progress.step) && progress.step >= 1 && progress.step <= 6 &&
+      progress.steps === 6 && Number.isInteger(progress.elapsed_seconds) &&
+      progress.elapsed_seconds >= 0;
+    panel.classList.toggle('hidden', !valid);
+    if (!valid) return '';
+    // Each segment denotes a *completed stage*, not a percentage of render
+    // time. Encode and media analysis can take much longer than other stages.
+    const completed = progress.step - 1;
+    $('render-stage-label').textContent = `Étape ${progress.step}/6 · ${renderStageNames[progress.stage]}`;
+    const minutes = Math.floor(progress.elapsed_seconds / 60);
+    const seconds = String(progress.elapsed_seconds % 60).padStart(2, '0');
+    $('render-stage-time').textContent = `${minutes}:${seconds} écoulées`;
+    $('render-stage-bar').value = completed;
+    return `Étape ${progress.step}/6 : ${renderStageNames[progress.stage]}.`;
+  }
   function releaseVideo() {
     const player = $('video');
     player.onerror = null;
@@ -203,6 +230,7 @@
     $('cancel-row').classList.toggle('hidden', !['queued', 'running'].includes(job.status));
     $('downloads').classList.toggle('hidden', job.status !== 'done');
     $('credits').classList.toggle('hidden', !job.has_credits);
+    const stageNotice = displayRenderProgress(job);
     if (job.status === 'done') {
       $('job-notice').textContent = `Vidéo terminée · ${job.duration_seconds ?? '?'} secondes · ${job.visual_mode || 'vidéo'}. ${job.warnings?.length ? job.warnings.length + ' avertissement(s) sur les médias.' : ''}`;
       if (lastStatus !== 'done') await loadVideo(id);
@@ -211,7 +239,8 @@
     } else if (job.status === 'cancelled') {
       $('job-notice').textContent = 'Ce rendu a été annulé.';
     } else {
-      $('job-notice').textContent = job.status === 'queued' ? 'Projet ajouté à la file d’attente…' : 'Montage vidéo en cours sur votre machine. Le résultat sera affiché ici.';
+      $('job-notice').textContent = job.status === 'queued' ? 'Projet ajouté à la file d’attente…' :
+        (stageNotice || 'Montage vidéo en cours sur votre machine. Le résultat sera affiché ici.');
     }
     // A slow authenticated Blob response must never change the state of a
     // newer project selected while the previous video was still loading.
@@ -228,6 +257,7 @@
     currentId = id;
     releaseVideo();
     lastStatus = '';
+    $('render-stage-panel').classList.add('hidden');
     $('downloads').classList.add('hidden');
     $('video').classList.add('hidden');
     $('placeholder').classList.remove('hidden');

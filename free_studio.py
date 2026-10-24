@@ -21,6 +21,9 @@ import textwrap
 import time
 import wave
 from urllib import request
+from typing import Callable
+
+from render_progress import ProgressReporter
 
 from media_assets import MediaAsset, commons_scene_assets, local_assets, scene_search_queries
 from cinematic import build_filters, gradient_source, transition_plan, xfade_transition_spec
@@ -487,7 +490,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
            caption_style: str = "kinetic", word_alignment: str = "estimated",
            use_fused_xfade: bool = True, use_media_onepass: bool = True,
            visual_ai: str = "off", script_mode: str | None = None,
-           encoder_profile: str = "balanced") -> dict[str, object]:
+           encoder_profile: str = "balanced",
+           progress_callback: Callable[[str], None] | None = None) -> dict[str, object]:
     if not isinstance(encoder_profile, str) or encoder_profile not in ENCODER_PROFILES:
         raise ValueError("Unsupported H.264 encoder profile")
     check_program("ffmpeg")
@@ -524,6 +528,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     diagnostics: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="mpt-free-") as tmp:
         work = Path(tmp)
+        if progress_callback:
+            progress_callback("voice")
         stage_started = time.perf_counter()
         durations, audio = make_audio(sentences, lang, work, mute=mute,
                                       tts=tts, piper_model=piper_model,
@@ -549,6 +555,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["final_encoder_crf"] = chosen_encoder.crf
         if chosen_encoder.fallback_reason:
             warnings.append(chosen_encoder.fallback_reason)
+        if progress_callback:
+            progress_callback("assets")
         stage_started = time.perf_counter()
         slots: list[MediaAsset | None] = [None] * len(sentences)
         queries: list[str] | None = None
@@ -595,6 +603,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             metrics["commons_wall_seconds"] = float(commons_stats.get("wall_seconds", 0))
             metrics["commons_api_seconds_sum"] = float(commons_stats.get("api_seconds_sum", 0))
             metrics["commons_download_seconds_sum"] = float(commons_stats.get("download_seconds_sum", 0))
+        if progress_callback:
+            progress_callback("scenes")
         stage_started = time.perf_counter()
         # For small graphic-only storyboards, generate all moving backgrounds,
         # crossfades, text and subtitles in the FINAL FFmpeg graph. No temporary
@@ -627,6 +637,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 boundary_transitions=boundary_transitions,
                 stage_metrics=metrics)
         metrics["scene_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
+        if progress_callback:
+            progress_callback("encode")
         stage_started = time.perf_counter()
         filters = build_filters(segments, slots, work, width=width,
                                 height=height, total=total, style=visual_style)
@@ -709,6 +721,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["final_encoding_seconds"] = round(time.perf_counter() - stage_started, 3)
         if not staged.is_file() or staged.stat().st_size < 1000:
             raise RuntimeError("Video output missing or truncated")
+        if progress_callback:
+            progress_callback("review")
         # Inspect actual encoded scene boundaries, not only source previews.
         # Restrict this optional on-device work to multi-scene local footage.
         # No visual heuristic can reject an otherwise valid MP4.
@@ -845,6 +859,8 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                 warnings.append("Final encoded visual review unavailable; MP4 kept unchanged")
             metrics["final_visual_review_seconds"] = round(
                 time.perf_counter() - review_start, 3)
+        if progress_callback:
+            progress_callback("publish")
         # Prepare every final artifact before changing anything in the public
         # output folder. Failures must not leave a new MP4 with old subtitles
         # or credits from a different render.
@@ -1030,7 +1046,9 @@ def main(argv: list[str] | None = None) -> int:
                       tts=args.tts, piper_model=args.piper_model, speech_rate=args.speech_rate,
                       visual_style=args.visual_style, transition=args.transition,
                       caption_style=args.caption_style, word_alignment=args.word_alignment,
-                      script_mode=mode, encoder_profile=args.encoder_profile)
+                      script_mode=mode, encoder_profile=args.encoder_profile,
+                      progress_callback=(ProgressReporter(args.output.expanduser().resolve().parent).emit
+                                         if os.getenv("MPT_STUDIO_PROGRESS") == "1" else None))
         # The manifest was staged and published alongside the MP4 by render().
         # Do not perform a second unguarded post-publication write.
         print(json.dumps(info, ensure_ascii=False, indent=2))

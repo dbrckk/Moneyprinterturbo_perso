@@ -31,6 +31,7 @@ from capture_order import order_media_by_capture
 
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 from encoder_profiles import ENCODER_PROFILES
+from render_progress import PROGRESS_NAME, read_progress
 from studio_calibration import LocalCalibration, CALIBRATION_FPS
 
 ROOT = Path(__file__).resolve().parent
@@ -642,10 +643,11 @@ class Jobs:
             shutil.rmtree(directory)
             return True
 
-    @staticmethod
-    def public(job: dict) -> dict:
+    def public(self, job: dict) -> dict:
         metadata = job["metadata"] or {}
-        return {"id": job["id"], "status": job["status"], "created": job["created"],
+        progress = (read_progress(self.output_dir / job["id"] / PROGRESS_NAME)
+                    if job["status"] == "running" else None)
+        return {"progress": progress,"id": job["id"], "status": job["status"], "created": job["created"],
                 "finished": job["finished"], "error": job["error"],
                 "topic": job["parameters"]["topic"], "resolution": job["parameters"]["resolution"],
                 "duration_seconds": metadata.get("duration_seconds"), "visual_mode": metadata.get("visual_mode"),
@@ -778,6 +780,8 @@ class Jobs:
                 scratch.mkdir(mode=0o700, exist_ok=True)
                 render_env = os.environ.copy()
                 render_env["TMPDIR"] = str(scratch)
+                render_env["MPT_STUDIO_PROGRESS"] = "1"
+                (dest / PROGRESS_NAME).unlink(missing_ok=True)
                 (dest / "script.txt").write_text(queued["parameters"]["script"], encoding="utf-8")
                 with (dest / "render.log").open("wb") as log:
                     proc = subprocess.Popen(self._arguments(queued, dest), cwd=ROOT,
@@ -850,6 +854,7 @@ class Jobs:
                 # touch user-imported media or other jobs' completed exports.
                 if scratch.is_dir() and not scratch.is_symlink():
                     shutil.rmtree(scratch, ignore_errors=True)
+                (dest / PROGRESS_NAME).unlink(missing_ok=True)
                 with self.lock:
                     queued["finished"] = int(time.time())
                     self._checkpoint(queued)

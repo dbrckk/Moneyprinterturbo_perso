@@ -8,7 +8,8 @@ const source = readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
 const A = 'a'.repeat(32);
 const B = 'b'.repeat(32);
 
-async function createApp({ authToken = '', slowBlob = false } = {}) {
+async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
+                           jobProgress = null } = {}) {
   const elements = new Map();
   const calls = [];
   const blobCalls = [];
@@ -17,15 +18,25 @@ async function createApp({ authToken = '', slowBlob = false } = {}) {
   const links = [];
   let resolveSlowBlob;
   const history = { jobs: [
-    { id: A, topic: 'Video A', status: 'done' },
-    { id: B, topic: 'Video B', status: 'done' },
+    { id: A, topic: 'Video A', status: jobStatus },
+    { id: B, topic: 'Video B', status: jobStatus },
   ] };
   class Element {
     constructor(id = '') {
       this.id = id;
       this.listeners = new Map();
       this.children = [];
-      this.classList = { add() {}, remove() {}, toggle() {} };
+      this.classes = new Set();
+      this.classList = {
+        add: name => this.classes.add(name),
+        remove: name => this.classes.delete(name),
+        contains: name => this.classes.has(name),
+        toggle: (name, forced) => {
+          if (forced === undefined ? !this.classes.has(name) : forced)
+            this.classes.add(name);
+          else this.classes.delete(name);
+        },
+      };
       this.dataset = {};
       this.value = '';
       this.textContent = '';
@@ -63,8 +74,9 @@ async function createApp({ authToken = '', slowBlob = false } = {}) {
       reclaimable_bytes: 0, reclaimable_count: 0, abandoned_bytes: 0,
       batches: [], batch_count: 0 };
     else if (url === `/api/jobs/${A}` || url === `/api/jobs/${B}`) payload = {
-      id: url.endsWith(A) ? A : B, status: 'done', duration_seconds: 12,
+      id: url.endsWith(A) ? A : B, status: jobStatus, duration_seconds: 12,
       visual_mode: 'local', has_credits: false, warnings: [],
+      progress: jobProgress,
     };
     else if (url === `/api/jobs/${A}/video.mp4` || url === `/api/jobs/${B}/video.mp4`) {
       return { ok: true, status: 200, json: async () => {}, blob: async () => {
@@ -174,4 +186,48 @@ test('pagehide releases native player and object URLs', async () => {
   app.listeners.get('pagehide')();
   assert.equal(app.element('video').src, '');
   assert.deepEqual(app.revoked, ['blob:test-0']);
+});
+
+
+test('running render reports actual stage, elapsed time and completed stages', async () => {
+  const app = await createApp({ jobStatus: 'running', jobProgress: {
+    stage: 'encode', step: 4, steps: 6, elapsed_seconds: 167,
+  }});
+  await app.select(A);
+  assert.equal(app.element('render-stage-panel').classList.contains('hidden'), false);
+  assert.equal(app.element('render-stage-bar').value, 3);
+  assert.equal(app.element('render-stage-time').textContent, '2:47 écoulées');
+  assert.match(app.element('render-stage-label').textContent, /Étape 4\/6.*Encodage/);
+  assert.match(app.element('job-notice').textContent, /Étape 4\/6/);
+  assert.equal(app.blobCalls.length, 0);
+});
+
+test('first stage does not imply 1/6 of elapsed encoding is complete', async () => {
+  const app = await createApp({ jobStatus: 'running', jobProgress: {
+    stage: 'voice', step: 1, steps: 6, elapsed_seconds: 2,
+  }});
+  await app.select(A);
+  assert.equal(app.element('render-stage-bar').value, 0);
+  assert.match(app.element('render-stage-label').textContent, /Étape 1\/6/);
+});
+
+test('unsafe or missing stage data never enters the render UI', async () => {
+  for (const progress of [null, {stage: '<img onerror=alert(1)>', step: 1, steps: 6,
+                                   elapsed_seconds: 2},
+                          {stage: 'publish', step: 7, steps: 6, elapsed_seconds: 2}]) {
+    const app = await createApp({ jobStatus: 'running', jobProgress: progress });
+    await app.select(A);
+    assert.equal(app.element('render-stage-panel').classList.contains('hidden'), true);
+    assert.match(app.element('job-notice').textContent, /Montage vidéo en cours/);
+  }
+});
+
+test('completed project hides stale stage UI and shows normal MP4 preview', async () => {
+  const app = await createApp({ jobStatus: 'done', jobProgress: {
+    stage: 'encode', step: 4, steps: 6, elapsed_seconds: 600,
+  }});
+  await app.select(A);
+  assert.equal(app.element('render-stage-panel').classList.contains('hidden'), true);
+  assert.equal(app.element('video').src, `/api/jobs/${A}/video.mp4`);
+  assert.match(app.element('job-notice').textContent, /Vidéo terminée/);
 });

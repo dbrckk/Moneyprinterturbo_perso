@@ -21,3 +21,12 @@
 .media-upload-progress::-webkit-progress-bar{background:#1d2b3d;border-radius:999px}
 .media-upload-progress::-webkit-progress-value{background:linear-gradient(90deg,#a6e9b7,#7bd6ce);border-radius:999px}
 .media-upload-progress::-moz-progress-bar{background:#a6e9b7;border-radius:999px}
+
+/* Honest non-linear render stages: bar tracks finished stages, not ETA. */
+.render-stage-panel{border:1px solid #a2eab22d;border-radius:10px;background:#88e6b208;padding:14px 15px;margin:0 0 16px}
+.render-stage-summary{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:#d6e8da}
+.render-stage-summary strong{font-weight:700}
+.render-stage-summary span{white-space:nowrap;color:#b8c7d7;font-variant-numeric:tabular-nums}
+.render-stage-panel progress{display:block;width:100%;height:8px;margin:11px 0 8px;accent-color:#a5eab5}
+.render-stage-panel p{margin:0;color:#91a1b3;font-size:10px;line-height:1.5}
+@media(max-width:560px){.render-stage-summary{align-items:flex-start;font-size:11px}.render-stage-summary strong{max-width:75%}}
