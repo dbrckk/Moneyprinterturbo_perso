@@ -271,11 +271,38 @@ class Jobs:
                 # different ownership or metadata layout.
                 if state_file.exists() and record["status"] != data["status"]:
                     self._checkpoint(record)
+                # No renderer from the previous server instance can still be
+                # supervised here. After checkpointing recovery, remove only
+                # its private scratch and progress status. Never touch MP4,
+                # SRT, manifest, source uploads or a symlinked scratch folder.
+                if record["status"] in ("done", "error", "cancelled"):
+                    self._reclaim_orphan_render_scratch(folder)
                 recovered.append(record)
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
         for job in sorted(recovered, key=lambda item: (item["created"], item["id"]))[-MAX_JOBS:]:
             self.jobs[job["id"]] = job
+
+    @staticmethod
+    def _reclaim_orphan_render_scratch(folder: Path) -> None:
+        """Bound startup cleanup to private files in a recovered job folder.
+
+        Do not follow a symlink out of the job, even if an interrupted render
+        left one behind. Ignore cleanup errors so a full/readonly filesystem
+        never prevents the user from seeing previously completed exports.
+        """
+        scratch = folder / ".render-scratch"
+        try:
+            if scratch.is_dir() and not scratch.is_symlink():
+                shutil.rmtree(scratch)
+        except OSError:
+            pass
+        progress = folder / PROGRESS_NAME
+        try:
+            if progress.is_file() or progress.is_symlink():
+                progress.unlink()
+        except OSError:
+            pass
 
     @staticmethod
     def _recover_published_bundle(folder: Path) -> dict | None:

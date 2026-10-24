@@ -188,8 +188,13 @@ Les vidéos d'origine importées et les exports déjà achevés ne sont pas
 supprimés. Arrêter normalement le serveur avec **Ctrl+C** ou un signal
 **SIGTERM** déclenche la même séquence d'arrêt pour les projets encore actifs.
 Une fermeture forcée de toute l'application Android par le système (SIGKILL)
-ne laisse pas à Python l'occasion d'effectuer ces nettoyages : ce cas
-nécessite une vérification du stockage après redémarrage.
+ne laisse pas à Python l'occasion d'effectuer ces nettoyages immédiatement.
+Au redémarrage, le serveur récupère les projets connus et supprime leurs
+anciens fichiers temporaires **uniquement dans** `.render-scratch`, ainsi que
+leur indicateur d'étape devenu obsolète. Il ne supprime ni les médias importés,
+ni les MP4 exportés, ni les scripts conservés, et ne suit pas les liens
+symboliques vers des dossiers extérieurs. Les fichiers temporaires de projets
+inconnus ne sont pas supprimés automatiquement.
 
 ## Récupération des projets après fermeture de Termux
 
