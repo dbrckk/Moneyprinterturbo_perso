@@ -8,6 +8,7 @@ score. A GitHub-hosted run measures a GitHub machine, never a phone.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from dataclasses import replace
 import html
 import json
@@ -58,7 +59,9 @@ def synthetic_video(name: str, destination: Path) -> None:
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
     base = ("testsrc2" if name == "global-camera-motion" else
             "color=c=0x090909" if name == "dark-night" else "color=c=gray")
-    cmd += ["-f", "lavfi", "-i", f"{base}:s={size}:r={FPS}:d=3"]
+    source_filter = (f"testsrc2=s={size}:r={FPS}:d=3" if name == "global-camera-motion"
+                     else f"{base}:s={size}:r={FPS}:d=3")
+    cmd += ["-f", "lavfi", "-i", source_filter]
     overlay = None
     if name in ("sport-right", "sport-left", "dark-night", "two-athletes",
                 "panoramic", "blinking-sign"):
@@ -229,6 +232,7 @@ def run_benchmark(output: Path) -> dict:
         for name, title, expected, sw, sh in CASES:
             source = work / f"{name}.mp4"
             synthetic_video(name, source)
+            source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
             asset = MediaAsset(
                 file=source, kind="video", source_url="local",
                 license="generated-synthetic", author="benchmark",
@@ -262,7 +266,7 @@ def run_benchmark(output: Path) -> dict:
                 "center_red_fraction": red_coverage(staged / relative_center),
                 "guided_red_fraction": red_coverage(staged / relative_guided),
                 "encode_wall_seconds": {"center": timings[0], "guided": timings[1]},
-                "source_intact": source.is_file() and source.stat().st_size > 1800,
+                "source_intact": hashlib.sha256(source.read_bytes()).hexdigest() == source_digest,
                 "notes": notes,
             }
             row["passes_expected_guard"] = expected_guard(row)
