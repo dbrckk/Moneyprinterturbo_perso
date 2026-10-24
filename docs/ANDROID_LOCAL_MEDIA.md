@@ -455,6 +455,46 @@ Lorsqu'un décentrement est appliqué, `crop_horizontal_anchor`
 indique sa position (0 = tout à gauche, 0,5 = centre, 1 = tout à
 droite). Les profils d'encodage H.264 ne sont pas modifiés.
 
+## Audit A/B du cadrage avec sept vidéos reproductibles
+
+Le script autonome et facultatif `framing_ab_benchmark.py` compare
+**le recadrage centré et la décision automatique** sur **sept scènes
+synthétiques**. Il produit 14 vrais MP4 H.264, des mesures JSON et
+un rapport HTML autonome à ouvrir sur Android :
+
+```bash
+python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
+```
+
+Les scènes couvrent : déplacement à droite et à gauche (sport simulé),
+mouvement de caméra global, deux sujets mobiles, faible éclairage,
+enseigne lumineuse qui clignote sans bouger, et panorama très large.
+Chaque export est limité à 2,5 secondes, 360 × 640 pixels et 12 images/s.
+
+L'audit compare la **surface réellement visible d'un marqueur rouge
+synthétique** après décodage de chaque MP4. Cela permet de vérifier
+objectivement que la correction récupère un élément préalablement coupé.
+Le benchmark contrôle aussi le codec, la durée en images et l'intégrité
+SHA-256 des sources de test. Les cas difficiles doivent conserver leur
+cadrage central. Les panoramas gardent le rendu vidéo sur fond flouté.
+
+**Correction de faux positif :** une enseigne fixe qui clignote sur un
+côté génère des changements de luminosité mais pas de déplacement.
+L'analyseur exige désormais que la zone où se produisent les changements
+se déplace réellement d'au moins **trois pixels sur les miniatures
+120 pixels**. En l'absence de cette preuve, le moteur conserve le centre.
+
+Un workflow **Offline Framing A/B** permet aussi de produire ces
+fichiers sur GitHub Actions, sans PC. Le rapport mobile, les MP4
+avant/après et `metrics.json` sont téléchargeables comme artefacts
+du workflow. GitHub mesure la performance de son propre serveur,
+**pas** celle du Redmi ni sa consommation de batterie.
+
+Le nombre de cas vérifiés constitue une **régression de test
+synthétique, pas un score d'intelligence visuelle ni une précision
+sur des vidéos réelles**. Aucun visage, objet ou activité sportive
+n'est reconnu sémantiquement ; la décision reste heuristique.
+
 ## Transitions intelligentes entre plans locaux
 
 Le mode `--transition auto` (style cinématique) décide maintenant
