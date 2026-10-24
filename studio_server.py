@@ -902,7 +902,15 @@ class Jobs:
                     return
                 queued["status"] = "running"
                 ident = queued["id"]
-                self._checkpoint(queued)
+                try:
+                    self._checkpoint(queued)
+                except OSError:
+                    # A full or read-only Android volume must not kill the
+                    # only worker and strand every later queued project.
+                    queued["status"] = "error"
+                    queued["error"] = "Stockage indisponible pour enregistrer le rendu"
+                    queued["finished"] = int(time.time())
+                    continue
             dest = self.output_dir / ident
             # Isolate FFmpeg/TTS intermediates inside the current job. If an
             # Android SIGKILL interrupts TemporaryDirectory's normal cleanup,
