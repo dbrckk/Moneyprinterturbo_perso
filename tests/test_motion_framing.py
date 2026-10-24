@@ -219,8 +219,10 @@ class RealMotionFramingTests(unittest.TestCase):
             audio=None, output=target, total=3.0)
         ffmpeg(*command[1:])
         info = video_qa.probe(target)
-        self.assertEqual(info["video"]["codec_name"], "h264")
-        self.assertEqual(info["video"]["pix_fmt"], "yuv420p")
+        video = next(stream for stream in info["streams"]
+                     if stream["codec_type"] == "video")
+        self.assertEqual(video["codec_name"], "h264")
+        self.assertEqual(video["pix_fmt"], "yuv420p")
         return command
 
     def test_real_right_side_activity_recovered_in_both_encode_paths(self):
