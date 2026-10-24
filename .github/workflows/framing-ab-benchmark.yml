@@ -12,6 +12,7 @@ on:
       - scene_framing.py
       - tests/test_framing_ab_benchmark.py
       - tests/test_motion_framing.py
+      - tests/test_long_motion_framing.py
       - .github/workflows/framing-ab-benchmark.yml
   push:
     branches: [main]
@@ -46,11 +47,13 @@ jobs:
           ffmpeg -hide_banner -version | head -1
           ffprobe -hide_banner -version | head -1
       - name: Compile framing benchmark and production analyzer
-        run: python -m compileall -q framing_ab_benchmark.py motion_framing.py tests/test_framing_ab_benchmark.py tests/test_motion_framing.py
+        run: python -m compileall -q framing_ab_benchmark.py motion_framing.py tests/test_framing_ab_benchmark.py tests/test_motion_framing.py tests/test_long_motion_framing.py
       - name: Test real video and adversarial policy cases
         run: python -m unittest discover -s tests -p 'test_framing_ab_benchmark.py' -v
       - name: Test production framing contract and existing render integration
         run: python -m unittest discover -s tests -p 'test_motion_framing.py' -v
+      - name: Test nine-second opposite-edge subject movement end to end
+        run: python -m unittest discover -s tests -p 'test_long_motion_framing.py' -v
       - name: Generate seven reproducible real MP4 A/B pairs
         run: python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
       - name: Check source preservation, real MP4s and explicit benchmark decisions

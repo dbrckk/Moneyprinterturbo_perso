@@ -26,7 +26,10 @@ def needs_video_soft_matte(asset: object, *, width: int, height: int) -> bool:
     Source dimensions have already been verified during the normal asset
     import: no extra FFprobe invocation or analysis pass is required.
     Unknown dimensions fail closed to the existing center-crop behavior.
-    This heuristic only measures geometry, never guesses subject location.
+    A second, explicit opt-in is possible for moderate landscape video when
+    two independent windows of the SAME long local clip show dominant motion
+    at opposite edges. This ensures both edges survive without guessing an
+    interpolated pan path. No semantic/face recognition is used.
     """
     if getattr(asset, "kind", None) != "video":
         return False
@@ -42,7 +45,11 @@ def needs_video_soft_matte(asset: object, *, width: int, height: int) -> bool:
     destination_aspect = width / height
     retention = min(source_aspect / destination_aspect,
                     destination_aspect / source_aspect)
-    return retention < 0.40
+    opposite_edge_motion = (
+        getattr(asset, "preserve_full_video_frame", False) is True
+        and getattr(asset, "source_url", None) == "local"
+        and 0.40 <= retention <= 0.85)
+    return retention < 0.40 or opposite_edge_motion
 
 
 def video_soft_matte_graph(

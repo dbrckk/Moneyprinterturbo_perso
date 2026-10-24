@@ -193,6 +193,108 @@ class MotionFramingUnitTests(unittest.TestCase):
         self.assertEqual(len(calls), 5)
         self.assertTrue(all(s.crop_horizontal_anchor == .8 for s in repeated))
 
+    def test_long_scene_checks_late_motion_and_preserves_opposite_edges(self):
+        asset = source_asset()
+        calls = []
+        def opposite(path, **options):
+            calls.append(options)
+            return .82 if options["seek"] < 4 else .18
+        chosen, messages = framing.plan_motion_crops(
+            [asset], [9.0], width=360, height=640, probe=opposite)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([round(v["seek"], 1) for v in calls], [0., 6.])
+        self.assertIsNone(chosen[0].crop_horizontal_anchor)
+        self.assertTrue(chosen[0].preserve_full_video_frame)
+        self.assertTrue(framing.needs_video_soft_matte(
+            chosen[0], width=360, height=640))
+        self.assertIn("Preserved full video frame", messages[0])
+        self.assertFalse(asset.preserve_full_video_frame)
+        self.assertEqual(framing.crop_filter(chosen[0], width=360, height=640),
+                         "crop=360:640")
+        # Opposite-edge protection cannot be forged from a non-local file.
+        self.assertFalse(framing.needs_video_soft_matte(
+            replace(chosen[0], source_url="commons"),
+            width=360, height=640))
+
+    def test_consistent_long_scene_uses_one_fixed_verified_crop(self):
+        asset = source_asset(seek=2.)
+        calls = []
+        def consistent(path, **options):
+            calls.append(options)
+            return .82 if options["seek"] < 6 else .78
+        selected, info = framing.plan_motion_crops(
+            [asset] * 3, [9.0] * 3, width=360, height=640,
+            probe=consistent)
+        self.assertEqual(len(calls), 2, "Repeated identical scenes reuse both reads")
+        self.assertEqual([round(v["seek"], 2) for v in calls], [2., 8.])
+        self.assertEqual([a.crop_horizontal_anchor for a in selected],
+                         [.8, .8, .8])
+        self.assertFalse(any(a.preserve_full_video_frame for a in selected))
+        self.assertTrue(any("Confirmed start/end" in s for s in info))
+        self.assertEqual(asset.crop_horizontal_anchor, None)
+        self.assertEqual(framing.crop_filter(selected[0], width=360, height=640),
+                         "crop=360:640:x=(in_w-out_w)*0.8000:y=(in_h-out_h)/2")
+
+    def test_missing_or_incompatible_late_motion_fails_closed(self):
+        asset = source_asset()
+        for late in (None, float("nan"), True, .03, .99, .60, .35):
+            calls = []
+            def probe(path, **kwargs):
+                calls.append(kwargs)
+                return .82 if len(calls) == 1 else late
+            with self.subTest(late=late):
+                selected, messages = framing.plan_motion_crops(
+                    [asset], [9.0], width=360, height=640, probe=probe)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(selected[0], asset)
+                self.assertEqual(messages, [])
+        # A slight side-change is not strong evidence for the full-frame mode.
+        first, _ = framing.plan_motion_crops(
+            [asset], [9.0], width=360, height=640,
+            probe=lambda p, **kw: .60 if kw["seek"] < 3 else .40)
+        self.assertEqual(first[0], asset)
+        calls = []
+        def boom(path, **kw):
+            calls.append(kw)
+            if len(calls) == 2:
+                raise OSError("probe disconnected")
+            return .82
+        selected, _ = framing.plan_motion_crops(
+            [asset], [9.0], width=360, height=640, probe=boom)
+        self.assertEqual(selected[0], asset)
+
+    def test_long_scene_budget_and_short_scene_behavior(self):
+        clips = [source_asset(str(i) + ".mp4") for i in range(5)]
+        calls = []
+        def simple(path, **kw):
+            calls.append((path, kw))
+            return .80
+        selected, info = framing.plan_motion_crops(
+            clips, [9.] * 5, width=360, height=640, probe=simple)
+        self.assertEqual(len(calls), 4, "At most four real decoder windows")
+        self.assertEqual([x.crop_horizontal_anchor for x in selected[:2]],
+                         [.80, .80])
+        self.assertTrue(all(x.crop_horizontal_anchor is None
+                            for x in selected[2:]))
+        self.assertEqual(len(info), 2)
+        # Remaining one probe is insufficient to validate a long video.
+        selected, _ = framing.plan_motion_crops(
+            clips, [2.5, 2.5, 2.5, 9., 9.], width=360, height=640,
+            probe=simple)
+        self.assertEqual(len(calls), 4 + 3)
+        self.assertIsNone(selected[3].crop_horizontal_anchor)
+        # Just below threshold: only one sample, exactly the old behavior.
+        before = len(calls)
+        quick, _ = framing.plan_motion_crops(
+            [clips[0]], [6.9], width=360, height=640, probe=simple)
+        self.assertEqual(len(calls), before+1)
+        self.assertEqual(quick[0].crop_horizontal_anchor, .80)
+        # The 24-hour seek limit prevents a wrap past an invalid position.
+        overflow, _ = framing.plan_motion_crops(
+            [replace(clips[0], source_start_seconds=86398.)],
+            [9.0], width=360, height=640, probe=simple)
+        self.assertIsNone(overflow[0].crop_horizontal_anchor)
+
     def test_bad_probe_never_edits_source_or_crashes_render(self):
         original = source_asset()
         for response in (None, float("nan"), .01, "bad", True):

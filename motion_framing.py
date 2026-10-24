@@ -22,6 +22,11 @@ _SAMPLE_HEIGHT = 68
 _FRAME_BYTES = _SAMPLE_WIDTH * _SAMPLE_HEIGHT
 _MAX_FRAMES = 6
 _MAX_VIDEO_PROBES = 4
+# A crop chosen from the beginning of a long shot may remove a subject that
+# walks across the image later. Validate early evidence at the end too, while
+# keeping the same strict per-export FFmpeg probe ceiling.
+_LONG_SCENE_SECONDS = 7.0
+_MAX_LONG_ANCHOR_DELTA = 0.10
 
 
 def eligible(asset: object, *, width: int, height: int) -> bool:
@@ -171,8 +176,13 @@ def plan_motion_crops(
 ) -> tuple[list[object | None], list[str]]:
     """Conservatively select one fixed camera anchor per eligible video scene.
 
-    Up to four small FFmpeg reads *total* per render. Repeated footage at
-    identical seeks reuses analysis. Unknown or failed decisions are neutral.
+    Up to four small FFmpeg reads *total* per render. A crop for a scene
+    lasting >=7 seconds is accepted only after a second, late-window sample
+    confirms the same side and a compatible fixed anchor. If two windows
+    confidently identify movement at opposite edges, preserve the full image
+    using the existing low-cost video matte instead of cropping either out.
+    Ambiguous or incomplete samples keep the original center crop. Repeated
+    footage at identical seeks and durations reuses analysis.
     """
     if (len(slots) != len(durations) or len(slots) > 18
             or type(width) is not int or type(height) is not int
@@ -184,7 +194,9 @@ def plan_motion_crops(
     output = list(slots)
     notes = []
     checked = 0
-    decisions: dict[tuple[Path, float, float], float | None] = {}
+    decisions: dict[tuple[Path, float, float], tuple[float | None, bool]] = {}
+    confirmed_long = 0
+    full_protected = 0
     adapted = 0
     for index, (asset, duration) in enumerate(zip(slots, durations, strict=True)):
         if (asset is None or not eligible(asset, width=width, height=height)
@@ -195,9 +207,14 @@ def plan_motion_crops(
         except ValueError:
             continue
         sample_duration = min(3.0, float(duration))
-        key = (asset.file, round(seek, 3), round(sample_duration, 3))
+        long_scene = duration >= _LONG_SCENE_SECONDS
+        # A long scene needs two independent snapshots. Do not waste the
+        # remaining CPU budget on a first probe if the required follow-up
+        # cannot be run, even if the first one would have succeeded.
+        required = 2 if long_scene else 1
+        key = (asset.file, round(seek, 3), round(float(duration), 3))
         if key not in decisions:
-            if checked >= _MAX_VIDEO_PROBES:
+            if checked + required > _MAX_VIDEO_PROBES:
                 continue
             checked += 1
             aspect = width * asset.source_height / (height * asset.source_width)
@@ -209,13 +226,57 @@ def plan_motion_crops(
             if (type(choice) not in (int, float) or not math.isfinite(choice)
                     or not .12 <= choice <= .88):
                 choice = None
-            decisions[key] = choice
-        anchor = decisions[key]
-        if anchor is not None:
+            protect_full = False
+            if long_scene and choice is not None:
+                # Both windows have exactly the same bounded 3s sample size.
+                # Seeking beyond the trusted clip range is an unknown result,
+                # not permission to apply a potentially wrong crop.
+                late_seek = seek + float(duration) - sample_duration
+                if late_seek > 86400:
+                    choice = None
+                else:
+                    checked += 1
+                    try:
+                        late = probe(asset.file, seek=late_seek,
+                                     duration=sample_duration, retention=aspect)
+                    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                        late = None
+                    if (type(late) not in (float, int) or not math.isfinite(late)
+                            or not .12 <= late <= .88):
+                        choice = None
+                    elif ((choice < .30 and late > .70) or
+                          (choice > .70 and late < .30)):
+                        # Two different, strongly off-center subjects cannot
+                        # both fit a single fixed crop. Keep the entire shot
+                        # with our existing moving, downsampled-blur matte.
+                        protect_full = True
+                        choice = None
+                    elif ((choice - .5) * (late - .5) <= 0 or
+                          abs(choice - late) > _MAX_LONG_ANCHOR_DELTA):
+                        choice = None
+                    else:
+                        # Averaging compatible positions yields a fixed crop;
+                        # no synthetic pan/subject tracking is invented.
+                        choice = round((choice + late) / 2, 4)
+                        confirmed_long += 1
+            decisions[key] = (choice, protect_full)
+        anchor, protect_full = decisions[key]
+        if protect_full:
+            output[index] = replace(asset, preserve_full_video_frame=True)
+            full_protected += 1
+        elif anchor is not None:
             output[index] = replace(asset, crop_horizontal_anchor=anchor)
             adapted += 1
     if adapted:
         notes.append(
             f"Motion-guided horizontal crop applied to {adapted} local video "
             "scene(s); heuristic movement anchor, not subject recognition")
+    if confirmed_long:
+        notes.append(
+            f"Confirmed start/end motion consistency for {confirmed_long} "
+            "long video source window(s); static camera anchor retained")
+    if full_protected:
+        notes.append(
+            f"Preserved full video frame for {full_protected} long local "
+            "scene(s) with opposing edge motion; no single safe static crop")
     return output, notes
