@@ -178,6 +178,31 @@ mémoire ; le gain principal concerne le serveur local sans jeton. Les tests
 vérifient les sauts dans un véritable MP4 H.264, les plages invalides,
 l'interdiction d'accès aux projets non finalisés et les sessions protégées.
 
+## Garder Termux actif lorsque l'écran s'éteint (facultatif)
+
+Dans le studio local, cocher **Empêcher la mise en veille du processeur pendant
+le rendu (Termux)**. L'option est désactivée par défaut, puis mémorisée
+uniquement dans le navigateur de cet appareil. Lors d'un nouveau rendu, le
+serveur utilise les commandes standard de Termux `termux-wake-lock` et
+`termux-wake-unlock` **uniquement si les deux existent**. Le verrou est
+demandé après vérification de l'espace disque et libéré en fin de travail,
+y compris après une erreur ou annulation normale. Un échec de la commande
+n'interrompt pas le rendu : son état réel (actif ou indisponible) apparaît
+dans le suivi. Aucun téléchargement, permission supplémentaire ou programme
+payant n'est ajouté par MoneyPrinter.
+
+**Attention :** ce mécanisme consomme davantage de batterie et ne garantit
+pas que la surcouche Android préservera Termux, notamment si le système
+arrête de force ses processus. Le verrou Termux est **partagé par
+l'application Termux entière** : le libérer après un montage peut aussi
+libérer un verrou préalablement activé manuellement dans Termux. Si vous
+gérez déjà vous-même un verrou prolongé, laissez cette option désactivée.
+
+Référence : [documentation officielle Termux sur les wake locks](https://github.com/termux/termux-tools/blob/master/doc/termux.1.md.in).
+L'option est sans effet sous Linux et si les commandes sont absentes.
+Un arrêt forcé `SIGKILL` empêche tout nettoyage garanti ; le suivi des
+projets et des fichiers temporaires est restauré au prochain démarrage.
+
 ## Annuler un rendu long sans laisser FFmpeg actif
 
 Le bouton **Annuler** arrête le projet en cours et ses sous-processus

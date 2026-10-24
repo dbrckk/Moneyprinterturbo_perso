@@ -9,10 +9,13 @@ const A = 'a'.repeat(32);
 const B = 'b'.repeat(32);
 
 async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
-                           jobProgress = null } = {}) {
+                           jobProgress = null, wakeRequested = false, wakeActive = false,
+                           savedWake = null } = {}) {
   const elements = new Map();
   const calls = [];
   const blobCalls = [];
+  const renderRequests = [];
+  const storageWrites = [];
   const objectUrls = [];
   const revoked = [];
   const links = [];
@@ -67,6 +70,10 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
     calls.push({ url, auth: options.headers?.Authorization || '' });
     let payload = {};
     if (url === '/api/health') payload = { ok: true };
+    else if (url === '/api/jobs' && options.method === 'POST') {
+      renderRequests.push(JSON.parse(options.body));
+      payload = {id: A, status: 'queued'};
+    }
     else if (url === '/api/config') payload = { has_ollama: false,
       has_piper: false, has_local_media: false };
     else if (url === '/api/jobs') payload = history;
@@ -77,6 +84,7 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
       id: url.endsWith(A) ? A : B, status: jobStatus, duration_seconds: 12,
       visual_mode: 'local', has_credits: false, warnings: [],
       progress: jobProgress,
+      keep_awake_requested: wakeRequested, keep_awake_active: wakeActive,
     };
     else if (url === `/api/jobs/${A}/video.mp4` || url === `/api/jobs/${B}/video.mp4`) {
       return { ok: true, status: 200, json: async () => {}, blob: async () => {
@@ -101,7 +109,11 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
     window: { addEventListener(name, fn) { listeners.set(name, fn); },
       confirm: () => false },
     sessionStorage: { getItem: () => authToken, setItem() {} },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: {
+      getItem: key => key === 'mpt-termux-wake-render-v1' ? savedWake : null,
+      setItem: (key, value) => storageWrites.push({key, value}),
+      removeItem() {},
+    },
     fetch, URL: URLMock, Blob, Intl, setTimeout() {}, clearTimeout() {},
   };
   vm.runInNewContext(source, context, { timeout: 2000 });
@@ -117,7 +129,8 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
     await new Promise(resolve => setImmediate(resolve));
   }
   return {
-    element, download, calls, blobCalls, objectUrls, revoked, links, listeners,
+    element, download, calls, blobCalls, renderRequests, storageWrites,
+    objectUrls, revoked, links, listeners,
     select, resolveSlowBlob: () => { if (resolveSlowBlob) resolveSlowBlob(new Blob(['late-a'])); },
     async settle() {
       for (let i = 0; i < 12; i++) await Promise.resolve();
@@ -230,4 +243,35 @@ test('completed project hides stale stage UI and shows normal MP4 preview', asyn
   assert.equal(app.element('render-stage-panel').classList.contains('hidden'), true);
   assert.equal(app.element('video').src, `/api/jobs/${A}/video.mp4`);
   assert.match(app.element('job-notice').textContent, /Vidéo terminée/);
+});
+
+
+test('anti-sleep control is opt-in and a checked choice reaches the render API', async () => {
+  const app = await createApp();
+  assert.equal(app.element('keep-awake').checked, false);
+  app.element('keep-awake').checked = true;
+  app.element('keep-awake').listeners.get('change')();
+  assert.deepEqual(app.storageWrites.at(-1), {
+    key: 'mpt-termux-wake-render-v1', value: '1',
+  });
+  await app.element('create-form').listeners.get('submit')({preventDefault() {}});
+  assert.equal(app.renderRequests.at(-1)?.keep_awake, true);
+});
+
+test('anti-sleep preference persists but is never enabled by default', async () => {
+  const restored = await createApp({savedWake: '1'});
+  assert.equal(restored.element('keep-awake').checked, true);
+  const fresh = await createApp({savedWake: null});
+  assert.equal(fresh.element('keep-awake').checked, false);
+});
+
+test('anti-sleep status is truthful when the optional Termux commands are unavailable', async () => {
+  const unavailable = await createApp({jobStatus: 'running',
+    wakeRequested: true, wakeActive: false});
+  await unavailable.select(A);
+  assert.match(unavailable.element('job-notice').textContent, /Anti-veille Termux indisponible/);
+  const active = await createApp({jobStatus: 'running',
+    wakeRequested: true, wakeActive: true});
+  await active.select(A);
+  assert.match(active.element('job-notice').textContent, /Anti-veille Termux demandé et actif/);
 });
