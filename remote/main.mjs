@@ -3,6 +3,7 @@ import { API_ROOT, ACTIONS_URL, dispatchBody, findRunAcrossPages, requestId,
   knownRunEndpoint, isExpectedRun } from './core.mjs';
 import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectSubtitles, findDirectQuality, findDirectCredits, findDirectManifest,
+  findDirectPublication,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
@@ -87,7 +88,7 @@ function showHistory() {
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
     button.addEventListener('click', () => {
       stopPoll(); runSelection.select(); active = item;
-      for (const id of ['download-video','preview-storyboard','download-subtitles','download-quality','download-credits','download-manifest']) $(id).hidden = true;
+      for (const id of ['download-video','preview-storyboard','download-subtitles','download-quality','download-credits','download-publication','download-manifest']) $(id).hidden = true;
       lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href;
       setStatus('running','Suivi','Recherche de la demande dans GitHub Actions…');
       if (shouldAutoResume(item) && navigator.onLine !== false) startPoll();
@@ -116,6 +117,7 @@ async function resolveDirectVideo(run, requestId) {
       ['download-subtitles', findDirectSubtitles(response?.artifacts)],
       ['download-quality', findDirectQuality(response?.artifacts)],
       ['download-credits', findDirectCredits(response?.artifacts)],
+      ['download-publication', findDirectPublication(response?.artifacts)],
       ['download-manifest', findDirectManifest(response?.artifacts)]]) {
       const link = $(id);
       link.hidden = !artifact;
