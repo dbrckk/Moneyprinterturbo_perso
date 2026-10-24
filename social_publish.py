@@ -99,9 +99,10 @@ def prepare_publication(topic: str, scenes: list[str], *, lang: str,
     # placement in recommendation feeds.
     reels_tags = (tags + ["#Reels"])[:6]
     tik_tags = (tags + ["#TikTok"])[:6]
-    shorts_tags = (tags + ["#Shorts"])[:6]
+    is_shorts = aspect != "16:9"
+    shorts_tags = (tags + ["#Shorts" if is_shorts else "#Video"])[:6]
     title = _cut(heading, 90)
-    youtube_title = _cut(title, 90) + " #Shorts"
+    youtube_title = (_cut(title, 90) + " #Shorts") if is_shorts else title
     assert len(youtube_title) <= 100
     platforms = {
         "instagram_reels": {
@@ -114,7 +115,7 @@ def prepare_publication(topic: str, scenes: list[str], *, lang: str,
             "description": hook + "\n\n" + " ".join(tik_tags),
             "hashtags": tik_tags,
         },
-        "youtube_shorts": {
+        "youtube_shorts" if is_shorts else "youtube_video": {
             "title": youtube_title,
             "description": f"{about}: {heading}\n\n{highlights}: {description}\n\n"
                            + " ".join(shorts_tags),
@@ -128,6 +129,8 @@ def prepare_publication(topic: str, scenes: list[str], *, lang: str,
         "aspect": aspect,
         "ready_for_publication": False,
         "human_review_required": [
+            *([] if aspect == "9:16" else
+              ["TikTok/Reels are primarily vertical; verify/crop framing before posting"]),
             "Check facts, spelling, names and suitability of descriptions",
             "Verify rights to media, music and voice; see video.credits.txt",
             "Confirm each platform's current publication and disclosure rules",
@@ -148,7 +151,8 @@ def render_publication_text(data: dict[str, object]) -> str:
     for name, label in (
         ("instagram_reels", "INSTAGRAM REELS"),
         ("tiktok", "TIKTOK"),
-        ("youtube_shorts", "YOUTUBE SHORTS"),
+        ("youtube_shorts" if "youtube_shorts" in platforms else "youtube_video",
+         "YOUTUBE SHORTS" if "youtube_shorts" in platforms else "YOUTUBE VIDÉO"),
     ):
         entry = platforms[name]
         lines.extend([
@@ -167,6 +171,7 @@ def render_publication_text(data: dict[str, object]) -> str:
         "Vérifier les droits des images, vidéos, voix et musiques.",
         "Lire video.credits.txt pour les sources et attributions.",
         "Vérifier le MP4, les sous-titres et les règles de la plateforme.",
+        *data["human_review_required"],
         "Aucune publication n'a été effectuée automatiquement.",
         "",
     ])
