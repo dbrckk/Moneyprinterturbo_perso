@@ -46,6 +46,8 @@ MAX_MEDIA_STORAGE = 800 * 1024 * 1024
 # These are not predictions of a particular video's required disk usage.
 RENDER_MIN_FREE_BYTES = {360: 256 * 1024**2, 720: 512 * 1024**2,
                          1080: 1024 * 1024**2}
+# Leave room for the OS, metadata, and an interrupted upload's cleanup.
+UPLOAD_MIN_REMAINING_BYTES = 128 * 1024**2
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
 STALE_EMPTY_BATCH_SECONDS = 24 * 60 * 60
 ABANDONED_MEDIA_SECONDS = 7 * 24 * 60 * 60
@@ -702,8 +704,21 @@ class Jobs:
             used = sum(p.stat().st_size for batch in self.upload_root.iterdir()
                        if self._safe_batch_directory(batch)
                        for p in batch.iterdir() if p.is_file() and not p.is_symlink())
-            if used + self._reserved_unwritten_media_bytes_locked() + size > MAX_MEDIA_STORAGE:
+            unwritten = self._reserved_unwritten_media_bytes_locked()
+            if used + unwritten + size > MAX_MEDIA_STORAGE:
                 raise ValueError("Stockage média local plein (800 Mo maximum)")
+            # Multiple simultaneous uploads can each reserve their full size.
+            # disk_usage.free already excludes bytes written by other uploads,
+            # so reserve only their still-unwritten portion here.
+            try:
+                free = shutil.disk_usage(self.upload_root).free
+            except OSError as exc:
+                raise ValueError("Espace libre impossible à vérifier avant l'import") from exc
+            if free < size + unwritten + UPLOAD_MIN_REMAINING_BYTES:
+                raise ValueError(
+                    "Espace insuffisant pour importer ce média : libérez du "
+                    "stockage sur le téléphone puis réessayez. Les anciens "
+                    "imports ne sont pas supprimés")
             target = directory / f"{len(files) + 1:03d}_{name}"
             # A unique upload per batch prevents duplicate numeric names and
             # stale response races; different batches may transfer concurrently.
