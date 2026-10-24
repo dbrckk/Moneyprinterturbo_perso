@@ -72,8 +72,8 @@ def synthetic_video(name: str, destination: Path) -> None:
     if name in ("sport-right", "sport-left", "dark-night", "two-athletes",
                 "panoramic", "blinking-sign", "long-crossing"):
         tint = "0x121212" if name == "dark-night" else "red"
-        block_width = 180 if name == "panoramic" else 78
-        block_height = 270 if name == "panoramic" else 160
+        block_width = 180 if name == "panoramic" else 70 if name == "long-crossing" else 78
+        block_height = 270 if name == "panoramic" else 180 if name == "long-crossing" else 160
         cmd += ["-f", "lavfi", "-i",
                 f"color=c={tint}:s={block_width}x{block_height}:r={FPS}:d={seconds + .5}"]
         if name in ("two-athletes", "panoramic"):
@@ -82,7 +82,7 @@ def synthetic_video(name: str, destination: Path) -> None:
         if name == "long-crossing":
             overlay = ("[0:v][1:v]overlay="
                        "x='if(lt(t,4.5),520+35*sin(t*4),45+30*sin(t*4))':"
-                       "y=150:shortest=1,format=yuv420p[v]")
+                       "y=140:shortest=1,format=yuv420p[v]")
         elif name == "panoramic":
             overlay = ("[0:v][1:v]overlay=x=30:y=220:shortest=1[p];"
                        "[p][2:v]overlay=x=1070:y=220:shortest=1,"
