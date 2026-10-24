@@ -73,6 +73,22 @@ et référencé dans `video.json`. **Aucune vidéo n'est publiée directement**
 sur les plateformes. Il faut encore vérifier la véracité, le cadrage, la
 musique, les droits médias, les crédits et les règles des plateformes.
 
+## Création automatique recommandée depuis Android
+
+Le [studio HTTPS](https://dbrckk.github.io/Moneyprinterturbo_perso/)
+sélectionne désormais **IA locale Qwen + voix neuronale française Piper
++ images Commons + montage cinématique HD** sur une première ouverture.
+La narration peut rester vide : le système génère le scénario sans que
+l'utilisateur règle manuellement chaque composant. Deux autres choix sont
+présents : **Approfondi** (CLIP et Whisper, plus lent/expérimental) et
+**Aperçu rapide** (360p, eSpeak, canevas sans IA).
+
+Les brouillons existants sont **conservés** sans changement. Une
+narration personnelle a priorité sur l'IA ; les autres langues utilisent
+eSpeak faute de voix Piper localement vérifiée. GitHub Actions peut
+rencontrer des limites de ressources : ce mode ne garantit ni
+publication immédiate ni qualité artistique professionnelle.
+
 ## Utilisation gratuite sur Android (sans ordinateur)
 
 1. Ouvrir **Actions → Générer une vidéo gratuite → Run workflow** dans ce dépôt.
