@@ -252,8 +252,20 @@ class Jobs:
                             raise ValueError("Invalid recovered MP4 manifest")
                         record["metadata"] = payload
                 if record["status"] in ("queued", "running"):
-                    record["status"] = "error"
-                    record["error"] = "Rendu interrompu par l'arrêt du serveur Android. Relancez-le si nécessaire."
+                    # Android may kill the server after the renderer atomically
+                    # published every export but before the final status
+                    # checkpoint. Recover that *completed* bundle instead of
+                    # losing a fully generated MP4. Never trust a partial
+                    # .render-scratch/result.mp4 or restart an encoder here.
+                    bundle = (self._recover_published_bundle(folder)
+                              if record["status"] == "running" else None)
+                    if bundle is not None:
+                        record["status"] = "done"
+                        record["metadata"] = bundle
+                        record["error"] = None
+                    else:
+                        record["status"] = "error"
+                        record["error"] = "Rendu interrompu par l'arrêt du serveur Android. Relancez-le si nécessaire."
                     record["finished"] = int(time.time())
                 # Avoid rewriting legacy recovered folders, which may have
                 # different ownership or metadata layout.
@@ -264,6 +276,48 @@ class Jobs:
                 continue
         for job in sorted(recovered, key=lambda item: (item["created"], item["id"]))[-MAX_JOBS:]:
             self.jobs[job["id"]] = job
+
+    @staticmethod
+    def _recover_published_bundle(folder: Path) -> dict | None:
+        """Recover only complete, credible exports after an Android kill.
+
+        The video renderer publishes the MP4, SRT, credits and JSON together.
+        FFprobe must confirm that the final MP4 is playable; a file named
+        video.mp4 or a half-written manifest is never sufficient evidence.
+        """
+        try:
+            names = ("video.mp4", "video.srt", "video.credits.txt", "video.json")
+            files = [folder / name for name in names]
+            if any(p.is_symlink() or not p.is_file() or p.stat().st_size == 0
+                   for p in files):
+                return None
+            mp4, srt, credits, manifest = files
+            if (mp4.stat().st_size < 1000 or manifest.stat().st_size > 2 * 1024 * 1024
+                    or srt.stat().st_size > 2 * 1024 * 1024
+                    or credits.stat().st_size > 2 * 1024 * 1024):
+                return None
+            info = json.loads(manifest.read_text(encoding="utf-8"))
+            if (not isinstance(info, dict) or not isinstance(info.get("segments"), list)
+                    or not isinstance(info.get("duration_seconds"), (int, float))
+                    or not 0 < info["duration_seconds"] < JOB_TIMEOUT):
+                return None
+            checked = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_name,width,height",
+                 "-of", "json", str(mp4)], capture_output=True,
+                timeout=8, check=False)
+            if checked.returncode != 0:
+                return None
+            streams = json.loads(checked.stdout).get("streams", [])
+            if not any(isinstance(stream, dict) and stream.get("codec_name") == "h264"
+                       and type(stream.get("width")) is int and stream["width"] > 0
+                       and type(stream.get("height")) is int and stream["height"] > 0
+                       for stream in streams):
+                return None
+            return info
+        except (OSError, ValueError, TypeError, json.JSONDecodeError,
+                subprocess.SubprocessError):
+            return None
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
