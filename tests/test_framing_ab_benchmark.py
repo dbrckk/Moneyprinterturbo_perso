@@ -14,7 +14,7 @@ from motion_framing import plan_motion_crops
 class FramingABPolicyTests(unittest.TestCase):
     def test_synthetic_cases_are_fixed_and_cover_adversarial_scenes(self):
         self.assertEqual(len(benchmark.CASES), 8)
-        self.assertEqual(len(set(x[0] for x in benchmark.CASES)), 7)
+        self.assertEqual(len(set(x[0] for x in benchmark.CASES)), 8)
         self.assertEqual(
             [x[2] for x in benchmark.CASES],
             ["shift", "shift", "center", "center", "center", "center", "matte", "matte"])
