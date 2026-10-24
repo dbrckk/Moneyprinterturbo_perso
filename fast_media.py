@@ -14,6 +14,7 @@ from cinematic import gradient_source, transition_plan, xfade_transition_spec
 from scene_framing import (needs_soft_matte, needs_video_soft_matte,
                            soft_matte_graph, video_soft_matte_graph, photo_zoom_filter)
 from video_timeline import source_seek_seconds
+from motion_framing import crop_filter
 from exposure_match import exposure_filter
 from white_balance import white_balance_suffix
 from encoder_profiles import valid_ffmpeg_settings
@@ -80,7 +81,7 @@ def build_onepass_media_command(
                 cmd += ["-ss", f"{seek:.3f}"]
             cmd += ["-t", f"{runtime:.9f}", "-i", str(asset.file)]
             effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
-                      f"crop={width}:{height},setsar=1,"
+                      f"{crop_filter(asset, width=width, height=height)},setsar=1,"
                       f"{exposure_filter(asset)}{white_balance_suffix(asset)},format=yuv420p")
         else:
             raise ValueError("Unsupported media kind")
