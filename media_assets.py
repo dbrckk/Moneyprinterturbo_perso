@@ -66,17 +66,40 @@ class MediaAsset:
 
 
 def media_dimensions(path: Path) -> tuple[int, int] | None:
-    """Try decoding the first video/image stream before FFmpeg processing."""
+    """Read actual displayed geometry, including standard phone rotation tags.
+
+    FFmpeg auto-rotates most camera video streams at decode time. Raw coded
+    dimensions alone would therefore misclassify portrait phone videos as
+    landscape and introduce a completely unnecessary blurred framing matte.
+    Read rotation from the SAME bounded FFprobe invocation: no second probe.
+    """
     try:
         process = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-             "stream=width,height", "-of", "json", str(path)],
+             "stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+             "-of", "json", str(path)],
             capture_output=True, text=True, timeout=12, check=True,
         )
         data = json.loads(process.stdout)
         stream = data.get("streams", [{}])[0]
         width, height = int(stream["width"]), int(stream["height"])
         if 64 <= width <= 10000 and 64 <= height <= 10000:
+            candidates = stream.get("side_data_list", [])
+            angle = None
+            if isinstance(candidates, list):
+                for entry in candidates:
+                    if isinstance(entry, dict) and "rotation" in entry:
+                        angle = entry["rotation"]
+                        break
+            if angle is None and isinstance(stream.get("tags"), dict):
+                angle = stream["tags"].get("rotate")
+            if angle is not None:
+                try:
+                    turn = float(angle)
+                    if math.isfinite(turn) and abs((turn % 180) - 90) < 0.05:
+                        width, height = height, width
+                except (ValueError, TypeError, OverflowError):
+                    pass
             return width, height
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError, TypeError):
         pass
