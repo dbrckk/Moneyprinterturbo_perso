@@ -64,6 +64,22 @@ disponibilité des modèles et aux limites de temps.
 
 Seuls le brouillon (sujet, narration, paramètres) et les identifiants des runs sont enregistrés dans `localStorage`, sur l'appareil. Pour les effacer, effacer les données du site dans Android/Chrome.
 
+## Étapes réelles du rendu sur Android (sans Termux)
+
+Pendant une exécution GitHub Actions, le studio distant peut afficher **la
+phase en cours** : préparation, téléchargement des modèles IA, voix neuronale,
+sous-titres, création MP4, vérification, puis publication. La phase est
+identifiée depuis les **étapes réellement actives du job GitHub**, sans faux
+pourcentage ni estimation du temps restant. Les étapes qui ne s'appliquent
+pas au projet (par exemple Whisper ou CLIP désactivé) sont simplement ignorées.
+
+Cette consultation est **facultative** et exige le jeton GitHub déjà saisi pour
+lancer le rendu. Elle est plafonnée à une requête environ par minute ; les
+étapes ne sont pas enregistrées dans le navigateur. Si GitHub ne fournit pas
+les détails, si le quota est épuisé ou si l'utilisateur efface le jeton, le
+suivi normal du statut et les liens vers le rendu continuent de fonctionner.
+Aucun fichier de la galerie n'est lu ni transmis depuis ce site statique.
+
 ## Fonctionnement et limites
 
 - `workflow_dispatch` permet d'envoyer la demande. Le champ `request_id` et le `run-name` assurent le suivi distinct des exécutions ; la recherche automatique est limitée à une consultation toutes les 20 secondes pendant au maximum 20 minutes.

@@ -7,6 +7,7 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 import { productionMode, MODE_DESCRIPTIONS, PRODUCTION_MODES } from './production_modes.mjs';
+import {workflowJobsEndpoint, workflowStage} from './workflow_progress.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
   isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError,
   isGithubRateLimited } from './run_lifecycle.mjs';
@@ -21,6 +22,10 @@ let pollTimer = null;
 let lastPoll = 0;
 let lookupInFlight = null;
 const runSelection = createRunSelection();
+let stageCache = null;
+let stageLookupInFlight = null;
+let lastStageLookupAt = 0;
+let lastStageLookupKey = null;
 
 function storageRead(key, fallback) {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
@@ -161,15 +166,54 @@ async function resolveDirectVideo(run, requestId) {
     if (runSelection.isCurrent(generation) && active?.id === requestId) setStatus('success', 'Vidéo prête', 'Lien MP4 direct indisponible : ' + error.message + ' Tu peux toujours ouvrir le rendu sur GitHub.');
   }
 }
+/** Best-effort step tracking. Never block the run status or expose arbitrary
+ * GitHub job text. A stage request is made at most once per minute, only
+ * with a PAT already supplied for dispatching, to protect API quota. */
+async function refreshWorkflowStage(runId, requestId, generation) {
+  if (!$('token').value.trim()) return;
+  const key = `${requestId}:${runId}:${generation}`;
+  if (stageLookupInFlight === key) return;
+  if (lastStageLookupKey === key && Date.now() - lastStageLookupAt < 60_000) return;
+  lastStageLookupKey = key;
+  lastStageLookupAt = Date.now();
+  stageLookupInFlight = key;
+  try {
+    const response = await api(workflowJobsEndpoint(runId));
+    if (!runSelection.isCurrent(generation) || active?.id !== requestId ||
+        active.runId !== runId || active.state !== 'Rendu en cours') return;
+    const stage = workflowStage(response?.jobs);
+    if (!stage) return;
+    stageCache = {runId, requestId, stage};
+    setStatus('running', stage.title,
+      `${stage.detail}. Étape réelle communiquée par GitHub Actions ; durée restante inconnue.`);
+  } catch {
+    // Step details are optional: the ordinary run status remains reliable.
+    // In particular, do not present rate-limit and auth errors as render failures.
+  } finally {
+    if (stageLookupInFlight === key) stageLookupInFlight = null;
+  }
+}
+
 function updateRun(run) {
   if (!active) return;
   active = { ...active, runId: run.id, state: statusLabels[run.status] || run.status || 'En cours' };
   $('run-link').href = workflowRunLink(run);
   replaceHistory(active);
   if (run.status !== 'completed') {
-    setStatus('running', statusLabels[run.status] || 'En cours', 'GitHub effectue le rendu. Cette page affiche le suivi ; l’onglet peut être fermé sans arrêter le workflow.');
+    const cached = stageCache?.runId === run.id && stageCache.requestId === active.id &&
+      run.status === 'in_progress' ? stageCache.stage : null;
+    if (cached) {
+      setStatus('running', cached.title,
+        `${cached.detail}. Étape réelle communiquée par GitHub Actions ; durée restante inconnue.`);
+    } else {
+      setStatus('running', statusLabels[run.status] || 'En cours',
+        'GitHub effectue le rendu. Cette page affiche le suivi ; l’onglet peut être fermé sans arrêter le workflow.');
+    }
+    if (run.status === 'in_progress')
+      void refreshWorkflowStage(run.id, active.id, runSelection.current());
     return;
   }
+  if (stageCache?.runId === run.id) stageCache = null;
   if (run.conclusion === 'success') {
     active.state = 'Réussi';replaceHistory(active);
     setStatus('success', 'Vidéo prête', 'Le rendu est terminé. Recherche du MP4 sans ZIP…');
