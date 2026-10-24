@@ -380,8 +380,10 @@ dans un premier plan non recadré, posé sur un **fond flouté animé**
 issu de la même vidéo. Ce cadrage s'active seulement quand la géométrie
 indique que moins de **40 %** de la surface source serait conservée.
 
-- Les dimensions d'origine proviennent du FFprobe **déjà utilisé lors de
-  l'import**, sans analyse réseau ni décodage supplémentaire.
+- Les dimensions affichées proviennent du FFprobe **déjà utilisé lors de
+  l'import** : la rotation vidéo de 90°/270° est respectée pour éviter de
+  traiter à tort un film portrait comme un paysage. Aucun décodage
+  supplémentaire n'est lancé.
 - Un unique flux vidéo est normalisé à la cadence cible **avant** d'être
   partagé entre le premier plan et le fond : pas de décalage ni de
   congélation causée par le zoom des photographies.
