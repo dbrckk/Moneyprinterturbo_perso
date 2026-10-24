@@ -6,6 +6,7 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
   findDirectPublication,
   directMp4Url } from './downloads.mjs';
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
+import { productionMode, MODE_DESCRIPTIONS, PRODUCTION_MODES } from './production_modes.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
   isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError,
   isGithubRateLimited } from './run_lifecycle.mjs';
@@ -32,15 +33,39 @@ function formValues() {
   return out;
 }
 function restoreDraft() {
-  const saved = storageRead(DRAFT_KEY, {});
+  const candidate = storageRead(DRAFT_KEY, {});
+  const saved = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : {};
   for (const key of controls) {
     if (typeof saved[key] === 'string') $(key).value = saved[key];
   }
   if (saved.visuals === 'commons' || saved.visuals === 'abstract') {
     document.querySelector(`input[name="visuals"][value="${saved.visuals}"]`).checked = true;
   }
+  return Object.keys(saved).some(key => controls.includes(key) || key === 'visuals');
 }
 function saveDraft() { storageWrite(DRAFT_KEY, formValues()); }
+function markCustomMode(message = 'Réglages personnalisés : vos choix sont conservés.') {
+  $('production-mode').value = 'custom';
+  $('production-mode-note').textContent = message;
+}
+function applySelectedMode(mode, {announce = true} = {}) {
+  if (!PRODUCTION_MODES.includes(mode)) {
+    markCustomMode(); return;
+  }
+  const original = formValues();
+  const configured = productionMode(original, mode);
+  for (const key of controls) {
+    if (typeof configured[key] === 'string') $(key).value = configured[key];
+  }
+  document.querySelector(`input[name="visuals"][value="${configured.visuals}"]`).checked = true;
+  $('production-mode').value = mode;
+  $('production-mode-note').textContent = MODE_DESCRIPTIONS[mode] +
+    (original.script.trim() ? ' Narration personnelle conservée : la génération IA du texte est désactivée.' : '') +
+    (original.scene_queries.trim() && !configured.scene_queries ?
+      ' Les anciennes recherches par scène ont été effacées car incompatibles avec ce mode.' : '');
+  saveDraft(); showScenes(); clearNotice();
+  if (announce) notify('Mode de production appliqué. Vérifiez le sujet puis lancez le rendu.', 'success');
+}
 function notify(message, kind = 'error') {
   const node = $('form-feedback');
   node.textContent = message;
@@ -242,11 +267,38 @@ $('make-outline').addEventListener('click', () => {
   try {
     $('script').value = outlineFor($('topic').value, $('lang').value);
     $('script_mode').value = 'template';
+    markCustomMode('Canevas personnel sélectionné : la génération IA est désactivée.');
     saveDraft(); showScenes(); clearNotice();
   } catch (error) { notify(error.message); }
 });
-$('video-form').addEventListener('input', () => { saveDraft();showScenes();clearNotice(); });
-$('video-form').addEventListener('change', saveDraft);
+$('production-mode').addEventListener('change', () => {
+  try { applySelectedMode($('production-mode').value); }
+  catch (error) { markCustomMode(); notify(error.message); }
+});
+$('lang').addEventListener('change', () => {
+  const mode = $('production-mode').value;
+  if (PRODUCTION_MODES.includes(mode)) {
+    try { applySelectedMode(mode, {announce: false}); }
+    catch (error) { markCustomMode(); notify(error.message); }
+  } else if ($('lang').value !== 'fr' && $('voice').value === 'piper-fr-siwis') {
+    $('voice').value = 'espeak';
+    $('production-mode-note').textContent = 'Piper SIWIS ne parle que français : voix eSpeak utilisée pour cette langue.';
+  }
+});
+$('video-form').addEventListener('input', event => {
+  if (event.target?.id === 'script' && $('script').value.trim() && $('script_mode').value === 'local-ai') {
+    $('script_mode').value = 'template';
+    markCustomMode('Votre narration a priorité : le scénario IA est désactivé sans effacer votre texte.');
+  }
+  saveDraft(); showScenes(); clearNotice();
+});
+$('video-form').addEventListener('change', event => {
+  const id = event.target?.id;
+  if (id !== 'production-mode' && !['lang', 'topic', 'aspect', 'script'].includes(id)) {
+    markCustomMode();
+  }
+  saveDraft();
+});
 $('forget-token').addEventListener('click',()=>{ $('token').value='';$('token').focus(); });
 $('clear-history').addEventListener('click',()=>{historySave([]);showHistory();});
 $('copy-draft').addEventListener('click', async () => {
@@ -274,6 +326,7 @@ $('restore-draft').addEventListener('click', () => {
     }
     for (const key of controls) $(key).value = draft[key];
     document.querySelector('input[name="visuals"][value="' + draft.visuals + '"]').checked = true;
+    markCustomMode('Brouillon restauré : aucun réglage ni scénario personnel n’a été remplacé.');
     saveDraft();showScenes();
     notify('Scénario et réglages restaurés sur cet appareil. Aucun jeton GitHub n’a été importé.', 'success');
   } catch (error) { notify('Impossible de restaurer : ' + error.message); }
@@ -365,7 +418,14 @@ function startOfflineShell() {
   }
 }
 
-restoreDraft();showScenes();showHistory();startOfflineShell();
+const restoredPersonalDraft = restoreDraft();
+if (restoredPersonalDraft) {
+  markCustomMode('Brouillon existant préservé. Choisissez explicitement un mode pour changer les réglages.');
+} else {
+  try { applySelectedMode('recommended', {announce: false}); }
+  catch (error) { markCustomMode(); notify(error.message); }
+}
+showScenes();showHistory();startOfflineShell();
 const previous=loadHistory()[0];
 if (previous) {
   runSelection.select();active=previous;
