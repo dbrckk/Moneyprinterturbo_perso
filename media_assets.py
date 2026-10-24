@@ -52,6 +52,10 @@ class MediaAsset:
     exposure_shift: float = 0.0
     # Small optional RGB gains derived from neutral-looking phone footage.
     white_balance_gains: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    # Dimensions from the existing local FFprobe metadata check; reused for
+    # aspect-aware video framing without an additional source decode/probe.
+    source_width: int | None = None
+    source_height: int | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
@@ -102,11 +106,13 @@ def local_assets(folder: Path) -> tuple[list[MediaAsset], list[str]]:
         if path.is_symlink() or not path.is_file() or ext not in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS:
             continue
         limit = MAX_IMAGE_BYTES if ext in IMAGE_EXTENSIONS else 350 * 1024 * 1024
-        if path.stat().st_size > limit or not media_dimensions(path):
+        dims = media_dimensions(path) if path.stat().st_size <= limit else None
+        if not dims:
             warnings.append(f"Skipped invalid or oversized local file: {path.name}")
             continue
         kind = "image" if ext in IMAGE_EXTENSIONS else "video"
-        assets.append(MediaAsset(path.resolve(), kind, "local", "user-provided", "user", path.name))
+        assets.append(MediaAsset(path.resolve(), kind, "local", "user-provided", "user", path.name,
+                                 source_width=dims[0], source_height=dims[1]))
     # Prefer actual recorded dates only when every valid local asset supplies
     # comparable metadata. Otherwise maintain the existing filename ordering.
     ordered, _source = order_media_by_capture(
