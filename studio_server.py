@@ -42,6 +42,10 @@ JOB_TIMEOUT = 1800
 MAX_MEDIA_FILES = 24
 MAX_MEDIA_BATCHES = 12
 MAX_MEDIA_STORAGE = 800 * 1024 * 1024
+# Conservative free-space floor for final output and FFmpeg intermediates.
+# These are not predictions of a particular video's required disk usage.
+RENDER_MIN_FREE_BYTES = {360: 256 * 1024**2, 720: 512 * 1024**2,
+                         1080: 1024 * 1024**2}
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
 STALE_EMPTY_BATCH_SECONDS = 24 * 60 * 60
 ABANDONED_MEDIA_SECONDS = 7 * 24 * 60 * 60
@@ -346,6 +350,27 @@ class Jobs:
                 subprocess.SubprocessError):
             return None
 
+    def _ensure_render_disk_space(self, resolution: int) -> None:
+        """Reject a render before it can exhaust an Android/Termux volume.
+
+        Both the private TMPDIR and final MP4 are under output_dir. This is
+        only a minimum free-space guard, *not* an estimate of render size;
+        the check is repeated when a queued job actually starts because
+        other apps and renders can consume storage while it waits.
+        """
+        floor = RENDER_MIN_FREE_BYTES[resolution]
+        try:
+            free = shutil.disk_usage(self.output_dir).free
+        except OSError as exc:
+            raise ValueError("Espace libre impossible à vérifier. Vérifiez le stockage avant le rendu") from exc
+        if free < floor:
+            available_mib = free // (1024**2)
+            floor_mib = floor // (1024**2)
+            raise ValueError(
+                f"Espace insuffisant pour le rendu {resolution}p : "
+                f"{available_mib} Mio libres, seuil prudent {floor_mib} Mio. "
+                "Libérez de la place puis réessayez ; aucun import ne sera supprimé")
+
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
         if job["tts"] == "piper" and not job["mute"] and not self.piper_model:
@@ -370,6 +395,9 @@ class Jobs:
                         if j["status"] in ("done", "error", "cancelled")]
             if len(self.jobs) - len(finished) >= MAX_JOBS:
                 raise ValueError("File d'attente pleine. Réessayez après les rendus actifs")
+            # Reject low-space requests *before* creating a checkpoint or
+            # sealing imported media. The browser can retry after cleanup.
+            self._ensure_render_disk_space(job["resolution"])
             ident = uuid4().hex
             record = {"id": ident, "status": "queued", "created": int(time.time()),
                       "finished": None, "error": None, "parameters": job, "metadata": None}
@@ -855,6 +883,9 @@ class Jobs:
             # the supervising worker can still reclaim these private files.
             scratch = dest / ".render-scratch"
             try:
+                # A queue may sit idle while storage is consumed elsewhere.
+                # In that case surface a job error without launching FFmpeg.
+                self._ensure_render_disk_space(queued["parameters"]["resolution"])
                 dest.mkdir(exist_ok=True)
                 if scratch.is_symlink():
                     raise ValueError("Temporary render directory must not be a symlink")

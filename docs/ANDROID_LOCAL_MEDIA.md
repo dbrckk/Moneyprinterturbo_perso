@@ -708,6 +708,28 @@ aucune vidéo source.
 
 ## Gestion sécurisée de l'espace de stockage
 
+### Contrôle automatique avant tout nouveau montage
+
+Avant de créer un projet ou de figer son lot de médias, le studio vérifie
+l'**espace réellement libre sur le volume des rendus** (celui qui héberge
+à la fois les MP4 finaux et le dossier temporaire FFmpeg). Il applique des
+seuils de précaution différents selon la résolution : **256 Mio en 360p**,
+**512 Mio en 720p** et **1 024 Mio en 1080p**. Juste avant le lancement
+effectif, le contrôle est **répété** : un montage en attente peut sinon
+démarrer alors que d'autres applications ont rempli le téléphone.
+
+Si le seuil n'est plus respecté, le nouveau rendu est refusé avec un message
+précisant l'espace disponible et une invitation à libérer du stockage.
+Les médias sources **ne sont ni supprimés ni figés** lors d'un refus à la
+création ; un projet déjà en attente passe en erreur sans lancer FFmpeg.
+Le studio n'efface jamais de vidéos pour forcer un rendu. Si la mesure du
+stockage échoue, le rendu est refusé plutôt que d'affirmer que l'espace suffit.
+
+Ces valeurs sont des **planchers prudents**, pas une estimation réelle de la
+taille d'un montage : la durée, les rushs et les effets peuvent consommer
+bien davantage. Elles ne garantissent pas qu'un encodage finira sans saturer
+le disque et n'empêchent pas Android d'arrêter Termux en arrière-plan.
+
 Le studio affiche maintenant l'espace réellement occupé par les imports,
 le plafond de **800 Mo** et le volume récupérable. Les fichiers
 `.receiving-*` provenant de transferts HTTP interrompus sont comptabilisés
