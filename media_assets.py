@@ -59,6 +59,10 @@ class MediaAsset:
     # Horizontal output crop anchor; 0.5 stays center, opt-in only after
     # confident local motion sampling within the selected source window.
     crop_horizontal_anchor: float | None = None
+    # Explicitly preserve all source content when two independently sampled
+    # windows of one long scene contain mutually exclusive edge activity.
+    # Only the local planner may set this; never inferred from filenames.
+    preserve_full_video_frame: bool = False
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
