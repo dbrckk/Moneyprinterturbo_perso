@@ -561,7 +561,7 @@ Le manifeste JSON du MP4 contient désormais `scene_transitions` :
 une entrée (`cut` ou `fade`) pour chacune des frontières réelles.
 Ce choix examine la ressemblance visuelle générale, pas le sens
 de l'action filmée ; il ne prétend pas remplacer le jugement artistique
-d'un monteur professionnel.
+d'un monteur professionnel.
 
 ## Réparation automatique d'une coupe défectueuse (montages locaux courts)
 
@@ -890,3 +890,13 @@ Le rapport affiche le gain mesuré seulement si les deux MP4 produits ont un
 SHA-256 identique ; si les fichiers diffèrent, la comparaison échoue au lieu
 de présenter un résultat trompeur. Ce contrôle ne mesure ni température, ni
 batterie, ni pic de mémoire Android.
+
+### Confidentialité des fichiers de rendu
+
+Le script de narration (`script.txt`) et le journal de diagnostic FFmpeg
+(`render.log`) sont créés avec des permissions locales restrictives (`0600`)
+même si le terminal possède un `umask` permissif. Le moteur refuse les liens
+symboliques à ces emplacements pour éviter d'écraser un fichier extérieur.
+Ces protections n'empêchent pas une personne disposant déjà d'un accès complet
+au compte Android/Termux de lire les fichiers ; ne partagez pas le répertoire
+des rendus si les scénarios sont confidentiels.

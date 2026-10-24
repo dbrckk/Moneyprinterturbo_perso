@@ -646,7 +646,7 @@ class Jobs:
         try:
             name = unquote(encoded_name, encoding="utf-8", errors="strict")
         except UnicodeDecodeError as exc:
-            raise ValueError("Nom du fichier invalide") from exc
+            raise ValueError("Nom du fichier invalide") from exc
         if (not 1 <= len(name) <= 120 or name in (".", "..")
                 or name.startswith(".") or "/" in name or "\\" in name
                 or any(unicodedata.category(ch).startswith("C") for ch in name)):
@@ -863,8 +863,21 @@ class Jobs:
                 render_env["TMPDIR"] = str(scratch)
                 render_env["MPT_STUDIO_PROGRESS"] = "1"
                 (dest / PROGRESS_NAME).unlink(missing_ok=True)
-                (dest / "script.txt").write_text(queued["parameters"]["script"], encoding="utf-8")
-                with (dest / "render.log").open("wb") as log:
+                # User narration and FFmpeg diagnostics are private even if
+                # Termux inherited a permissive process umask. Reject stale
+                # symlinks before opening either sensitive file.
+                script_path = dest / "script.txt"
+                log_path = dest / "render.log"
+                if script_path.is_symlink() or log_path.is_symlink():
+                    raise ValueError("Render files must not be symlinks")
+                with os.fdopen(os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC |
+                                       getattr(os, "O_NOFOLLOW", 0), 0o600),
+                               "w", encoding="utf-8") as script_stream:
+                    os.chmod(script_path, 0o600)
+                    script_stream.write(queued["parameters"]["script"])
+                with os.fdopen(os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC |
+                                       getattr(os, "O_NOFOLLOW", 0), 0o600), "wb") as log:
+                    os.chmod(log_path, 0o600)
                     proc = subprocess.Popen(self._arguments(queued, dest), cwd=ROOT,
                                             stdout=log, stderr=subprocess.STDOUT,
                                             env=render_env,
@@ -912,6 +925,10 @@ class Jobs:
                 if not output.is_file() or output.stat().st_size < 1000:
                     raise RuntimeError("Fichier MP4 absent ou vide")
                 metadata = json.loads((dest / "video.json").read_text(encoding="utf-8"))
+                # Never publish `done` while the previous render's stage file
+                # is still visible. The status should describe a finished
+                # export, not a worker that has yet to clear live progress.
+                (dest / PROGRESS_NAME).unlink(missing_ok=True)
                 with self.lock:
                     # Final publication and cancellation are mutually
                     # exclusive, even when the request arrives during JSON
@@ -1239,7 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doctor-json", action="store_true",
                         help="Effectuer le même diagnostic et produire un JSON sans données privées")
     parser.add_argument("--doctor-full", action="store_true",
-                        help="Tester un vrai montage de 2 scènes synthétiques avec voix, sous-titres et MP4")
+                        help="Tester un vrai montage de 2 scènes synthétiques avec voix, sous-titres et MP4")
     parser.add_argument("--doctor-full-json", action="store_true",
                         help="Même test complet, rapport JSON sans fichiers personnels")
     args = parser.parse_args(argv)
