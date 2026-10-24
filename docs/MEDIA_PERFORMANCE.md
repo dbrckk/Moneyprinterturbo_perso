@@ -125,3 +125,59 @@ maximale. Ce n'est pas un benchmark sur Android et ces gains ne doivent pas
 être généralisés à toutes les sources, tous les filtres, ni toutes les
 configurations matérielles. Les tests automatisés vérifient la politique
 de préparation des commandes et la validité des fichiers réels.
+
+## Préparation des montages longs selon la mémoire disponible (24 octobre 2026)
+
+Les projets **720p d'au moins cinq scènes** ne lancent plus systématiquement
+un deuxième encodeur FFmpeg. Juste avant la normalisation, le studio consulte
+`MemAvailable` dans `/proc/meminfo` et, si elles sont présentes, les limites
+cgroup v2 (`memory.max` / `memory.current`) ou v1. La mémoire utilisable est la
+**plus petite** des valeurs disponibles. Un deuxième travailleur n'est autorisé
+que si le processeur possède au moins deux cœurs et si au moins **2 Gio**
+sont annoncés disponibles. Faute de mesure fiable, le travail est séquentiel.
+
+Cette règle ne diminue ni la résolution, ni le débit d'images, ni le nombre
+de scènes. Les photos, vidéos, sous-titres et profils H.264 restent identiques.
+Elle peut augmenter le temps de rendu sur les appareils sous pression mémoire,
+mais réduit le risque d'avoir deux gros encodages concurrents sur un téléphone.
+L'estimation `/proc` et les quotas cgroup ne constituent **pas une garantie**
+contre le gestionnaire de mémoire Android ni contre la surchauffe. Les projets
+1080p restent strictement séquentiels pour les clips intermédiaires.
+
+Le manifeste MP4 renseigne désormais `render_performance.scene_encoding_workers` :
+`0` lorsque le montage utilise l'encodage direct sans clips intermédiaires,
+`1` pour la préparation séquentielle, `2` lorsque la mémoire permet deux
+encodeurs. Ainsi un changement de performance est explicable après le rendu.
+
+### Mesurer un montage synthétique multiscène sur son appareil
+
+Depuis le répertoire du dépôt (Termux/Android, ordinateur ou runner GitHub) :
+
+```sh
+python bench/long_mobile_montage.py --resolution 720
+```
+
+Le banc d'essai génère six fichiers fictifs (trois JPEG et trois MP4), un
+montage avec fondus, narration française eSpeak, piste AAC et sous-titres SRT.
+Il vérifie H.264, les six scènes, le manifeste et la qualité de livraison,
+ainsi que l'intégrité des sources. Tous les fichiers sont effacés par défaut.
+Pour conserver les MP4 et le JSON de mesures dans un **dossier vide** :
+
+```sh
+python bench/long_mobile_montage.py --resolution 720 --out-dir outputs/benchmark-long-local
+```
+
+Une comparaison explicite des temps de rendu avec un puis deux encodeurs est
+possible par `--compare-workers`. Elle est **refusée** lorsque l'appareil ne
+satisfait pas les mêmes conditions de mémoire et de CPU que le mode parallèle.
+La comparaison est coûteuse et peut chauffer le téléphone ; elle n'est jamais
+lancée automatiquement. Les métriques portent sur des sources *synthétiques*,
+non sur des vrais clips filmés ; elles **ne mesurent pas** le pic de RSS, la
+batterie, les limites propres au GPU, ni le comportement thermique sur Android.
+
+Un workflow GitHub Actions volontaire, **Long Local Montage Benchmark**, permet
+de lancer ce même rendu synthétique depuis le navigateur d'un smartphone et
+de récupérer le JSON, les MP4 et les sous-titres comme artefacts. Le résultat
+mesure un **runner Linux GitHub**, pas la mémoire disponible ni la vitesse du
+smartphone. Pour mesurer le téléphone lui-même, exécuter la commande ci-dessus
+dans Termux ; aucun envoi vers GitHub n'est requis.

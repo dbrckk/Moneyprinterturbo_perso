@@ -39,6 +39,8 @@ class PerformanceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(free_studio.os, "cpu_count", return_value=4), \
+                 patch.object(free_studio, "_available_render_memory_bytes",
+                              return_value=4 * 1024 ** 3), \
                  patch.object(free_studio, "render_scene", side_effect=fake_scene):
                 scenes = free_studio.encode_media_scenes(
                     [None] * 5, [1.2] * 5, Path(folder), width=720,
@@ -58,6 +60,8 @@ class PerformanceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(free_studio.os, "cpu_count", return_value=8), \
+                 patch.object(free_studio, "_available_render_memory_bytes",
+                              return_value=4 * 1024 ** 3), \
                  patch.object(free_studio, "render_scene", side_effect=fake_scene):
                 self.assertEqual(free_studio._scene_encoding_workers(1080, 1920, 6), 1)
                 self.assertEqual(free_studio._scene_encoding_workers(360, 640, 8), 1)
@@ -72,6 +76,87 @@ class PerformanceTests(unittest.TestCase):
                 Path("unused"), width=720, height=1280, fps=12,
                 extra_frames=(0, 0))
 
+    def test_parallel_scene_workers_respect_live_memory_headroom(self):
+        minimum = free_studio.PARALLEL_SCENE_MIN_FREE_BYTES
+        with patch.object(free_studio.os, "cpu_count", return_value=8):
+            for memory, expected in ((None, 1), (0, 1),
+                                     (minimum - 1, 1), (minimum, 2),
+                                     (minimum + 1, 2)):
+                with self.subTest(memory=memory), \
+                     patch.object(free_studio, "_available_render_memory_bytes",
+                                  return_value=memory):
+                    self.assertEqual(free_studio._scene_encoding_workers(
+                        720, 1280, 6), expected)
+                    self.assertEqual(free_studio._scene_encoding_workers(
+                        1080, 1920, 8), 1)
+                    self.assertEqual(free_studio._scene_encoding_workers(
+                        720, 1280, 4), 1)
+        with patch.object(free_studio.os, "cpu_count", return_value=1), \
+             patch.object(free_studio, "_available_render_memory_bytes",
+                          side_effect=AssertionError("Do not measure memory with 1 CPU")):
+            self.assertEqual(free_studio._scene_encoding_workers(720, 1280, 6), 1)
+
+    def test_memory_headroom_includes_real_cgroup_limits(self):
+        gib = 1024 ** 3
+        def fake_reader(contents):
+            def read_text(path, **kwargs):
+                key = str(path)
+                if key not in contents:
+                    raise FileNotFoundError(key)
+                return contents[key]
+            return read_text
+
+        global_memory = {"/proc/meminfo": f"MemTotal: 8000000 kB\nMemAvailable: {4*1024*1024} kB\n"}
+        cases = [
+            ("global", {}, 4 * gib),
+            ("cgroup v2 constrained", {
+                "/sys/fs/cgroup/memory.max": str(2 * gib),
+                "/sys/fs/cgroup/memory.current": str(gib // 2),
+            }, gib + gib // 2),
+            ("cgroup v1 constrained", {
+                "/sys/fs/cgroup/memory.max": "max",
+                "/sys/fs/cgroup/memory/memory.limit_in_bytes": str(3 * gib),
+                "/sys/fs/cgroup/memory/memory.usage_in_bytes": str(gib * 2),
+            }, gib),
+            ("unlimited", {
+                "/sys/fs/cgroup/memory.max": "max",
+                "/sys/fs/cgroup/memory/memory.limit_in_bytes": str(1 << 62),
+            }, 4 * gib),
+            ("memory fully consumed", {
+                "/sys/fs/cgroup/memory.max": str(gib),
+                "/sys/fs/cgroup/memory.current": str(gib + 500),
+            }, 0),
+            ("unknown usage fails closed", {
+                "/sys/fs/cgroup/memory.max": str(2 * gib),
+            }, 0),
+        ]
+        for name, records, expected in cases:
+            with self.subTest(name=name), \
+                 patch.object(Path, "read_text", fake_reader({**global_memory, **records})):
+                self.assertEqual(free_studio._available_render_memory_bytes(), expected)
+        for contents in ({}, {"/proc/meminfo": "MemAvailable: not-a-number kB\n"},
+                         {"/proc/meminfo": "MemTotal: 100 kB\n"}):
+            with patch.object(Path, "read_text", fake_reader(contents)):
+                self.assertIsNone(free_studio._available_render_memory_bytes())
+
+    def test_low_memory_forces_serial_scene_order_without_changing_encodes(self):
+        import threading
+        workers = []
+        def fake_scene(_asset, _duration, index, folder, **kwargs):
+            workers.append(threading.get_ident())
+            return folder / f"scene_{index:02}.mp4"
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(free_studio.os, "cpu_count", return_value=8), \
+                 patch.object(free_studio, "_available_render_memory_bytes",
+                              return_value=512 * 1024 ** 2), \
+                 patch.object(free_studio, "render_scene", side_effect=fake_scene):
+                scenes = free_studio.encode_media_scenes(
+                    [None] * 6, [3.2] * 6, Path(folder),
+                    width=720, height=1280, fps=12, extra_frames=(0,) * 6)
+        self.assertEqual([path.name for path in scenes],
+                         [f"scene_{i:02}.mp4" for i in range(6)])
+        self.assertEqual(set(workers), {threading.get_ident()})
+
     def test_parallel_ffmpeg_error_propagates_without_silent_partial_success(self):
         def fake_scene(_asset, _duration, index, folder, **kwargs):
             if index == 2:
@@ -79,6 +164,8 @@ class PerformanceTests(unittest.TestCase):
             return folder / f"scene_{index:02}.mp4"
         with tempfile.TemporaryDirectory() as folder:
             with patch.object(free_studio.os, "cpu_count", return_value=4), \
+                 patch.object(free_studio, "_available_render_memory_bytes",
+                              return_value=4 * 1024 ** 3), \
                  patch.object(free_studio, "render_scene", side_effect=fake_scene):
                 with self.assertRaisesRegex(RuntimeError, "Encoder failed"):
                     free_studio.encode_media_scenes(

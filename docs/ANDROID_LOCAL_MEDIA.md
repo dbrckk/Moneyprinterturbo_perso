@@ -739,3 +739,21 @@ L'export reste sur le téléphone, sans modèle distant. Une mesure sur Linux
 a observé une baisse de mémoire pour un court échantillon synthétique ; la
 consommation réelle sur Redmi dépend de la durée, des médias, des sous-titres,
 de la température et des autres applications ouvertes.
+
+## Projet long : garder la mémoire disponible
+
+Sur les montages 720p d'au moins cinq scènes, le studio n'utilise deux
+encodeurs FFmpeg simultanés **que si au moins 2 Gio de mémoire utilisable**
+sont signalés par Android/Linux et les éventuelles limites cgroup. Sous ce
+seuil, l'export revient automatiquement à un encodeur séquentiel, sans
+réduire les graphismes, la définition, les sous-titres ni la qualité H.264.
+Un manque d'information sur la mémoire déclenche également le mode prudent.
+Cette mesure ne remplace pas une vérification sur le téléphone : fermer les
+autres applications pendant un gros export reste utile.
+
+Pour comparer volontairement les temps d'un montage de six scènes avec des
+fichiers synthétiques (sans accès aux médias personnels) :
+`python bench/long_mobile_montage.py --resolution 720`. Le rapport précise
+les travailleurs réellement choisis et les durées des différentes étapes.
+`--compare-workers` effectue deux exports et peut chauffer l'appareil : le
+moteur le refuse si la mémoire disponible ne permet pas le mode parallèle.
