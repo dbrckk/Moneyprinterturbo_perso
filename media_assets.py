@@ -56,6 +56,9 @@ class MediaAsset:
     # aspect-aware video framing without an additional source decode/probe.
     source_width: int | None = None
     source_height: int | None = None
+    # Horizontal output crop anchor; 0.5 stays center, opt-in only after
+    # confident local motion sampling within the selected source window.
+    crop_horizontal_anchor: float | None = None
 
     def metadata(self) -> dict[str, str]:
         result = asdict(self)
