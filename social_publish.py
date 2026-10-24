@@ -55,7 +55,10 @@ def _cut(value: str, limit: int) -> str:
 
 
 def _topic_tags(topic: str, lang: str) -> list[str]:
-    simplified = unicodedata.normalize("NFKD", topic).encode(
+    # Ignore URL fragments and potential query tokens: promotional links do
+    # not belong in inferred hashtags and must not leak into metadata tags.
+    cleaned_topic = re.sub(r"https?://\S+", "", topic, flags=re.IGNORECASE)
+    simplified = unicodedata.normalize("NFKD", cleaned_topic).encode(
         "ascii", errors="ignore").decode("ascii")
     terms = re.findall(r"[A-Za-z][A-Za-z0-9]{2,20}", simplified)
     tags: list[str] = []
