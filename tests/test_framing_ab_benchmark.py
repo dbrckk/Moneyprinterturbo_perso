@@ -124,10 +124,10 @@ class RealSyntheticFramingABTests(unittest.TestCase):
                     self.assertTrue(needs_video_soft_matte(
                         asset, width=360, height=640))
                 else:
-                    choices, _ = plan_motion_crops(
+                    choices, notes = plan_motion_crops(
                         [asset], [benchmark.SECONDS], width=360, height=640)
                     if name == "long-crossing":
-                        self.assertTrue(choices[0].preserve_full_video_frame)
+                        self.assertTrue(choices[0].preserve_full_video_frame, (notes, choices[0]))
                         self.assertIsNone(choices[0].crop_horizontal_anchor)
                     else:
                         self.assertIsNone(choices[0].crop_horizontal_anchor)
