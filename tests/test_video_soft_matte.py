@@ -12,7 +12,9 @@ import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import media_assets
 import fast_media
 import free_studio
 import scene_framing
@@ -73,6 +75,36 @@ class VideoFramingPolicyTests(unittest.TestCase):
         for w, h in ((True, 640), (360, "640"), (361, 640), (360, 0)):
             self.assertFalse(scene_framing.needs_video_soft_matte(
                 self.asset(960, 180), width=w, height=h))
+
+    def test_phone_rotation_metadata_uses_display_dimensions_no_extra_probe(self):
+        for angle, displayed in ((90, (180, 320)), (-90, (180, 320)),
+                                  (270, (180, 320)), (180, (320, 180)),
+                                  (0, (320, 180))):
+            with self.subTest(rotation=angle):
+                response = SimpleNamespace(stdout=json.dumps({
+                    "streams": [{"width": 320, "height": 180,
+                                 "side_data_list": [{"rotation": angle}]}]}))
+                with patch.object(media_assets.subprocess, "run",
+                                  return_value=response) as mocked:
+                    self.assertEqual(
+                        media_assets.media_dimensions(Path("rotated.mp4")), displayed)
+                    self.assertEqual(mocked.call_count, 1)
+                    command = mocked.call_args.args[0]
+                    self.assertIn("stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+                                  command)
+
+        response = SimpleNamespace(stdout=json.dumps({
+            "streams": [{"width": 320, "height": 180,
+                         "tags": {"rotate": "90"}}]}))
+        with patch.object(media_assets.subprocess, "run", return_value=response):
+            self.assertEqual(media_assets.media_dimensions(Path("tagged.mp4")),
+                             (180, 320))
+        response = SimpleNamespace(stdout=json.dumps({
+            "streams": [{"width": 320, "height": 180,
+                         "side_data_list": [{"rotation": "invalid"}]}]}))
+        with patch.object(media_assets.subprocess, "run", return_value=response):
+            self.assertEqual(media_assets.media_dimensions(Path("bad-rotation.mp4")),
+                             (320, 180))
 
     def test_graph_uses_single_video_fps_clock_and_no_photo_zoom(self):
         graph = scene_framing.video_soft_matte_graph(
