@@ -92,11 +92,50 @@ class LongMontageHarnessTests(unittest.TestCase):
             self.assertEqual([x["actual_scene_encoding_workers"] for x in report["rows"]],
                              [1, 2])
             self.assertEqual(report["selected_worker_count"], 2)
+            self.assertTrue(report["comparison"]["output_byte_identical"])
+            self.assertGreater(report["comparison"]["speedup_ratio"], 0)
+            self.assertEqual(report["rows"][0]["output_sha256"],
+                             report["rows"][1]["output_sha256"])
+
             self.assertEqual(report["memory_available_at_start_bytes"], 3 * 1024**3)
             self.assertEqual([x["QA"] for x in report["rows"]], ["passed", "passed"])
             self.assertEqual(json.loads((folder / "long-montage-report.json").read_text()), report)
             self.assertTrue(all(p.read_bytes() == bytes([int(p.stem)]) * 19
                                 for p in (folder / "fixtures").iterdir()))
+
+    def test_comparison_refuses_speedup_when_rendered_outputs_differ(self):
+        calls = []
+        def fixture(folder):
+            folder.mkdir()
+            for i in range(6):
+                (folder / f"{i:02}.mp4").write_bytes(bytes([i]) * 19)
+            import hashlib
+            return {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in folder.iterdir()}
+        def render(_topic, _script, output, **kwargs):
+            calls.append(1)
+            output.write_bytes(b"render version " + bytes([len(calls)]))
+            return {"segments": [{"text": "x"}] * 6,
+                    "media": [{"source": "local"}] * 6,
+                    "duration_seconds": 15,
+                    "render_performance": {
+                        "compositing_pipeline": "fused-xfade",
+                        "scene_encoding_seconds": 1.2,
+                        "final_encoding_seconds": 2.5,
+                        "scene_encoding_workers": len(calls)}}
+        qa = {"ok": True, "checks": {"video_codec": "h264",
+              "pixel_format": "yuv420p", "audio_codec": "aac"}}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(bench, "_available_render_memory_bytes", return_value=3*1024**3), \
+             patch.object(bench, "_scene_encoding_workers", return_value=2), \
+             patch.object(bench, "make_fixtures", side_effect=fixture), \
+             patch.object(bench, "render", side_effect=render), \
+             patch.object(bench, "probe", return_value={"streams": []}), \
+             patch.object(bench, "validate", return_value=qa):
+            with self.assertRaisesRegex(RuntimeError, "different MP4 bytes"):
+                bench.benchmark(Path(tmp), resolution=720, compare_workers=True)
+            self.assertFalse((Path(tmp) / "long-montage-report.json").exists())
+            self.assertEqual(len(calls), 2)
 
     def test_outdir_with_existing_user_file_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:

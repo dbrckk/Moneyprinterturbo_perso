@@ -99,6 +99,7 @@ def benchmark(root: Path, *, resolution: int = 720,
     hashes = make_fixtures(inputs)
     workers = (1, 2) if compare_workers else (selected,)
     rows: list[dict] = []
+    elapsed_values: list[float] = []
     for count in workers:
         target = root / f"finished-{count}.mp4"
         if count == 2 and compare_workers:
@@ -113,6 +114,7 @@ def benchmark(root: Path, *, resolution: int = 720,
                 mute=False, caption_style="classic", transition="fade",
                 use_media_onepass=False)
         elapsed = time.perf_counter() - started
+        elapsed_values.append(elapsed)
         quality = validate(target, info, target.with_suffix(".srt"), probe(target))
         if not quality["ok"]:
             raise RuntimeError("Synthetic long-render output failed quality validation")
@@ -127,6 +129,7 @@ def benchmark(root: Path, *, resolution: int = 720,
             "actual_scene_encoding_workers": perf["scene_encoding_workers"],
             "final_encoding_seconds": perf["final_encoding_seconds"],
             "output_bytes": target.stat().st_size,
+            "output_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
             "output_codec": quality["checks"]["video_codec"],
             "output_pixel_format": quality["checks"]["pixel_format"],
             "audio_codec": quality["checks"].get("audio_codec"),
@@ -137,12 +140,32 @@ def benchmark(root: Path, *, resolution: int = 720,
     if hashes != {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in inputs.iterdir()}:
         raise RuntimeError("Benchmark modified its original synthetic sources")
+    # Comparing only elapsed time is unsafe: a faster pipeline could have
+    # silently skipped media, frames or audio. Require the *entire* delivered
+    # MP4 to be identical before reporting a speedup from worker concurrency.
+    comparison = None
+    if compare_workers:
+        serial, parallel = rows
+        identical = serial["output_sha256"] == parallel["output_sha256"]
+        comparison = {
+            "serial_seconds": serial["total_seconds"],
+            "parallel_seconds": parallel["total_seconds"],
+            "speedup_ratio": round(elapsed_values[0] /
+                                   max(elapsed_values[1], 1e-9), 3),
+            "elapsed_seconds_saved": round(serial["total_seconds"] -
+                                           parallel["total_seconds"], 3),
+            "output_byte_identical": identical,
+        }
+        if not identical:
+            raise RuntimeError("Worker comparison produced different MP4 bytes; "
+                               "no speedup may be recommended")
     report = {
         "source": "six fully synthetic local PNG/MP4 sources; not user footage",
         "environment": "local FFmpeg/eSpeak, no network; on-device only if run on the device",
         "resolution": resolution, "fps": fps,
         "memory_available_at_start_bytes": available,
         "selected_worker_count": selected,
+        "comparison": comparison,
         "note": "Stage times are end-to-end CPU timings, not measured peak RAM, heat, battery or typical phone performance",
         "rows": rows,
     }

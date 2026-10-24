@@ -793,3 +793,7 @@ fichiers synthétiques (sans accès aux médias personnels) :
 les travailleurs réellement choisis et les durées des différentes étapes.
 `--compare-workers` effectue deux exports et peut chauffer l'appareil : le
 moteur le refuse si la mémoire disponible ne permet pas le mode parallèle.
+Le rapport affiche le gain mesuré seulement si les deux MP4 produits ont un
+SHA-256 identique ; si les fichiers diffèrent, la comparaison échoue au lieu
+de présenter un résultat trompeur. Ce contrôle ne mesure ni température, ni
+batterie, ni pic de mémoire Android.

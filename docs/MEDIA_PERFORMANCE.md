@@ -171,7 +171,12 @@ Une comparaison explicite des temps de rendu avec un puis deux encodeurs est
 possible par `--compare-workers`. Elle est **refusée** lorsque l'appareil ne
 satisfait pas les mêmes conditions de mémoire et de CPU que le mode parallèle.
 La comparaison est coûteuse et peut chauffer le téléphone ; elle n'est jamais
-lancée automatiquement. Les métriques portent sur des sources *synthétiques*,
+lancée automatiquement. Le rapport compare désormais aussi le SHA-256 de
+chaque MP4 : si les deux rendus ne sont pas **strictement identiques octet par
+octet**, le test refuse d'annoncer un gain de vitesse. Une comparaison valide
+indique `comparison.output_byte_identical`, `speedup_ratio` et
+`elapsed_seconds_saved`. Cette garantie s'applique uniquement aux deux exports
+du banc d'essai, pas à des projets distincts. Les métriques portent sur des sources *synthétiques*,
 non sur des vrais clips filmés ; elles **ne mesurent pas** le pic de RSS, la
 batterie, les limites propres au GPU, ni le comportement thermique sur Android.
 
