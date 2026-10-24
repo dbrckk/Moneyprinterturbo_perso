@@ -646,7 +646,7 @@ class Jobs:
         try:
             name = unquote(encoded_name, encoding="utf-8", errors="strict")
         except UnicodeDecodeError as exc:
-            raise ValueError("Nom du fichier invalide") from exc
+            raise ValueError("Nom du fichier invalide") from exc
         if (not 1 <= len(name) <= 120 or name in (".", "..")
                 or name.startswith(".") or "/" in name or "\\" in name
                 or any(unicodedata.category(ch).startswith("C") for ch in name)):
@@ -1256,7 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doctor-json", action="store_true",
                         help="Effectuer le même diagnostic et produire un JSON sans données privées")
     parser.add_argument("--doctor-full", action="store_true",
-                        help="Tester un vrai montage de 2 scènes synthétiques avec voix, sous-titres et MP4")
+                        help="Tester un vrai montage de 2 scènes synthétiques avec voix, sous-titres et MP4")
     parser.add_argument("--doctor-full-json", action="store_true",
                         help="Même test complet, rapport JSON sans fichiers personnels")
     args = parser.parse_args(argv)

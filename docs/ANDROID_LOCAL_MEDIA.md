@@ -561,7 +561,7 @@ Le manifeste JSON du MP4 contient désormais `scene_transitions` :
 une entrée (`cut` ou `fade`) pour chacune des frontières réelles.
 Ce choix examine la ressemblance visuelle générale, pas le sens
 de l'action filmée ; il ne prétend pas remplacer le jugement artistique
-d'un monteur professionnel.
+d'un monteur professionnel.
 
 ## Réparation automatique d'une coupe défectueuse (montages locaux courts)
 
