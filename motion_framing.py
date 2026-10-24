@@ -110,11 +110,20 @@ def motion_anchor(frames: bytes, *, retention: float) -> float | None:
         estimates.append((focus, energy))
     if len(estimates) < 2:
         return None
+    # Temporal luminance change alone is not evidence of MOVEMENT: a
+    # stationary sign blinking at the edge generates strong, consistent
+    # difference frames and would otherwise hijack the crop. Require the
+    # activity centroid to actually MOVE by >=3 pixels at our 120px sample
+    # width, across accepted independent frame pairs. Global camera moves
+    # and contradictory subjects remain guarded by the existing rules.
+    focus_values = [focus for focus, _ in estimates]
+    spread = max(focus_values) - min(focus_values)
+    if spread < 3 / _SAMPLE_WIDTH:
+        return None
     # Consistent direction and position across independent frame pairs.
     direction = estimates[0][0] > 0.5
     if (any((focus > .5) != direction for focus, _ in estimates)
-            or max(focus for focus, _ in estimates)
-            - min(focus for focus, _ in estimates) > .16):
+            or spread > .16):
         return None
     focus = sum(x * energy for x, energy in estimates) / sum(
         energy for _, energy in estimates)
