@@ -11,6 +11,31 @@ from bench import long_mobile_montage as bench
 
 
 class LongMontageHarnessTests(unittest.TestCase):
+    def test_generated_synthetic_png_decodes_losslessly_with_stdlib(self):
+        import struct
+        import zlib
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.png"
+            second = Path(tmp) / "second.png"
+            bench.write_synthetic_png(first, 0, width=8, height=12)
+            bench.write_synthetic_png(second, 2, width=8, height=12)
+            self.assertNotEqual(first.read_bytes(), second.read_bytes())
+            data = first.read_bytes()
+            self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(struct.unpack(">II", data[16:24]), (8, 12))
+            offset = 8
+            chunks = {}
+            while offset < len(data):
+                length = struct.unpack(">I", data[offset:offset+4])[0]
+                kind = data[offset+4:offset+8]
+                payload = data[offset+8:offset+8+length]
+                crc = struct.unpack(">I", data[offset+8+length:offset+12+length])[0]
+                self.assertEqual(crc, zlib.crc32(kind + payload))
+                chunks[kind] = payload
+                offset += 12 + length
+            self.assertEqual(len(zlib.decompress(chunks[b"IDAT"])), 12 * (1+8*3))
+            self.assertIn(b"IEND", chunks)
+
     def test_invalid_benchmark_settings_refused_before_opening_media(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(bench, "make_fixtures") as fixture:

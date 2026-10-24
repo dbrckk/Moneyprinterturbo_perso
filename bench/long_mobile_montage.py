@@ -13,10 +13,12 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,33 @@ def ffmpeg(*argv: str) -> None:
         raise RuntimeError("Synthetic FFmpeg test fixture failed")
 
 
+def write_synthetic_png(path: Path, variant: int, *, width: int = 360,
+                        height: int = 640) -> None:
+    """Create a valid RGB PNG with moving-like colour gradients via stdlib.
+
+    No Pillow, gallery access, internet, or extra FFmpeg process needed.
+    The pattern includes vertical and horizontal variation and is deliberately
+    synthetic test content, never represented as a real photograph.
+    """
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        body = kind + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    compressor = zlib.compressobj(level=6)
+    encoded = bytearray()
+    for y in range(height):
+        row = bytearray((0,))  # PNG scanline filter type 0.
+        for x in range(width):
+            row.extend(((x + variant * 47) % 256,
+                        (y // 2 + variant * 61) % 256,
+                        (x // 3 + y // 4 + variant * 27) % 256))
+        encoded.extend(compressor.compress(row))
+    encoded.extend(compressor.flush())
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+                     + chunk(b"IDAT", bytes(encoded)) + chunk(b"IEND", b""))
+
+
 def make_fixtures(folder: Path) -> dict[str, str]:
     """Generate one H.264 motion clip and three photo patterns, then copies."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -50,8 +79,7 @@ def make_fixtures(folder: Path) -> dict[str, str]:
            "-threads:v", "2", "-pix_fmt", "yuv420p",
            str(folder / "02-video.mp4"))
     for index, number in enumerate((1, 3, 5)):
-        ffmpeg("-f", "lavfi", "-i", f"testsrc2=s=360x640:r=1,eq=saturation={1 + index * .2:.2f}",
-               "-frames:v", "1", "-update", "1", str(folder / f"{number:02}-image.jpg"))
+        write_synthetic_png(folder / f"{number:02}-image.png", index)
     shutil.copyfile(folder / "02-video.mp4", folder / "04-video.mp4")
     shutil.copyfile(folder / "02-video.mp4", folder / "06-video.mp4")
     return {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -110,7 +138,7 @@ def benchmark(root: Path, *, resolution: int = 720,
                   for p in inputs.iterdir()}:
         raise RuntimeError("Benchmark modified its original synthetic sources")
     report = {
-        "source": "six fully synthetic local JPG/MP4 sources; not user footage",
+        "source": "six fully synthetic local PNG/MP4 sources; not user footage",
         "environment": "local FFmpeg/eSpeak, no network; on-device only if run on the device",
         "resolution": resolution, "fps": fps,
         "memory_available_at_start_bytes": available,

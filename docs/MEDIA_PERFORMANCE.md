@@ -157,7 +157,7 @@ Depuis le répertoire du dépôt (Termux/Android, ordinateur ou runner GitHub) :
 python bench/long_mobile_montage.py --resolution 720
 ```
 
-Le banc d'essai génère six fichiers fictifs (trois JPEG et trois MP4), un
+Le banc d'essai génère six fichiers fictifs (trois PNG et trois MP4), un
 montage avec fondus, narration française eSpeak, piste AAC et sous-titres SRT.
 Il vérifie H.264, les six scènes, le manifeste et la qualité de livraison,
 ainsi que l'intégrité des sources. Tous les fichiers sont effacés par défaut.
