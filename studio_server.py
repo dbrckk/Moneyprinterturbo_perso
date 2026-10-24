@@ -32,6 +32,7 @@ from capture_order import order_media_by_capture
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 from encoder_profiles import ENCODER_PROFILES
 from render_progress import PROGRESS_NAME, read_progress
+from render_wake_lock import RenderWakeLock
 from studio_calibration import LocalCalibration, CALIBRATION_FPS
 
 ROOT = Path(__file__).resolve().parent
@@ -118,6 +119,9 @@ def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
     mute = value.get("mute", False)
     if type(mute) is not bool:
         raise ValueError("L'option sans voix doit être un booléen")
+    keep_awake = value.get("keep_awake", False)
+    if type(keep_awake) is not bool:
+        raise ValueError("L'option anti-veille Termux doit être un booléen")
     tts = value.get("tts", "espeak")
     if tts not in ("espeak", "piper"):
         raise ValueError("Moteur vocal inconnu")
@@ -137,7 +141,8 @@ def validate_draft(value: object, *, allow_empty_script: bool = False) -> dict:
     return {"media_batch": media_batch, "topic": topic.strip(), "lang": lang, "script": script.strip(), "sentences": sentences,
             "aspect": aspect, "resolution": resolution, "encoder_profile": encoder_profile,
             "visuals": visuals, "speech_rate": speech_rate,
-            "mute": mute, "tts": tts, "scene_queries": queries}
+            "mute": mute, "tts": tts, "scene_queries": queries,
+            "keep_awake": keep_awake}
 
 
 class Jobs:
@@ -771,7 +776,11 @@ class Jobs:
         metadata = job["metadata"] or {}
         progress = (read_progress(self.output_dir / job["id"] / PROGRESS_NAME)
                     if job["status"] == "running" else None)
-        return {"progress": progress,"id": job["id"], "status": job["status"], "created": job["created"],
+        return {"progress": progress,
+                "keep_awake_requested": bool(job["parameters"].get("keep_awake", False)),
+                "keep_awake_active": bool(job.get("_wake_lock_active", False)
+                                          if job["status"] == "running" else False),
+                "id": job["id"], "status": job["status"], "created": job["created"],
                 "finished": job["finished"], "error": job["error"],
                 "topic": job["parameters"]["topic"], "resolution": job["parameters"]["resolution"],
                 "duration_seconds": metadata.get("duration_seconds"), "visual_mode": metadata.get("visual_mode"),
@@ -899,10 +908,16 @@ class Jobs:
             # Android SIGKILL interrupts TemporaryDirectory's normal cleanup,
             # the supervising worker can still reclaim these private files.
             scratch = dest / ".render-scratch"
+            wake_lock = RenderWakeLock(queued["parameters"].get("keep_awake", False))
             try:
                 # A queue may sit idle while storage is consumed elsewhere.
                 # In that case surface a job error without launching FFmpeg.
                 self._ensure_render_disk_space(queued["parameters"]["resolution"])
+                # Never delay a queued/low-storage rejection for Android wake lock.
+                # A wake lock is best-effort and only requested by the creator.
+                active = wake_lock.acquire()
+                with self.lock:
+                    queued["_wake_lock_active"] = active
                 dest.mkdir(exist_ok=True)
                 if scratch.is_symlink():
                     raise ValueError("Temporary render directory must not be a symlink")
@@ -996,6 +1011,11 @@ class Jobs:
                         queued["status"] = "error"
                         self._checkpoint(queued)
             finally:
+                # Relinquish only a lock acquired by this job, on success,
+                # failure, cancellation or shutdown via the worker's finally.
+                wake_lock.release()
+                with self.lock:
+                    queued["_wake_lock_active"] = False
                 # Parent-owned scratch is the only directory removed. Never
                 # touch user-imported media or other jobs' completed exports.
                 if scratch.is_dir() and not scratch.is_symlink():

@@ -78,6 +78,8 @@
               <div><label for="speech-rate">Vitesse de la voix</label><select id="speech-rate"><option value="120">Calme · 120</option><option value="145" selected>Normale · 145</option><option value="170">Dynamique · 170</option></select></div>
             </div>
             <label class="checkrow"><input type="checkbox" id="mute"><span>Rendu sans narration audio</span></label>
+            <label class="checkrow"><input type="checkbox" id="keep-awake"><span>Empêcher la mise en veille du processeur pendant le rendu (Termux)</span></label>
+            <p class="microcopy">Option volontaire, mémorisée sur cet appareil. Consomme plus de batterie. Nécessite les commandes Termux anti-veille ; n'empêche pas forcément Android de fermer l'application. Le verrou est libéré après le montage.</p>
             <label for="queries">Recherche Wikimedia personnalisée <span class="optional">(facultatif)</span></label>
             <textarea id="queries" class="queries" rows="3" placeholder="Une expression par scène, une ligne par phrase. Laisser vide pour une recherche automatique."></textarea>
             <p class="microcopy">Les images sont filtrées CC0 / domaine public et leurs crédits sont exportés. Certaines scènes peuvent utiliser un fond graphique si aucun média autorisé n'est trouvé.</p>

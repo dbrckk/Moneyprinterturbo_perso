@@ -9,6 +9,9 @@
   let lastCalibration = null;
   let lastStatus = '';
   const MEDIA_KEY = 'mpt-local-media-batch-v1';
+  const WAKE_KEY = 'mpt-termux-wake-render-v1';
+  try { $('keep-awake').checked = localStorage.getItem(WAKE_KEY) === '1'; }
+  catch { $('keep-awake').checked = false; }
   const storedBatch = (() => { try { return localStorage.getItem(MEDIA_KEY) || ''; } catch { return ''; } })();
   const state = {has_ollama: false, has_piper: false, has_local_dir: false,
                  media_batch: /^[a-f0-9]{32}$/.test(storedBatch) ? storedBatch : ''};
@@ -84,7 +87,8 @@
       resolution: Number($('resolution').value),
       encoder_profile: $('encoder-profile').value, visuals: $('visuals').value,
       tts: $('tts').value, speech_rate: Number($('speech-rate').value),
-      mute: $('mute').checked, scene_queries: $('queries').value.trim(),
+      mute: $('mute').checked, keep_awake: $('keep-awake').checked,
+      scene_queries: $('queries').value.trim(),
       media_batch: $('visuals').value === 'local' ? state.media_batch : ''
     };
   }
@@ -240,8 +244,11 @@
     } else if (job.status === 'cancelled') {
       $('job-notice').textContent = 'Ce rendu a été annulé.';
     } else {
-      $('job-notice').textContent = job.status === 'queued' ? 'Projet ajouté à la file d’attente…' :
-        (stageNotice || 'Montage vidéo en cours sur votre machine. Le résultat sera affiché ici.');
+      const wakeNotice = job.status === 'running' && job.keep_awake_requested ?
+        (job.keep_awake_active ? ' · Anti-veille Termux demandé et actif.' :
+          ' · Anti-veille Termux indisponible : le rendu continue normalement.') : '';
+      $('job-notice').textContent = (job.status === 'queued' ? 'Projet ajouté à la file d’attente…' :
+        (stageNotice || 'Montage vidéo en cours sur votre machine. Le résultat sera affiché ici.')) + wakeNotice;
     }
     // A slow authenticated Blob response must never change the state of a
     // newer project selected while the previous video was still loading.
@@ -545,6 +552,10 @@
   $('aspect').addEventListener('change', () => { if (lastCalibration) showCalibration(lastCalibration); });
   $('script').addEventListener('input', showScenes);
   $('mute').addEventListener('change', () => { $('tts').disabled = $('mute').checked; $('speech-rate').disabled = $('mute').checked; });
+  $('keep-awake').addEventListener('change', () => {
+    try { localStorage.setItem(WAKE_KEY, $('keep-awake').checked ? '1' : '0'); }
+    catch { /* The preference is optional if browser storage is disabled. */ }
+  });
   $('cancel').addEventListener('click', async () => {
     if (!currentId) return;
     try { await json(endpoint(currentId, 'cancel'), {method: 'POST'}); selectJob(currentId); } catch (err) { showError(err); }
