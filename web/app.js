@@ -230,6 +230,7 @@
     $('cancel-row').classList.toggle('hidden', !['queued', 'running'].includes(job.status));
     $('downloads').classList.toggle('hidden', job.status !== 'done');
     $('credits').classList.toggle('hidden', !job.has_credits);
+    $('publish-kit').classList.toggle('hidden', !job.has_publication);
     const stageNotice = displayRenderProgress(job);
     if (job.status === 'done') {
       $('job-notice').textContent = `Vidéo terminée · ${job.duration_seconds ?? '?'} secondes · ${job.visual_mode || 'vidéo'}. ${job.warnings?.length ? job.warnings.length + ' avertissement(s) sur les médias.' : ''}`;
