@@ -490,11 +490,11 @@ Lorsqu'un décentrement est appliqué, `crop_horizontal_anchor`
 indique sa position (0 = tout à gauche, 0,5 = centre, 1 = tout à
 droite). Les profils d'encodage H.264 ne sont pas modifiés.
 
-## Audit A/B du cadrage avec sept vidéos reproductibles
+## Audit A/B du cadrage avec huit vidéos reproductibles
 
 Le script autonome et facultatif `framing_ab_benchmark.py` compare
-**le recadrage centré et la décision automatique** sur **sept scènes
-synthétiques**. Il produit 14 vrais MP4 H.264, des mesures JSON et
+**le recadrage centré et la décision automatique** sur **huit scènes
+synthétiques**. Il produit 16 vrais MP4 H.264, des mesures JSON et
 un rapport HTML autonome à ouvrir sur Android :
 
 ```bash
@@ -504,7 +504,11 @@ python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
 Les scènes couvrent : déplacement à droite et à gauche (sport simulé),
 mouvement de caméra global, deux sujets mobiles, faible éclairage,
 enseigne lumineuse qui clignote sans bouger, et panorama très large.
-Chaque export est limité à 2,5 secondes, 360 × 640 pixels et 12 images/s.
+Sept scènes durent 2,5 secondes ; une huitième scène dure **9 secondes**
+et représente un sujet passant du bord droit au bord gauche. Toutes les
+vidéos sortent en 360 × 640 pixels et 12 images/s. La scène longue doit
+conserver les deux côtés sur fond flouté : les marqueurs sont vérifiés
+au début **et** à la fin des MP4 réellement décodés.
 
 L'audit compare la **surface réellement visible d'un marqueur rouge
 synthétique** après décodage de chaque MP4. Cela permet de vérifier
