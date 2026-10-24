@@ -1,0 +1,114 @@
+name: Offline Framing A/B
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+on:
+  pull_request:
+    paths:
+      - framing_ab_benchmark.py
+      - motion_framing.py
+      - fast_media.py
+      - scene_framing.py
+      - tests/test_framing_ab_benchmark.py
+      - tests/test_motion_framing.py
+      - .github/workflows/framing-ab-benchmark.yml
+  push:
+    branches: [main]
+    paths:
+      - framing_ab_benchmark.py
+      - motion_framing.py
+      - tests/test_framing_ab_benchmark.py
+      - .github/workflows/framing-ab-benchmark.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  visual-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ensure FFmpeg is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo timeout -k 10s 180s apt-get update -qq
+            sudo env DEBIAN_FRONTEND=noninteractive timeout -k 10s 300s \
+              apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -hide_banner -version | head -1
+          ffprobe -hide_banner -version | head -1
+      - name: Compile framing benchmark and production analyzer
+        run: python -m compileall -q framing_ab_benchmark.py motion_framing.py tests/test_framing_ab_benchmark.py tests/test_motion_framing.py
+      - name: Test real video and adversarial policy cases
+        run: python -m unittest discover -s tests -p 'test_framing_ab_benchmark.py' -v
+      - name: Test production framing contract and existing render integration
+        run: python -m unittest discover -s tests -p 'test_motion_framing.py' -v
+      - name: Generate seven reproducible real MP4 A/B pairs
+        run: python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
+      - name: Check source preservation, real MP4s and explicit benchmark decisions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          directory=Path('outputs/framing-ab-benchmark')
+          report=json.loads((directory/'metrics.json').read_text(encoding='utf-8'))
+          assert report['benchmark_kind']=='synthetic-framing-ab-v1'
+          assert report['cases_evaluated']==7
+          assert report['expected_guards_passed']==7, [
+              (case['name'],case['expected'],case['applied']) for case
+              in report['cases'] if not case['passes_expected_guard']]
+          assert report['human_reviews_completed']==0
+          assert report['production_source_unchanged'] is True
+          assert report['battery_or_thermal_data'] is False
+          assert len({case['name'] for case in report['cases']})==7
+          for case in report['cases']:
+              assert case['source_intact']
+              assert case['passes_expected_guard']
+              for key in ('center_video','guided_video'):
+                  media=directory/case[key]
+                  assert media.is_file() and media.stat().st_size>2000
+              assert case['encode_wall_seconds']['center']>0
+              assert case['encode_wall_seconds']['guided']>0
+          assert (directory/'report.html').stat().st_size>1000
+          print('Seven actual A/B comparisons validated; no human ratings inferred.')
+          PY
+      - name: Write measured summary to GitHub
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads(Path('outputs/framing-ab-benchmark/metrics.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fp:
+              fp.write('## Synthetic framing A/B — actual decoded MP4s\n\n')
+              fp.write(f"**Guard checks:** {data['expected_guards_passed']}/{data['cases_evaluated']}. "
+                       f"**Rendering wall time:** {data['duration_wall_seconds']}s on GitHub runner.\n\n")
+              fp.write('| Synthetic case | Expected | Applied | Red visible A | Red visible B | Pass |\n')
+              fp.write('|---|---|---|---:|---:|---|\n')
+              for row in data['cases']:
+                  fp.write(f"| {row['name']} | {row['expected']} | {row['applied']} | "
+                           f"{row['center_red_fraction']:.4f} | "
+                           f"{row['guided_red_fraction']:.4f} | "
+                           f"{'yes' if row['passes_expected_guard'] else 'NO'} |\n")
+              fp.write('\nSynthetic marker coverage is NOT subjective quality, '
+                       'real-person detection accuracy or Android speed. '
+                       'Download the A/B videos and review manually.\n')
+          PY
+      - name: Upload offline visual review for smartphone
+        uses: actions/upload-artifact@v4
+        with:
+          name: framing-ab-seven-scenes
+          path: |
+            outputs/framing-ab-benchmark/metrics.json
+            outputs/framing-ab-benchmark/report.html
+            outputs/framing-ab-benchmark/videos/*.mp4
+          retention-days: 14
+          if-no-files-found: error

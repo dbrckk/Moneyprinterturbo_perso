@@ -114,6 +114,27 @@ class MotionFramingUnitTests(unittest.TestCase):
         self.assertIsNone(framing.motion_anchor(constant, retention=float("nan")))
         self.assertIsNone(framing.motion_anchor(constant, retention=.10))
 
+    def test_stationary_edge_strobe_is_not_mistaken_for_subject_travel(self):
+        # A neon sign alternates brightness but never CHANGES LOCATION.
+        # Difference-energy alone reports a strong consistent edge signal;
+        # the temporal activity centroid must also move >= 3 sample pixels.
+        frames = bytearray()
+        for index in range(6):
+            frame = bytearray([110] * (120 * 68))
+            if index % 2:
+                for row in range(18, 51):
+                    for x in range(94, 108):
+                        frame[row * 120 + x] = 210
+            frames.extend(frame)
+        self.assertIsNone(framing.motion_anchor(bytes(frames), retention=.421875))
+        # Actual traveling athletes remain eligible, including both sides.
+        self.assertGreater(framing.motion_anchor(
+            fake_motion_frames([91, 101, 94, 108, 96, 104]),
+            retention=.421875), .70)
+        self.assertLess(framing.motion_anchor(
+            fake_motion_frames([17, 9, 15, 4, 14, 6]),
+            retention=.421875), .30)
+
     def test_invalid_crop_values_rejected_not_injected_into_ffmpeg(self):
         original = source_asset()
         for candidate in (None, True, float("nan"), -1., 1.0, "0;evil",
