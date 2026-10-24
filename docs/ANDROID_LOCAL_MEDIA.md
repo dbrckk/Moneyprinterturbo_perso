@@ -401,6 +401,42 @@ Elle n'ajoute aucun service payant. Le fond flouté est un compromis visuel
 volontaire : il évite de couper les côtés, mais donne une image centrale
 moins grande qu'un cadrage pleine largeur.
 
+## Cadrage guidé par le mouvement sur les vidéos locales
+
+Pour les clips dont le format est **modérément** plus large que la sortie,
+le recadrage central peut exclure le seul élément qui bouge près d'un bord.
+Le studio teste désormais une méthode conservatrice :
+
+- L'analyseur lit **au maximum six minuscules images 120 × 68**
+  d'une fenêtre vidéo de trois secondes, à 2 images/s. Il ne traite
+  **jamais plus de quatre fenêtres vidéo** par montage.
+- Il recherche un **mouvement localisé, important, excentré et stable**
+  dans plusieurs intervalles. Il choisit alors **un cadrage fixe**
+  légèrement décentré, pour éviter les à-coups et garder un
+  élément en mouvement dans l'image.
+- Le cadrage existant reste inchangé lorsque le signal est trop faible,
+  trop réparti, contradictoire ou non lisible ; lorsqu'une vidéo
+  possède déjà un format voisin ; ou lorsque l'on utilise une photo.
+- Pour les formats très éloignés, la protection précédente conserve
+  **l'image vidéo entière sur fond flouté** au lieu de déplacer le crop.
+- La même expression FFmpeg est utilisée par le rendu direct
+  et le rendu classique, y compris sur les scènes avec transitions.
+  Les originaux et l'ordre des clips ne changent pas.
+
+**Limites :** ce n'est **pas** de la reconnaissance d'objets, des
+visages ou de la composition artistique par IA. Des sujets immobiles,
+un mouvement de caméra global, des plans très agités ou deux sujets
+opposés ne déclenchent pas de correction fiable : le centre reste
+alors l'option la plus sûre. L'analyse locale peut coûter quelques
+secondes de FFmpeg avant le rendu selon le processeur Android.
+
+Le manifeste JSON d'export indique `render_framing` pour chaque
+média : `motion-guided-horizontal-crop`, `soft-matte-full-video`,
+`soft-matte-full-image` ou `cover-center-crop`.
+Lorsqu'un décentrement est appliqué, `crop_horizontal_anchor`
+indique sa position (0 = tout à gauche, 0,5 = centre, 1 = tout à
+droite). Les profils d'encodage H.264 ne sont pas modifiés.
+
 ## Transitions intelligentes entre plans locaux
 
 Le mode `--transition auto` (style cinématique) décide maintenant

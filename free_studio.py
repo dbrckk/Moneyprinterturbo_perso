@@ -35,6 +35,7 @@ from forced_alignment import align_narration
 from publish_bundle import publish_bundle
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
+from motion_framing import crop_filter, plan_motion_crops
 from shot_quality import probe_black_intro
 from shot_cuts import probe_shot_profile
 from exposure_match import balance_exposure, exposure_filter
@@ -287,7 +288,7 @@ def render_scene(asset: MediaAsset | None, duration: float, index: int, work: Pa
             cmd.extend(["-ss", f"{seek:.3f}"])
         cmd.extend(["-i", str(asset.file)])
         effect = (f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
-                  f"crop={width}:{height},setsar=1,"
+                  f"{crop_filter(asset, width=width, height=height)},setsar=1,"
                   f"{exposure_filter(asset)}{white_balance_suffix(asset)},format=yuv420p")
     else:
         raise ValueError("Unsupported local media kind")
@@ -517,6 +518,10 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
             warnings.extend(exposure_notices)
             slots, color_notices = balance_white(slots, durations)
             warnings.extend(color_notices)
+        if media_dir is not None:
+            slots, framing_notices = plan_motion_crops(
+                slots, durations, width=width, height=height)
+            warnings.extend(framing_notices)
         using_media = any(item is not None for item in slots)
         boundary_transitions: tuple[str, ...] | None = None
         if transition == "auto" and applied_transition == "fade" and using_media:
@@ -815,8 +820,15 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
                                "exposure_shift": (asset.exposure_shift if asset.kind == "video" else None),
                                "white_balance_gains": (asset.white_balance_gains if asset.kind == "video"
                                                        else None),
-                               "render_framing": ("soft-matte-full-image" if needs_soft_matte(asset)
-                                                  else "cover-center-crop"),
+                               "crop_horizontal_anchor": (asset.crop_horizontal_anchor
+                                                          if asset.kind == "video" else None),
+                               "render_framing": (
+                                   "soft-matte-full-image" if needs_soft_matte(asset)
+                                   else "soft-matte-full-video" if needs_video_soft_matte(
+                                       asset, width=width, height=height)
+                                   else "motion-guided-horizontal-crop" if asset.kind == "video"
+                                        and getattr(asset, "crop_horizontal_anchor", None) is not None
+                                   else "cover-center-crop"),
                                "search_query": queries[index] if queries else None})
         credits_path = work / "prepared-credits.txt"
         voice_info = None
