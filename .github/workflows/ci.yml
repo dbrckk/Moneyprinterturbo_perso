@@ -122,7 +122,7 @@ jobs:
           node --test semantic/test_clip_rank.mjs
           node --test tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs tests/test_run_lifecycle.mjs
       - name: Static compilation
-        run: python -m compileall -q studio_calibration.py encoder_profiles.py encoder_local_advice.py encoder_profile_benchmark.py visual_repair.py final_scene_review.py smart_transitions.py white_balance.py exposure_match.py shot_cuts.py shot_quality.py capture_order.py scene_framing.py motion_framing.py fast_media.py fast_abstract.py free_studio.py video_timeline.py publish_bundle.py workflow_preflight.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py visual_benchmark.py video_qa.py studio_server.py tests
+        run: python -m compileall -q render_progress.py studio_calibration.py encoder_profiles.py encoder_local_advice.py encoder_profile_benchmark.py visual_repair.py final_scene_review.py smart_transitions.py white_balance.py exposure_match.py shot_cuts.py shot_quality.py capture_order.py scene_framing.py motion_framing.py fast_media.py fast_abstract.py free_studio.py video_timeline.py publish_bundle.py workflow_preflight.py tts_batch.py xfade_final.py cinematic.py caption_motion.py forced_alignment.py media_assets.py visual_hash.py semantic_rank.py visual_benchmark.py video_qa.py studio_server.py tests
       - name: Validate browser JavaScript syntax
         run: node --check web/app.js
       - name: Real audio and video smoke tests

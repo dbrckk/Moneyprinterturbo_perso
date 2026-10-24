@@ -73,8 +73,19 @@ doivent encore être validés sur appareil réel.
    relance un import propre sans mélanger les lots précédents. Si le serveur
    ne peut pas confirmer la suppression d'un lot incomplet, il invite à
    vérifier le stockage au lieu d'affirmer qu'il a été effacé.
-4. Appuyer sur **Générer la vidéo**. Le MP4 et ses sous-titres seront
-   téléchargeables depuis le même écran.
+4. Appuyer sur **Générer la vidéo**. Le studio affiche maintenant l'étape
+   réelle du rendu : voix/sous-titres, sélection des médias, préparation des
+   scènes, encodage MP4, contrôle du montage et finalisation. Il indique
+   également le temps écoulé. La barre avance selon les **étapes terminées**,
+   et non selon un faux pourcentage de temps restant : certaines phases,
+   notamment l'encodage 1080p, sont beaucoup plus longues. Le MP4 et ses
+   sous-titres sont téléchargeables depuis le même écran.
+
+Le suivi fonctionne localement sans service externe. Les états sont transmis
+par un fichier JSON temporaire et privé qui ne contient ni noms de fichiers,
+ni scénario, ni jeton ; il est supprimé après réussite, erreur ou annulation.
+Un redémarrage de Termux n'entraîne pas la reprise automatique d'un montage
+interrompu, et cette indication ne constitue pas une estimation du temps restant.
 
 Formats acceptés : MP4, MOV, WebM, MKV, JPEG, PNG, WebP. Chaque fichier
 est vérifié par FFprobe et enregistré de façon atomique (aucun demi-fichier

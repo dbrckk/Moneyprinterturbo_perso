@@ -89,6 +89,11 @@
           <div class="section-heading"><div><span class="step">02</span><h2 id="preview-title">Prévisualisation</h2></div><span id="status-badge" class="status">EN ATTENTE</span></div>
           <div class="stage"><div id="player-frame" class="player-frame"><video id="video" controls playsinline preload="metadata" class="hidden" aria-label="Prévisualisation du MP4"></video><div id="placeholder" class="placeholder"><div class="orb"><span class="play-icon">▶</span></div><h3>Votre prochaine création</h3><p>Votre vidéo apparaîtra ici une fois le montage terminé.</p><span class="format-guide">APERÇU 9:16</span></div></div></div>
           <div id="job-notice" class="job-notice" aria-live="polite">Configurez votre projet pour lancer un rendu.</div>
+          <div id="render-stage-panel" class="render-stage-panel hidden" aria-label="Avancement du rendu">
+            <div class="render-stage-summary"><strong id="render-stage-label">Préparation du montage</strong><span id="render-stage-time">0 min</span></div>
+            <progress id="render-stage-bar" max="6" value="0" aria-label="Étapes de montage terminées"></progress>
+            <p>Étapes indicatives : leur durée varie selon les vidéos et le téléphone.</p>
+          </div>
           <div id="downloads" class="download-list hidden"><button type="button" class="dl primary-outline" data-file="video.mp4">Télécharger MP4 <span>↓</span></button><div class="download-row"><button type="button" class="dl secondary" data-file="video.srt">Sous-titres SRT ↓</button><button type="button" class="dl secondary" data-file="video.json">Métadonnées ↓</button></div><button id="credits" type="button" class="dl secondary hidden" data-file="video.credits.txt">Crédits & licences ↓</button></div>
           <div id="cancel-row" class="hidden"><button type="button" id="cancel" class="danger-link">Annuler ce rendu</button></div>
           <div class="history-head"><h3>Derniers projets</h3><button id="refresh" type="button" class="text-button">Actualiser ↻</button></div>
