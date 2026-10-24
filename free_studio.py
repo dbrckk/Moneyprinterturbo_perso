@@ -951,6 +951,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         # Build an editable, platform-specific publication kit from actual
         # narrated sentences, not from media guesses or fictional claims.
         publication = prepare_publication(topic, sentences, lang=lang, aspect=aspect)
+        publication["filename"] = output.with_suffix(".publish.txt").name
         publication_path = work / "prepared-publication.txt"
         publication_path.write_text(render_publication_text(publication),
                                     encoding="utf-8")
