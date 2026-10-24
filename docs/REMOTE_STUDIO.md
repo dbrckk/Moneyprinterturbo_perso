@@ -20,6 +20,37 @@ publication automatique. Le texte reste éditable et les droits/licences
 doivent être vérifiés avant de poster. Les anciens rendus qui ne possèdent
 pas ce fichier n'affichent pas de bouton trompeur.
 
+## Création automatique Android en un seul choix
+
+Sur une première utilisation, le studio applique le mode
+**« Recommandé · IA + voix neurale + HD »** :
+
+- Génération du scénario par **Qwen 2.5 1,5B sur GitHub Actions** si la
+  narration est vide ; un scénario déjà écrit par l'utilisateur reste
+  prioritaire et n'est jamais supprimé.
+- **Piper SIWIS** pour la narration française, **eSpeak** pour les cinq
+  autres langues ; 720p, recherche Commons vérifiée, habillage cinématique
+  et sous-titres progressifs.
+- **« Approfondi »** ajoute le classement CLIP et l'alignement
+  Whisper sur CPU. Il est *expérimental*, consomme davantage de temps
+  GitHub et ne constitue pas une qualité artistique certifiée.
+- **« Aperçu rapide »** passe à 360p, eSpeak, canevas déterministe sans IA
+  et graphismes locaux. Il ne télécharge aucun modèle neuronal.
+
+Les commandes existantes restent accessibles. Choisir un mode applique
+ses paramètres en une fois ; modifier ensuite un réglage repasse en
+« Personnalisé » sans forcer le remplacement des autres champs.
+Les anciens brouillons locaux sont conservés et **ne sont pas
+convertis automatiquement**. Les mots-clés de recherche incompatibles
+avec un mode choisi sont effacés uniquement après la sélection
+explicite de ce mode.
+
+Les voix, images et fichiers ne sont pas uploadés directement depuis
+le navigateur statique : les médias privés du téléphone exigent encore
+le studio local Android/Termux. Le lancement requiert toujours une
+autorisation GitHub Actions et reste soumis aux quotas, à la
+disponibilité des modèles et aux limites de temps.
+
 ## Mode d'emploi Android
 
 1. Ouvrir l'adresse HTTPS du studio distant (indiquée dans le README principal).

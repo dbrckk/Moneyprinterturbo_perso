@@ -7,7 +7,7 @@ const SCOPE = 'https://example-studio.shipstatic.com/';
 test('static Android shell is complete and includes the module graph', () => {
   assert.match(SHELL_CACHE, /^mpt-android-shell-v\d+$/);
   for (const file of ['./', './index.html', './style.css', './main.mjs',
-                      './core.mjs', './downloads.mjs', './draft_backup.mjs', './offline_cache.mjs',
+                      './core.mjs', './downloads.mjs', './draft_backup.mjs', './production_modes.mjs', './offline_cache.mjs',
                       './manifest.webmanifest', './icon.svg']) {
     assert.ok(SHELL_FILES.includes(file), file);
   }

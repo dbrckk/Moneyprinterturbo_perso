@@ -23,7 +23,7 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> STUDIO CONNECTÉ À GITHUB ACTIONS</div>
         <h1 id="hero-title">Une idée. <em>Une vidéo.</em><br>Sans abonnement.</h1>
-        <p>Écris ton scénario, configure le rendu et lance la création d'un vrai MP4 depuis ton téléphone. Le calcul s'effectue dans GitHub Actions, pas sur ton Android.</p>
+        <p>Indique ton sujet et lance une création automatique avec IA, narration et montage. Les réglages restent personnalisables. Le calcul s'effectue dans GitHub Actions, pas sur ton Android.</p>
         <div class="hero-facts"><span>◈ Formats Shorts / Reels</span><span>◈ Scénario IA locale facultatif</span><span>◈ Voix française incluse</span><span>◈ Export MP4 + SRT</span></div>
       </div>
       <div class="preview-mock" aria-label="Présentation des étapes de fabrication"><div class="preview-top"><span class="preview-tag">APERÇU DU PROCESSUS</span><span>9:16</span></div>
@@ -39,10 +39,20 @@
           <div class="field"><label for="topic">Sujet de la vidéo <span class="required">*</span></label>
             <input id="topic" name="topic" type="text" minlength="2" maxlength="140" value="Les secrets des paysages français" placeholder="Ex. Les inventions qui ont changé le monde" required>
             <small>L'idée centrale, en 2 à 140 caractères.</small></div>
+          <div class="field creation-mode">
+            <label for="production-mode">Création automatique — un réglage suffit</label>
+            <select id="production-mode" aria-describedby="production-mode-note">
+              <option value="recommended" selected>Recommandé · IA + voix neurale + HD</option>
+              <option value="deep">Approfondi · IA + CLIP + Whisper (expérimental)</option>
+              <option value="preview">Aperçu rapide · sans modèles IA</option>
+              <option value="custom">Personnalisé · réglages manuels</option>
+            </select>
+            <small id="production-mode-note" role="status" aria-live="polite">Recommandé : génération IA Qwen et voix Piper en français si aucune narration n'est saisie. Les téléchargements de modèles et les limites GitHub peuvent ralentir la production.</small>
+          </div>
           <div class="field"><label for="script_mode">Création du scénario</label>
             <select id="script_mode" name="script_mode">
               <option value="template">Canevas gratuit automatique (sans IA)</option>
-              <option value="local-ai">Vraie IA locale · Ollama sur GitHub Actions</option>
+              <option value="local-ai" selected>Vraie IA locale · Ollama sur GitHub Actions</option>
             </select>
             <small>Le mode IA télécharge le modèle Qwen2.5 1,5B sur un runner GitHub gratuit. Aucun jeton d'IA ni ordinateur personnel requis. Le premier rendu peut être plus long.</small></div>
           <div class="field"><div class="field-heading"><label for="script">Narration personnalisée</label><button id="make-outline" class="subtle-button" type="button">Utiliser un canevas</button></div>
@@ -58,7 +68,7 @@
             <div class="field"><label for="word_alignment">Précision du surlignage</label><select id="word_alignment" name="word_alignment"><option value="estimated" selected>Rapide · durée des mots estimée</option><option value="forced">Alignement audio · Whisper sur CPU (plus lent)</option></select><small>Le mode Whisper télécharge un modèle open source pendant le rendu. Les scènes non alignées sont signalées, sans les présenter comme précises.</small></div>
             <div class="field"><label for="transition">Transition entre scènes</label><select id="transition" name="transition"><option value="auto" selected>Automatique · fondu en mode cinématique</option><option value="fade">Fondu enchaîné</option><option value="wipeleft">Balayage horizontal</option><option value="cut">Coupe nette · montage rapide</option></select><small>Fondu et balayage gardent la synchronisation de la narration et des sous-titres.</small></div>
             <div class="field"><label for="visual_ai">Analyse visuelle IA (facultative)</label><select id="visual_ai" name="visual_ai"><option value="off" selected>Rapide · sélection Commons actuelle</option><option value="clip">CLIP · compare les images sur CPU</option></select><small>Option expérimentale sans API payante. Télécharge un modèle libre sur GitHub Actions, compare des photos de sujets visuels reconnaissables, puis conserve le classement classique en cas d'échec. Plus lent, nécessite « Images libres ».</small></div>
-            <div class="field"><label for="voice">Voix</label><select id="voice" name="voice"><option value="espeak">Classique · eSpeak (6 langues)</option><option value="piper-fr-siwis">Neurale · Piper SIWIS (français)</option></select><small>Modèle gratuit téléchargé sur GitHub ; attribution SIWIS CC BY 4.0 dans les crédits.</small></div>
+            <div class="field"><label for="voice">Voix</label><select id="voice" name="voice"><option value="espeak">Classique · eSpeak (6 langues)</option><option value="piper-fr-siwis" selected>Neurale · Piper SIWIS (français)</option></select><small>Modèle gratuit téléchargé sur GitHub ; attribution SIWIS CC BY 4.0 dans les crédits.</small></div>
             <div class="field"><label for="speech_rate">Débit vocal (eSpeak uniquement)</label><select id="speech_rate" name="speech_rate"><option value="120">Lent · 120 mots/min</option><option value="145" selected>Normal · 145</option><option value="170">Rapide · 170</option></select></div>
           </div>
           <fieldset class="visuals"><legend>Habillage visuel</legend>
