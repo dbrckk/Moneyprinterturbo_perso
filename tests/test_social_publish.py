@@ -104,7 +104,7 @@ class SocialPublishRealMP4Tests(unittest.TestCase):
             sidecar = output.with_suffix(".publish.txt")
             self.assertTrue(sidecar.is_file())
             self.assertGreater(sidecar.stat().st_size, 180)
-            script = info["segments"]
+            script = [item["text"] for item in info["segments"]]
             self.assertEqual(script, ["La forêt se réveille.", "Une rivière traverse la vallée."])
             self.assertIn(script[0], sidecar.read_text(encoding="utf-8"))
             self.assertIn("TIKTOK", sidecar.read_text(encoding="utf-8"))
