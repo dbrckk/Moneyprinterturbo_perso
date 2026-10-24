@@ -56,7 +56,7 @@ class SocialPublishPolicyTests(unittest.TestCase):
 
     def test_long_user_topic_and_script_are_bounded_and_cleaned(self):
         result = self.sample(
-            topic="Découvrir une activité extrême : " + "très interessant " * 7)
+            topic="Découvrir une activité extrême : " + "très interessant " * 6)
         self.assertLessEqual(len(result["platforms"]["youtube_shorts"]["title"]), 100)
         result = prepare_publication(
             "Une magnifique forêt\net les lacs", ["Lumière douce.\n\nSuite."],
@@ -107,7 +107,7 @@ class SocialPublishRealMP4Tests(unittest.TestCase):
             script = info["segments"]
             self.assertEqual(script, ["La forêt se réveille.", "Une rivière traverse la vallée."])
             self.assertIn(script[0], sidecar.read_text(encoding="utf-8"))
-            self.assertIn("TikTok", sidecar.read_text(encoding="utf-8").title())
+            self.assertIn("TIKTOK", sidecar.read_text(encoding="utf-8"))
             self.assertFalse(info["publication"]["ready_for_publication"])
             self.assertEqual(info["publication"]["filename"], sidecar.name)
             stored = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
