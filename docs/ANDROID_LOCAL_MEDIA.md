@@ -207,8 +207,15 @@ métadonnées restent disponibles sans être recalculés : le moteur reconstruit
 l'historique depuis les fichiers locaux au démarrage.
 
 - Un rendu encore **en attente** ou **en cours** au moment de l'arrêt est
-  marqué **interrompu**. Il n'est pas repris automatiquement car son
-  processus FFmpeg a disparu ; il faut le relancer explicitement.
+  marqué **interrompu** et n'est jamais relancé automatiquement. **Exception
+  de sécurité des exports :** si Android a arrêté le serveur juste après la
+  publication complète d'une vidéo mais avant l'enregistrement du statut
+  final, le redémarrage récupère automatiquement ce **MP4 déjà terminé**,
+  sans recalculer la vidéo. Cette récupération exige les quatre fichiers
+  finaux (MP4, sous-titres SRT, crédits et manifeste JSON), des métadonnées
+  cohérentes et un flux H.264 lisible par FFprobe. Un rendu partiel ou
+  corrompu reste marqué interrompu ; ses fichiers temporaires ne sont
+  jamais présentés comme une vidéo terminée.
 - Un rendu marqué terminé sans fichier MP4/JSON valide n'est pas proposé
   au téléchargement.
 - L'historique de l'interface est limité aux 20 projets les plus récents.
