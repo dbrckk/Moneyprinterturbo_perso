@@ -91,7 +91,13 @@ Formats acceptés : MP4, MOV, WebM, MKV, JPEG, PNG, WebP. Chaque fichier
 est vérifié par FFprobe et enregistré de façon atomique (aucun demi-fichier
 considéré comme import réussi). Taille maximale : **350 Mo par vidéo**,
 **18 Mo par image**, **800 Mo au total** pour les médias importés dans
-l'installation, au plus **12 lots** avant nettoyage.
+l'installation, au plus **12 lots** avant nettoyage. Avant chaque import,
+le studio vérifie également l'espace libre réel sur le téléphone : il réserve
+la taille annoncée du nouveau fichier, les octets restant à écrire des autres
+imports simultanés et une marge de **128 Mio**. Si cette marge manque ou si
+le stockage ne peut pas être mesuré, l'import est refusé avant la lecture des
+octets ; aucun média existant n'est supprimé. Cette vérification ne garantit
+pas qu'une autre application ne remplira pas le disque pendant le transfert.
 
 L'import commence par classer naturellement les fichiers numérotés
 (`clip1.mp4`, `clip2.mp4`, `clip10.mp4`) ; le serveur préfixe
