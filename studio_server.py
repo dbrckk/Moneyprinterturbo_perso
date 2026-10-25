@@ -790,9 +790,15 @@ class Jobs:
                 remaining = size
                 next_space_check = 4 * 1024 * 1024
                 while remaining:
-                    chunk = stream.read(min(256 * 1024, remaining))
+                    requested = min(256 * 1024, remaining)
+                    chunk = stream.read(requested)
                     if not chunk:
                         raise ValueError("Transfert incomplet : réessayez le fichier")
+                    # A malformed/nonconforming input stream must never
+                    # bypass the declared upload size or the disk reservation.
+                    # Validate before writing even one excess byte.
+                    if not isinstance(chunk, bytes) or len(chunk) > requested:
+                        raise ValueError("Transfert invalide : bloc plus grand que prévu")
                     output.write(chunk)
                     remaining -= len(chunk)
                     written = size - remaining
