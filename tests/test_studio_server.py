@@ -582,6 +582,15 @@ class ServerTests(unittest.TestCase):
             time.sleep(.1)
         self.assertEqual(result["status"], "done", result)
         self.assertGreater(result["duration_seconds"], 2)
+        # Real completed MP4 must expose a factual, private review summary.
+        review = result["render_review"]
+        self.assertEqual(review["status"], "exported-not-artistically-approved")
+        self.assertEqual(review["with_graphic_fallback"], 1)
+        self.assertTrue(review["manual_review_required"])
+        self.assertEqual(len(review["checks"]), 6)
+        self.assertTrue(any(item["key"] == "music" for item in review["checks"]))
+        self.assertTrue(any(item["key"] == "rights" and item["attention"]
+                            for item in review["checks"]))
         # A real Android/Termux process restart clears Python memory, but
         # completed videos, their QA metadata and download links must survive.
         saved = self.jobs.output_dir / job["id"] / ".job_state.json"
@@ -592,6 +601,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(recovered.get(job["id"])["status"], "done")
         self.assertAlmostEqual(recovered.get(job["id"])["duration_seconds"],
                                result["duration_seconds"])
+        self.assertEqual(recovered.get(job["id"])["render_review"], review)
         self.assertEqual(recovered.artifact(job["id"], "video.mp4"),
                          self.jobs.artifact(job["id"], "video.mp4"))
         for filename, marker in (("video.mp4", b"ftyp"), ("video.srt", b"-->"), ("video.json", b"segments")):

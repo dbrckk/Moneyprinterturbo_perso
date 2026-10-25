@@ -32,6 +32,7 @@ from capture_order import order_media_by_capture
 from free_studio import ASPECTS, LANG_VOICES, ollama_script, split_script, template_script
 from encoder_profiles import ENCODER_PROFILES
 from render_progress import PROGRESS_NAME, read_progress
+from render_review import summarize_completed_render
 from render_wake_lock import RenderWakeLock
 from studio_calibration import LocalCalibration, CALIBRATION_FPS
 
@@ -787,7 +788,9 @@ class Jobs:
                 "warnings": metadata.get("warnings", []), "has_credits": bool(metadata.get("media")),
                 "has_publication": bool(isinstance(metadata.get("publication"), dict)
                     and metadata["publication"].get("filename") == "video.publish.txt"),
-                "segments": metadata.get("segments", []), "speech_engine": metadata.get("speech_engine")}
+                "segments": metadata.get("segments", []), "speech_engine": metadata.get("speech_engine"),
+                "render_review": (summarize_completed_render(metadata)
+                                  if job["status"] == "done" else None)}
 
     def list_jobs(self) -> list[dict]:
         with self.lock:

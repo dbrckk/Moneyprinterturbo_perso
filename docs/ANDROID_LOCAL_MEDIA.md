@@ -685,6 +685,35 @@ Le mécanisme **ne promet pas** de réparer tous les effets artistiques,
 transitions de vidéos longues ou flashs provenant directement du
 contenu original. Les alertes restent des indications à examiner.
 
+## Contrôle qualité lisible après l'export (Android)
+
+Une fois la vidéo terminée dans le **studio local Termux**, une fiche
+**« Contrôles du montage exporté »** apparaît sous le lecteur MP4.
+Elle reprend uniquement les informations déjà enregistrées dans le
+manifeste `video.json` ; elle n'ajoute ni nouvelle analyse FFmpeg,
+ni consommation réseau, ni traitement du téléphone.
+
+Les six points affichés sont : le nombre de scènes avec de vrais médias
+et celles remplacées par un fond graphique, le moteur de voix et ses
+limites, la méthode réelle de synchronisation des sous-titres, les
+raccords examinés et ceux qui réclament un regard, l'absence de
+musique automatiquement ajoutée, ainsi que la vérification des droits
+et des faits avant publication.
+
+La fiche mentionne les avertissements du moteur (six au maximum
+à l'écran, avec le décompte complet dans `video.json`), sans les
+interpréter comme du code HTML. Elle n'est affichée que pour un
+**rendu réellement terminé**, y compris lors de la réouverture
+d'un ancien projet valide après redémarrage de Termux.
+
+**Attention :** « exporté » signifie que le MP4 est disponible,
+pas que le montage a une qualité esthétique parfaite. La lisibilité,
+la pertinence des visuels, l'intonation et les droits ne sont pas
+certifiés automatiquement. Pour améliorer la vidéo, commencer par
+corriger les scènes remplacées par des graphismes, vérifier les
+sous-titres estimés et écouter la narration. Le rapport ne publie
+aucune vidéo et n'envoie rien vers GitHub.
+
 ## Vérification des images du MP4 final après encodage
 
 Après le rendu d'un montage contenant **au moins deux scènes** et
