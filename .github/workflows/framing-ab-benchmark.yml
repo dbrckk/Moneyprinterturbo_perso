@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - framing_ab_benchmark.py
+      - framing_review.js
       - motion_framing.py
       - fast_media.py
       - scene_framing.py
@@ -32,6 +33,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -54,6 +58,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_motion_framing.py' -v
       - name: Test nine-second opposite-edge subject movement end to end
         run: python -m unittest discover -s tests -p 'test_long_motion_framing.py' -v
+      - name: Check offline mobile reviewer JavaScript
+        run: node --check framing_review.js
       - name: Generate eight reproducible real MP4 A/B pairs
         run: python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
       - name: Check source preservation, real MP4s and explicit benchmark decisions

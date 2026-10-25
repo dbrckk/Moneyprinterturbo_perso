@@ -173,7 +173,7 @@ def render_report(metrics: dict[str, object]) -> str:
     """Portable, offline, phone-friendly report with side-by-side actual MP4s."""
     escape = lambda value: html.escape(str(value), quote=True)
     panels = []
-    for case in metrics["cases"]:
+    for index, case in enumerate(metrics["cases"]):
         name = escape(case["name"])
         why = escape(case["description"])
         videos = []
@@ -184,8 +184,17 @@ def render_report(metrics: dict[str, object]) -> str:
                 '<video controls muted playsinline preload="metadata"'
                 ' src="' + escape(case[key]) + '"></video></figure>')
         status = "Règle validée" if case["passes_expected_guard"] else "À examiner"
+        options = ''.join(
+            '<label class="review-choice"><input type="radio" name="human-' +
+            str(index) + '" value="' + value + '"> ' + escape(title) + '</label>'
+            for value, title in (
+                ("center", "A : cadrage centré"),
+                ("guided", "B : cadrage automatique"),
+                ("tie", "Équivalents"),
+                ("both_bad", "Aucun satisfaisant")))
         panels.append(
-            '<section><h2>' + why + '</h2><p><strong>' + escape(status) +
+            '<section data-case="' + name + '"><h2>' + why +
+            '</h2><p><strong>' + escape(status) +
             '</strong> · mode prévu : ' + escape(case["expected"]) +
             ' · obtenu : ' + escape(case["applied"]) +
             ' · proportion rouge visible A : ' + escape(case["center_red_fraction"]) +
@@ -193,7 +202,12 @@ def render_report(metrics: dict[str, object]) -> str:
             (' · fin A : ' + escape(case["late_center_red_fraction"]) +
              ' · fin B : ' + escape(case["late_guided_red_fraction"]) if
              case.get("late_center_red_fraction") is not None else '') +
-            '</p><div class="pair">' + ''.join(videos) + '</div></section>')
+            '</p><div class="pair">' + ''.join(videos) + '</div>'
+            '<fieldset><legend>Votre préférence visuelle (facultatif)</legend>' +
+            options + '</fieldset>'
+            '<label class="review-note">Commentaire (facultatif)'
+            '<textarea rows="2" maxlength="500" placeholder="Décrire un défaut de'
+            ' cadrage ou de mouvement"></textarea></label></section>')
     css = """
     body{background:#101624;color:#f8fafc;font:16px system-ui,sans-serif;
     margin:0 auto;max-width:1050px;padding:16px;line-height:1.5}
@@ -203,13 +217,25 @@ def render_report(metrics: dict[str, object]) -> str:
     grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     figure{margin:0}video{width:100%;max-height:470px;background:#000;
     border-radius:8px}figcaption{padding:8px 0;color:#dbeafe}
+    fieldset{border:0;padding:12px 0;display:flex;flex-wrap:wrap;gap:10px}
+    legend{font-weight:700}.review-choice{display:flex;align-items:center;gap:7px;
+    border:1px solid #52647b;border-radius:9px;padding:10px;min-height:46px}
+    .review-note{display:block}.review-note textarea{box-sizing:border-box;
+    width:100%;padding:10px;background:#172337;border:1px solid #52647b;
+    border-radius:8px;color:#fff;font:inherit}
+    .human-actions{padding:18px 0;border-top:1px solid #52647b}
+    button{padding:12px 18px;min-height:48px;border:0;border-radius:9px;
+    background:#c0dfff;color:#10203a;font:inherit;font-weight:700}
+    button:disabled{opacity:.5}
     @media(max-width:650px){.pair{grid-template-columns:1fr}}
     """
     return ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<meta http-equiv="Content-Security-Policy"'
             ' content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;;'
-            ' media-src &#39;self&#39;;">'
+            ' media-src &#39;self&#39;; script-src &#39;unsafe-inline&#39;;'
+            ' connect-src &#39;none&#39;; form-action &#39;none&#39;;'
+            ' object-src &#39;none&#39;; base-uri &#39;none&#39;;">'
             '<title>MoneyPrinter — A/B cadrage réel</title><style>' + css +
             '</style></head><body><h1>Comparaison A/B du cadrage</h1>'
             '<p>Huit séquences <strong>synthétiques</strong> avec contenus '
@@ -220,8 +246,17 @@ def render_report(metrics: dict[str, object]) -> str:
             'ni une précision sur des personnes réelles</strong>. '
             'Aucune vidéo privée, réseau, IA payante ou télémétrie.</p>'
             + ''.join(panels) +
+            '<div class="human-actions"><p id="human-review-summary"'
+            ' role="status" aria-live="polite"></p>'
+            '<button id="export-human-review" type="button" disabled>'
+            'Exporter mes préférences (CSV local)</button>'
+            '<p>Les évaluations ne quittent pas votre appareil ; les'
+            ' votes partiels sont exportables. Le test est non aveugle'
+            ' et peut donc influencer la préférence.</p></div>'
             '<p>Les temps de traitement mesurés sur GitHub Actions '
-            'ne prédisent pas ceux du téléphone Android.</p></body></html>')
+            'ne prédisent pas ceux du téléphone Android.</p>'
+            '<script>' + Path(__file__).with_name("framing_review.js").read_text(
+                encoding="utf-8") + '</script></body></html>')
 
 
 def run_benchmark(output: Path) -> dict:

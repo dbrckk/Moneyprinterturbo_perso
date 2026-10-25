@@ -21,6 +21,7 @@ on:
       - scene_framing.py
       - motion_framing.py
       - framing_ab_benchmark.py
+      - framing_review.js
       - .github/workflows/framing-ab-benchmark.yml
       - tts_batch.py
       - cinematic.py
@@ -128,6 +129,7 @@ jobs:
           node --check remote/workflow_progress.mjs
           node --check semantic/clip_rank.mjs
           node --check review_mobile.js
+          node --check framing_review.js
           node --test tests/test_review_mobile.mjs tests/test_media_batch_browser.mjs tests/test_streaming_preview.mjs tests/test_render_review_browser.mjs
           node --test semantic/test_clip_rank.mjs
           node --test tests/test_production_modes.mjs tests/test_remote_core.mjs tests/test_downloads.mjs tests/test_offline_cache.mjs tests/test_draft_backup.mjs tests/test_run_lifecycle.mjs tests/test_workflow_progress.mjs

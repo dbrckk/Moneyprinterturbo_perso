@@ -594,6 +594,26 @@ synthétique, pas un score d'intelligence visuelle ni une précision
 sur des vidéos réelles**. Aucun visage, objet ou activité sportive
 n'est reconnu sémantiquement ; la décision reste heuristique.
 
+### Évaluer manuellement les cadrages depuis Android
+
+L'audit A/B propose désormais, directement dans `report.html`,
+quatre choix **facultatifs** pour chaque comparaison : préférence
+pour A (centré), pour B (automatique), égalité ou deux versions
+insatisfaisantes. Un champ commentaire permet de noter les défauts visibles.
+
+Le bouton **Exporter mes préférences (CSV local)** enregistre les choix
+effectivement faits sur le téléphone, y compris lorsqu'une partie
+des scènes reste sans réponse. Le rapport fonctionne hors connexion
+une fois ses fichiers MP4 extraits au même endroit. **Aucun vote
+n'est prérempli, inféré ou transmis** et aucun téléchargement
+automatique ne collecte des médias privés.
+
+Ce test est **non aveugle** : les méthodes A et B restent indiquées
+pour le diagnostic, ce qui peut biaiser les préférences. Les vidéos
+sont synthétiques. Pour établir une qualité professionnelle réelle,
+il faudra également comparer des créations complètes sur des médias
+réels et recueillir plusieurs évaluations humaines.
+
 ## Transitions intelligentes entre plans locaux
 
 Le mode `--transition auto` (style cinématique) décide maintenant
