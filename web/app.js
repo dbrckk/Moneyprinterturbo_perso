@@ -226,6 +226,50 @@
       }
     }
   }
+  function displayRenderReview(job) {
+    const panel = $('render-review');
+    const report = job.status === 'done' ? job.render_review : null;
+    const valid = report && report.status === 'exported-not-artistically-approved' &&
+      Array.isArray(report.checks) && report.checks.length >= 1 && report.checks.length <= 6 &&
+      report.checks.every(item => item && typeof item.title === 'string' &&
+        typeof item.detail === 'string' && typeof item.attention === 'boolean');
+    panel.classList.toggle('hidden', !valid);
+    const list = $('render-review-checks');
+    const warningList = $('render-review-warnings-list');
+    list.replaceChildren();
+    warningList.replaceChildren();
+    if (!valid) {
+      $('render-review-warnings').classList.add('hidden');
+      return;
+    }
+    $('render-review-summary').textContent =
+      typeof report.summary === 'string' ? report.summary : 'Contrôles disponibles.';
+    // Never parse renderer warnings or metadata as HTML. The job may contain
+    // user-authored text; textContent prevents markup injection.
+    for (const item of report.checks) {
+      const entry = document.createElement('li');
+      entry.className = item.attention ? 'render-review-attention' : '';
+      const heading = document.createElement('strong');
+      heading.textContent = item.title;
+      const detail = document.createElement('span');
+      detail.textContent = item.detail;
+      entry.append(heading, detail);
+      list.append(entry);
+    }
+    const warnings = Array.isArray(report.warnings) ? report.warnings.slice(0, 6) : [];
+    $('render-review-warnings').classList.toggle('hidden', !warnings.length);
+    const more = Number.isInteger(report.warnings_total)
+      ? Math.max(0, report.warnings_total - warnings.length) : 0;
+    $('render-review-warnings-label').textContent =
+      warnings.length ? 'Avertissements du rendu' +
+      (more ? ' (+' + more + ' autres dans video.json)' : '') : '';
+    for (const warning of warnings) {
+      if (typeof warning !== 'string') continue;
+      const entry = document.createElement('li');
+      entry.textContent = warning;
+      warningList.append(entry);
+    }
+  }
   async function loadJob(id) {
     const job = await json(endpoint(id));
     if (currentId !== id) return;
@@ -235,6 +279,7 @@
     $('downloads').classList.toggle('hidden', job.status !== 'done');
     $('credits').classList.toggle('hidden', !job.has_credits);
     $('publish-kit').classList.toggle('hidden', !job.has_publication);
+    displayRenderReview(job);
     const stageNotice = displayRenderProgress(job);
     if (job.status === 'done') {
       $('job-notice').textContent = `Vidéo terminée · ${job.duration_seconds ?? '?'} secondes · ${job.visual_mode || 'vidéo'}. ${job.warnings?.length ? job.warnings.length + ' avertissement(s) sur les médias.' : ''}`;
@@ -266,6 +311,9 @@
     releaseVideo();
     lastStatus = '';
     $('render-stage-panel').classList.add('hidden');
+    $('render-review').classList.add('hidden');
+    $('render-review-checks').replaceChildren();
+    $('render-review-warnings-list').replaceChildren();
     $('downloads').classList.add('hidden');
     $('video').classList.add('hidden');
     $('placeholder').classList.remove('hidden');
