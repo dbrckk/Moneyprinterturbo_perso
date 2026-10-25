@@ -13,3 +13,13 @@
 #portable-backup .field{display:grid;justify-items:start;gap:11px;padding-top:10px}
 #portable-backup textarea{width:100%;min-height:75px;resize:vertical}
 #portable-backup button{max-width:100%}
+
+/* Termux path: copyable, keyboard-readable, never a hidden upload to GitHub. */
+.local-import-panel .section-head{margin-bottom:21px}
+.local-import-panel .side-intro{margin-top:0}
+.local-import-panel .termux-details{margin-top:18px;margin-bottom:12px}
+.local-import-panel .termux-code{margin:14px 0 12px;padding:12px;
+  background:#080f1c;border:1px solid #3a4b5b;border-radius:9px;
+  white-space:pre-wrap;overflow-wrap:anywhere;max-height:210px;overflow:auto}
+.local-import-panel .termux-code code{font-size:11px;line-height:1.65}
+.local-import-panel .termux-copy{display:block;width:100%;background:#112e32}
