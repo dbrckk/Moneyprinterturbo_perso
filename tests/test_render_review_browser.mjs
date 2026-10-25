@@ -57,6 +57,7 @@ async function setup({reportOverride = 'use-report'} = {}) {
     append(...children) { this.children.push(...children); }
     pause() {}
     load() {}
+    removeAttribute(name) { delete this[name]; }
   }
   const get = id => {
     if (!ids.has(id)) ids.set(id, new Element(id));
