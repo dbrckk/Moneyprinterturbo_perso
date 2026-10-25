@@ -777,12 +777,32 @@ class Jobs:
             # The slow section deliberately runs WITHOUT media_lock.
             with output:
                 remaining = size
+                next_space_check = 4 * 1024 * 1024
                 while remaining:
                     chunk = stream.read(min(256 * 1024, remaining))
                     if not chunk:
                         raise ValueError("Transfert incomplet : réessayez le fichier")
                     output.write(chunk)
                     remaining -= len(chunk)
+                    written = size - remaining
+                    # Android apps and simultaneous FFmpeg renders may consume
+                    # space after the initial reservation. Recheck at bounded
+                    # intervals, including the final chunk, without holding
+                    # the media lock during slow stream reads or disk writes.
+                    if written >= next_space_check or not remaining:
+                        with self.media_lock:
+                            reserved = self._reserved_unwritten_media_bytes_locked()
+                            # `reserved` includes this upload's still-unwritten
+                            # bytes, so never add `remaining` a second time.
+                            try:
+                                free = shutil.disk_usage(self.upload_root).free
+                            except OSError as exc:
+                                raise ValueError("Espace libre impossible à vérifier pendant l'import") from exc
+                            if free < reserved + UPLOAD_MIN_REMAINING_BYTES:
+                                raise ValueError(
+                                    "Stockage presque plein pendant l'import : "
+                                    "transfert arrêté sans supprimer les médias existants")
+                        next_space_check = written + 4 * 1024 * 1024
             if not media_dimensions(temporary):
                 raise ValueError("Média illisible par FFprobe : import refusé")
             with self.media_lock:

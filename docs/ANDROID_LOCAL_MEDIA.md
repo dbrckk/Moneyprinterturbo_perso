@@ -1037,3 +1037,14 @@ symboliques à ces emplacements pour éviter d'écraser un fichier extérieur.
 Ces protections n'empêchent pas une personne disposant déjà d'un accès complet
 au compte Android/Termux de lire les fichiers ; ne partagez pas le répertoire
 des rendus si les scénarios sont confidentiels.
+
+### Protection du stockage pendant un import volumineux
+
+Le studio vérifie l'espace libre **avant** un import, puis à intervalles
+réguliers pendant la réception (environ 4 Mio) et à la fin du transfert.
+Cette vérification tient compte des octets encore réservés par les imports
+simultanés. Si d'autres applications ou un encodage saturent le stockage,
+l'import en cours est interrompu proprement et **seul son fichier partiel**
+est supprimé ; les médias déjà importés et les exports existants restent
+inchangés. Le contrôle réduit le risque de saturation, sans garantir qu'un
+système de fichiers ne se remplira jamais entre deux vérifications.
