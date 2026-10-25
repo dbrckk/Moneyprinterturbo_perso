@@ -68,6 +68,31 @@ class UploadDiskPreflightTests(unittest.TestCase):
                 self.jobs.save_media(self.batch, 'large.mp4', size, io.BytesIO(b'x' * size))
         self.assertFalse(list((self.jobs.upload_root / self.batch).glob('.receiving-*')))
 
+    def test_oversized_stream_chunk_rejected_without_writing_excess(self):
+        class NonconformingStream:
+            def read(self, size):
+                return b"x" * (size + 1)
+
+        directory = self.jobs.upload_root / self.batch
+        original = directory / "001_keep.mp4"
+        original.write_bytes(b"keep existing user video")
+        with self.assertRaisesRegex(ValueError, "bloc plus grand"):
+            self.jobs.save_media(self.batch, "oversize.mp4", 64, NonconformingStream())
+        self.assertEqual(original.read_bytes(), b"keep existing user video")
+        self.assertFalse(list(directory.glob(".receiving-*")))
+        self.assertFalse(self.jobs._uploads_in_progress)
+        self.assertFalse((directory / "002_oversize.mp4").exists())
+
+    def test_nonbytes_stream_chunk_is_rejected_and_cleaned(self):
+        class InvalidStream:
+            def read(self, size):
+                return "not bytes"
+
+        with self.assertRaisesRegex(ValueError, "Transfert invalide"):
+            self.jobs.save_media(self.batch, "invalid.mp4", 64, InvalidStream())
+        self.assertFalse(list((self.jobs.upload_root / self.batch).glob(".receiving-*")))
+        self.assertFalse(self.jobs._uploads_in_progress)
+
     def test_unavailable_disk_space_is_safe_rejection(self):
         with patch('studio_server.shutil.disk_usage', side_effect=OSError('statvfs')):
             with self.assertRaisesRegex(ValueError, 'impossible à vérifier'):
