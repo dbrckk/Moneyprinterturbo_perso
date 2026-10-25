@@ -276,7 +276,13 @@ l'historique depuis les fichiers locaux au démarrage.
   corrompu reste marqué interrompu ; ses fichiers temporaires ne sont
   jamais présentés comme une vidéo terminée.
 - Un rendu marqué terminé sans fichier MP4/JSON valide n'est pas proposé
-  au téléchargement.
+  au téléchargement. Un manifeste JSON endommagé est signalé comme **erreur
+  visible dans l'historique** plutôt que de masquer entièrement le projet.
+- Si le volume est **encore plein ou en lecture seule au redémarrage**, la
+  récupération d'un MP4 complet ou du statut « interrompu » reste accessible
+  dans la session. L'écriture du nouveau statut est tentée sans bloquer la
+  consultation ; au redémarrage suivant, elle sera retentée si le stockage
+  redevient disponible. Aucun ancien export ni média importé n'est supprimé.
 - L'historique de l'interface est limité aux 20 projets les plus récents.
   Les anciens exports ne sont pas supprimés par ce mécanisme et restent
   dans `outputs/web/` jusqu'au nettoyage manuel.
