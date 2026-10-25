@@ -119,6 +119,27 @@ python3 -m unittest discover -s tests -v
 
 Tests des API fondés sur la documentation officielle : [GitHub REST CORS](https://docs.github.com/en/rest/using-the-rest-api/using-cors-and-jsonp-to-make-cross-origin-requests) et [workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event).
 
+## Contrôle automatique de la narration IA avant le rendu
+
+Quand la narration est générée par Ollama/Qwen, le studio effectue
+désormais une **revue structurelle locale** avant d'encoder la vidéo.
+Il vérifie la longueur, le nombre de phrases, les répétitions, les titres,
+les listes et les liens inadaptés à une voix off. Si le premier texte
+est trop court, répétitif ou mal formaté, le modèle reçoit **une seule**
+demande de réécriture avec les défauts détectés (deux générations au
+maximum). Un texte encore invalide provoque une erreur explicite :
+le moteur ne remplace pas discrètement une vraie IA par un canevas fixe.
+
+Les textes fournis manuellement ne sont **pas bloqués** par ces
+recommandations. Le manifeste `video.json` conserve une entrée
+`narration_structure` avec les indicateurs objectifs et le motif des
+alertes. C'est une aide à la revue, **pas** une certification de
+véracité, de style, de droits ou de pertinence des images.
+
+Le second appel est facultatif : une première génération conforme
+n'occasionne ni deuxième calcul IA ni délai additionnel. L'inférence
+reste sur `127.0.0.1`, sans API payante.
+
 ## Voix française neuronale vérifiée
 
 Choisir « Neurale · Piper SIWIS (français) » dans le studio. GitHub Actions télécharge une voix ONNX épinglée et vérifie son SHA-256. Le test réel 38791826584 a généré un MP4 H.264/AAC, un SRT et un fichier de crédits. Le modèle SIWIS requiert attribution CC BY 4.0, dont les détails figurent dans `docs/PIPER_VOICE.md`. Les autres langues utilisent eSpeak.
