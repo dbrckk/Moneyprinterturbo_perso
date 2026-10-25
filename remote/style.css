@@ -23,3 +23,6 @@
   white-space:pre-wrap;overflow-wrap:anywhere;max-height:210px;overflow:auto}
 .local-import-panel .termux-code code{font-size:11px;line-height:1.65}
 .local-import-panel .termux-copy{display:block;width:100%;background:#112e32}
+
+.cancel-run-button{color:var(--danger);border-color:rgba(255,156,156,.48)}
+.cancel-run-button:hover{border-color:var(--danger);background:rgba(255,156,156,.08)}

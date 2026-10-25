@@ -80,6 +80,22 @@ les détails, si le quota est épuisé ou si l'utilisateur efface le jeton, le
 suivi normal du statut et les liens vers le rendu continuent de fonctionner.
 Aucun fichier de la galerie n'est lu ni transmis depuis ce site statique.
 
+## Annuler un rendu depuis Android (sans Termux)
+
+Pendant qu'une production GitHub est **en attente ou en cours**, le panneau
+**Production** affiche **« Annuler le rendu GitHub »** après vérification du
+numéro d'exécution. Une confirmation est demandée avant toute action. Le
+studio relit le rendu sur GitHub et vérifie son identifiant de corrélation,
+le dépôt, le workflow, la branche et son statut avant de demander l'annulation.
+Il utilise exclusivement le jeton Actions `Read and write` déjà renseigné,
+sans jamais l'enregistrer ni l'ajouter à une URL.
+
+La réponse GitHub signifie seulement **« annulation demandée »** : l'interface
+continue à vérifier le statut réel. Si la connexion tombe, aucune répétition
+automatique ne risque d'envoyer plusieurs requêtes. Une vidéo déjà achevée
+ne peut pas être annulée avec ce bouton. Le calcul est entièrement effectué
+sur GitHub Actions, pas sur Android ; aucune installation Termux n'est requise.
+
 ## Fonctionnement et limites
 
 - `workflow_dispatch` permet d'envoyer la demande. Le champ `request_id` et le `run-name` assurent le suivi distinct des exécutions ; la recherche automatique est limitée à une consultation toutes les 20 secondes pendant au maximum 20 minutes.
