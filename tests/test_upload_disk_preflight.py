@@ -45,6 +45,29 @@ class UploadDiskPreflightTests(unittest.TestCase):
         self.assertEqual(existing.read_bytes(), b'12345')
         self.assertNotIn(self.batch, self.jobs._uploads_in_progress)
 
+    def test_disk_pressure_during_upload_removes_only_partial_file(self):
+        size = 5 * 1024 * 1024
+        folder = self.jobs.upload_root / self.batch
+        original = folder / '001_original.mp4'
+        original.write_bytes(b'preserve this')
+        free = size + UPLOAD_MIN_REMAINING_BYTES + 1024
+        calls = [Usage(2**32, 0, free),
+                 Usage(2**32, 0, UPLOAD_MIN_REMAINING_BYTES - 1)]
+        with patch('studio_server.shutil.disk_usage', side_effect=calls):
+            with self.assertRaisesRegex(ValueError, 'Stockage presque plein'):
+                self.jobs.save_media(self.batch, 'large.mp4', size, io.BytesIO(b'x' * size))
+        self.assertEqual(original.read_bytes(), b'preserve this')
+        self.assertFalse(list(folder.glob('.receiving-*')))
+        self.assertFalse(self.jobs._uploads_in_progress)
+
+    def test_disk_probe_failure_during_upload_reclaims_partial(self):
+        size = 5 * 1024 * 1024
+        with patch('studio_server.shutil.disk_usage', side_effect=[
+                Usage(2**32, 0, size + UPLOAD_MIN_REMAINING_BYTES), OSError('storage gone')]):
+            with self.assertRaisesRegex(ValueError, 'pendant l.import'):
+                self.jobs.save_media(self.batch, 'large.mp4', size, io.BytesIO(b'x' * size))
+        self.assertFalse(list((self.jobs.upload_root / self.batch).glob('.receiving-*')))
+
     def test_unavailable_disk_space_is_safe_rejection(self):
         with patch('studio_server.shutil.disk_usage', side_effect=OSError('statvfs')):
             with self.assertRaisesRegex(ValueError, 'impossible à vérifier'):
