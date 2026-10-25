@@ -36,6 +36,7 @@ from scene_framing import (needs_soft_matte, needs_video_soft_matte,
 from caption_motion import generate_karaoke_ass
 from forced_alignment import align_narration
 from publish_bundle import publish_bundle
+from narration_review import assess_narration, repair_guidance
 from social_publish import prepare_publication, render_publication_text
 from tts_batch import synthesize_piper_batch, wav_duration_seconds
 from video_timeline import plan_local_video_timeline, source_seek_seconds
@@ -123,15 +124,45 @@ def ollama_script(topic: str, language: str, model: str, url: str) -> str:
     if parsed.path not in ("", "/"):
         raise ValueError("Ollama URL must be the host and optional port")
     prompt = (f"Write an engaging, factual short-video narration in {language} about {topic}. "
-              "Return plain narration only, 4 to 6 concise sentences, 60 to 110 words. "
-              "Avoid unverified statistics, copyrighted lyrics, and hashtags.")
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False, "options": {"temperature": 0.5}}).encode()
-    req = request.Request(url.rstrip("/") + "/api/generate", data=payload, headers={"Content-Type": "application/json"})
-    with request.urlopen(req, timeout=180) as resp:
-        data = json.load(resp)
-    script = data.get("response", "")
-    split_script(script)
-    return script
+              "Return PLAIN spoken narration only, 4 to 6 distinct concise sentences, "
+              "60 to 110 words, in the requested language. Start with a specific "
+              "interesting idea; develop two or three concrete points, then close "
+              "naturally. Never invent numbers, citations, events or claims. "
+              "Avoid generic filler, recycled sentences, headings, markdown, "
+              "copyrighted lyrics, links and hashtags.")
+    for attempt in range(2):
+        payload = json.dumps({
+            "model": model, "prompt": prompt, "stream": False,
+            "options": {"temperature": 0.5 if attempt == 0 else 0.3},
+        }).encode()
+        req = request.Request(
+            url.rstrip("/") + "/api/generate", data=payload,
+            headers={"Content-Type": "application/json"})
+        with request.urlopen(req, timeout=180) as resp:
+            # Local inference must not return arbitrary multi-MB generated
+            # content, even if the downstream renderer has a 5000-char cap.
+            raw = resp.read(131073)
+        if len(raw) > 131072:
+            raise RuntimeError("Ollama response exceeds the bounded JSON limit")
+        data = json.loads(raw)
+        script = data.get("response") if isinstance(data, dict) else None
+        review = assess_narration(script)
+        if review["status"] == "structurally_acceptable":
+            # The actual renderer imposes its own stricter 18-caption budget.
+            try:
+                split_script(script)
+            except ValueError:
+                review["issues"].append("script_exceeds_render_limit")
+            else:
+                return script.strip()
+        if attempt == 1:
+            raise RuntimeError(
+                "Local AI narration failed two structural reviews: "
+                + ", ".join(review["issues"]))
+        prompt += (
+            "\nRewrite the narration from scratch, not as an editorial explanation. "
+            + repair_guidance(review))
+    raise RuntimeError("Unreachable local narration review state")
 
 
 def duration_seconds(path: Path) -> float:
@@ -513,6 +544,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
     if aspect not in ASPECTS or resolution not in (360, 720, 1080) or lang not in LANG_VOICES:
         raise ValueError("Unsupported aspect, resolution or voice language")
     sentences = split_script(script)
+    narration_structure = assess_narration(script)
     if scene_queries is not None and not commons:
         raise ValueError("Scene search queries require --commons")
     if visual_ai not in ("off", "clip") or (visual_ai == "clip" and not commons):
@@ -959,6 +991,7 @@ def render(topic: str, script: str, output: Path, *, lang: str = "fr", aspect: s
         metrics["total_seconds"] = round(time.perf_counter() - render_started, 3)
         info: dict[str, object] = {
             "output": str(output), "script_mode": script_mode or "provided-script",
+            "narration_structure": narration_structure,
             "duration_seconds": round(total, 3), "size": [width, height],
             "segments": segments, "speech": not mute, "source": "local-free-studio",
             "tts_backend": diagnostics.get("tts_backend"), "render_performance": metrics,
