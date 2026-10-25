@@ -48,6 +48,11 @@ MAX_MEDIA_STORAGE = 800 * 1024 * 1024
 # These are not predictions of a particular video's required disk usage.
 RENDER_MIN_FREE_BYTES = {360: 256 * 1024**2, 720: 512 * 1024**2,
                          1080: 1024 * 1024**2}
+# Once encoding starts the free-space floor necessarily decreases. Abort only
+# at a smaller emergency threshold, checked periodically rather than on every
+# process poll, to leave space for Android and job-status checkpoints.
+RENDER_CRITICAL_FREE_BYTES = 96 * 1024**2
+RENDER_DISK_CHECK_SECONDS = 3.0
 # Leave room for the OS, metadata, and an interrupted upload's cleanup.
 UPLOAD_MIN_REMAINING_BYTES = 128 * 1024**2
 MAX_VIDEO_UPLOAD = 350 * 1024 * 1024
@@ -378,6 +383,27 @@ class Jobs:
                 f"Espace insuffisant pour le rendu {resolution}p : "
                 f"{available_mib} Mio libres, seuil prudent {floor_mib} Mio. "
                 "Libérez de la place puis réessayez ; aucun import ne sera supprimé")
+
+    def _ensure_running_render_disk_space(self) -> None:
+        """Fail a live encode before its scratch files exhaust Android storage.
+
+        Unlike the resolution preflight, this emergency floor permits an
+        already-running encode to consume its reserved headroom. A vanished
+        volume or unreadable free-space report is a render failure, never an
+        excuse to delete imported sources or completed exports.
+        """
+        try:
+            free = shutil.disk_usage(self.output_dir).free
+        except OSError as exc:
+            raise RuntimeError(
+                "Stockage impossible à surveiller pendant le rendu. "
+                "L'encodage a été interrompu pour protéger le téléphone") from exc
+        if free < RENDER_CRITICAL_FREE_BYTES:
+            raise RuntimeError(
+                f"Stockage critique pendant le rendu : {free // (1024**2)} Mio libres, "
+                f"minimum de sécurité {RENDER_CRITICAL_FREE_BYTES // (1024**2)} Mio. "
+                "Encodage arrêté ; libérez de la place et réessayez. "
+                "Les vidéos importées restent conservées")
 
     def submit(self, raw: object) -> dict:
         job = validate_draft(raw)
@@ -964,11 +990,24 @@ class Jobs:
                     if cancelled:
                         self._signal_render_group(proc, signal.SIGTERM)
                     deadline = time.monotonic() + JOB_TIMEOUT
+                    next_disk_check = time.monotonic() + RENDER_DISK_CHECK_SECONDS
                     while not cancelled:
                         with self.lock:
                             cancelled = queued["status"] == "cancelled"
                         if cancelled:
                             break
+                        now = time.monotonic()
+                        # A running encode can fill its output volume even
+                        # after submission passed the conservative preflight.
+                        # Reap the entire FFmpeg process group on disk pressure;
+                        # never delete completed exports or original uploads.
+                        if now >= next_disk_check and proc.poll() is None:
+                            try:
+                                self._ensure_running_render_disk_space()
+                            except RuntimeError:
+                                self._reap_render_group(proc)
+                                raise
+                            next_disk_check = now + RENDER_DISK_CHECK_SECONDS
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             # Automatic timeout is a render *error*, not a
