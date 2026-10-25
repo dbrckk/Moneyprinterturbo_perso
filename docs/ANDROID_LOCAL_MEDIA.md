@@ -8,22 +8,45 @@ sont **jamais** déposés dans le dépôt GitHub ni transférés vers GitHub Act
 
 1. Installer Termux depuis [F-Droid](https://f-droid.org/packages/com.termux/)
    ou sa page de [versions GitHub](https://github.com/termux/termux-app/releases).
-2. Dans Termux, exécuter :
+2. Dans Termux, **coller le bloc suivant une seule fois** pour installer Git,
+   récupérer le studio (ou réutiliser le dossier existant), vérifier FFmpeg
+   et la voix française, puis démarrer l'interface :
 
 ```sh
-pkg update -y
-pkg install -y python ffmpeg espeak git
-git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git
-cd Moneyprinterturbo_perso
-python studio_server.py --doctor
-python studio_server.py
+pkg update -y && pkg install -y git && \
+if [ -d "$HOME/Moneyprinterturbo_perso/.git" ]; then
+  cd "$HOME/Moneyprinterturbo_perso"
+else
+  git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git "$HOME/Moneyprinterturbo_perso" && cd "$HOME/Moneyprinterturbo_perso"
+fi && bash scripts/termux-start.sh
 ```
+
+Le lanceur libre et vérifiable [`scripts/termux-start.sh`](../scripts/termux-start.sh)
+installe **seulement les outils manquants** (`python`, `ffmpeg`, `espeak`).
+Il exécute un diagnostic MP4/voix réel et **ne lance pas le serveur** si
+ce diagnostic échoue. Il ne télécharge pas de modèle IA, ne demande pas
+d'accès administrateur et ne met pas à jour les fichiers du dépôt sans
+confirmation. Les téléchargements de paquets Termux et le clonage Git
+requièrent évidemment une connexion initiale.
 
 3. Dans le navigateur du **même téléphone**, ouvrir
    **http://127.0.0.1:8765**. Le serveur est accessible seulement sur cet
    appareil (pas sur Internet). Il faut garder le processus Termux actif
    pendant l'import et l'encodage ; Android peut arrêter les tâches longues
    en arrière-plan.
+
+**Les fois suivantes**, dans Termux :
+
+```sh
+cd "$HOME/Moneyprinterturbo_perso" && bash scripts/termux-start.sh
+```
+
+Pour vérifier uniquement les dépendances : `bash scripts/termux-start.sh --doctor`.
+Pour un montage de test complet avant de créer une vraie vidéo :
+`bash scripts/termux-start.sh --doctor-full`. Ces commandes ne touchent
+pas aux photos et vidéos de la galerie. Le lanceur doit fonctionner dans
+**Termux lui-même** ; GitHub Actions ne peut pas vérifier l'installation
+réelle des paquets ni l'autonomie d'un téléphone.
 
 **Diagnostic Android hors ligne :** avant le premier rendu, la commande
 `python studio_server.py --doctor` vérifie la version de Python, FFmpeg,

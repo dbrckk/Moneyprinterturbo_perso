@@ -111,6 +111,18 @@
           <ul id="history" class="history"><li class="empty-history">Aucune demande mémorisée.</li></ul>
           <a id="all-runs" class="all-runs" href="https://github.com/dbrckk/Moneyprinterturbo_perso/actions/workflows/free-video.yml" target="_blank" rel="noopener noreferrer">Toutes les exécutions GitHub ↗</a>
         </section>
+        <section class="panel local-import-panel" aria-labelledby="android-import-title">
+          <div class="section-head"><div><span class="number">04 / VIDÉOS PERSONNELLES</span><h2 id="android-import-title">Monter mes vidéos Android</h2></div></div>
+          <p class="side-intro">Ce studio distant utilise des images libres. Pour importer les vidéos privées de ta galerie sans les envoyer sur GitHub, démarre le studio local gratuit avec Termux, sur le même téléphone.</p>
+          <p class="footnote">Première utilisation : installer <a href="https://f-droid.org/packages/com.termux/" target="_blank" rel="noopener noreferrer">Termux depuis F-Droid</a>, puis y coller cette commande. Elle installe les outils libres, effectue un diagnostic et démarre le serveur uniquement sur ton téléphone.</p>
+          <details class="advanced termux-details">
+            <summary>Commande Termux à copier</summary>
+            <pre class="termux-code"><code id="termux-command">pkg update -y &amp;&amp; pkg install -y git &amp;&amp; if [ -d "$HOME/Moneyprinterturbo_perso/.git" ]; then cd "$HOME/Moneyprinterturbo_perso"; else git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git "$HOME/Moneyprinterturbo_perso" &amp;&amp; cd "$HOME/Moneyprinterturbo_perso"; fi &amp;&amp; bash scripts/termux-start.sh</code></pre>
+            <button id="copy-termux-command" class="outline-button termux-copy" type="button">Copier la commande</button>
+            <p id="termux-copy-status" class="footnote" role="status" aria-live="polite">Les téléchargements initiaux nécessitent Internet ; le rendu des fichiers personnels reste local.</p>
+          </details>
+          <p class="footnote">Une fois le serveur lancé, ouvrir <a href="http://127.0.0.1:8765" target="_blank" rel="noopener noreferrer">http://127.0.0.1:8765</a> sur ce téléphone. Aucun PC nécessaire. Le téléphone doit rester actif pendant l'encodage.</p>
+        </section>
         <div class="clarity"><span aria-hidden="true">◎</span><p><strong>À quoi sert ce site ?</strong> L'interface est hébergée gratuitement ; les MP4 sont calculés par GitHub Actions. Pas de serveur vidéo permanent ni d'API d'IA payante. Un compte GitHub reste nécessaire pour lancer les rendus.</p></div>
       </aside>
     </div>

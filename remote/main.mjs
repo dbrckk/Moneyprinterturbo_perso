@@ -439,6 +439,24 @@ $('video-form').addEventListener('submit', async event => {
   }
 });
 
+// The public GitHub Pages site cannot read the private Android gallery.
+// This explicit opt-in copies a visible installer command; it never sends it
+// to GitHub or runs any command on the user's phone.
+const termuxButton = $('copy-termux-command');
+// An older cached PWA HTML may be paired with newer JS when Android reconnects.
+if (termuxButton && $('termux-command') && $('termux-copy-status')) termuxButton.addEventListener('click', async () => {
+  const raw = $('termux-command').textContent.trim();
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(raw);
+    $('termux-copy-status').textContent =
+      'Commande copiée. Ouvre Termux, colle-la et valide. Aucun média ne part vers GitHub.';
+  } catch (_) {
+    $('termux-copy-status').textContent =
+      'Copie non autorisée par Android : sélectionne le texte de la commande (appui long) puis copie-le manuellement.';
+  }
+});
+
 // Installable Android shell: store only public frontend assets in Cache Storage.
 // Drafts/history are already in localStorage; the GitHub PAT is never persisted.
 function startOfflineShell() {
