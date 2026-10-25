@@ -54,7 +54,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_motion_framing.py' -v
       - name: Test nine-second opposite-edge subject movement end to end
         run: python -m unittest discover -s tests -p 'test_long_motion_framing.py' -v
-      - name: Generate seven reproducible real MP4 A/B pairs
+      - name: Generate eight reproducible real MP4 A/B pairs
         run: python framing_ab_benchmark.py --output outputs/framing-ab-benchmark
       - name: Check source preservation, real MP4s and explicit benchmark decisions
         run: |
@@ -64,24 +64,27 @@ jobs:
           directory=Path('outputs/framing-ab-benchmark')
           report=json.loads((directory/'metrics.json').read_text(encoding='utf-8'))
           assert report['benchmark_kind']=='synthetic-framing-ab-v1'
-          assert report['cases_evaluated']==7
-          assert report['expected_guards_passed']==7, [
+          assert report['cases_evaluated']==8
+          assert report['expected_guards_passed']==8, [
               (case['name'],case['expected'],case['applied']) for case
               in report['cases'] if not case['passes_expected_guard']]
           assert report['human_reviews_completed']==0
           assert report['production_source_unchanged'] is True
           assert report['battery_or_thermal_data'] is False
-          assert len({case['name'] for case in report['cases']})==7
+          assert len({case['name'] for case in report['cases']})==8
           for case in report['cases']:
               assert case['source_intact']
               assert case['passes_expected_guard']
               for key in ('center_video','guided_video'):
                   media=directory/case[key]
                   assert media.is_file() and media.stat().st_size>2000
+              if case['name']=='long-crossing':
+                  assert case['seconds']==9.0
+                  assert case['late_guided_red_fraction']>case['late_center_red_fraction']+.002
               assert case['encode_wall_seconds']['center']>0
               assert case['encode_wall_seconds']['guided']>0
           assert (directory/'report.html').stat().st_size>1000
-          print('Seven actual A/B comparisons validated; no human ratings inferred.')
+          print('Eight actual A/B comparisons validated; no human ratings inferred.')
           PY
       - name: Write measured summary to GitHub
         shell: bash
@@ -108,7 +111,7 @@ jobs:
       - name: Upload offline visual review for smartphone
         uses: actions/upload-artifact@v4
         with:
-          name: framing-ab-seven-scenes
+          name: framing-ab-eight-scenes
           path: |
             outputs/framing-ab-benchmark/metrics.json
             outputs/framing-ab-benchmark/report.html

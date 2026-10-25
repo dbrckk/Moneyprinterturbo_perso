@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline, reviewable A/B benchmark for geometric and motion-guided video crops.
 
-All seven videos are generated locally by FFmpeg and contain NO user footage.
+All eight source videos are generated locally by FFmpeg and contain NO user footage.
 The goal is regression evidence, not a trained detector or artistic-quality
 score. A GitHub-hosted run measures a GitHub machine, never a phone.
 """
@@ -38,6 +38,7 @@ CASES = (
     ("dark-night", "Very low contrast nighttime movement", "center", 640, 480),
     ("blinking-sign", "Stationary flashing light at the edge", "center", 640, 480),
     ("panoramic", "Extremely wide footage, both edge subjects", "matte", 1280, 720),
+    ("long-crossing", "Nine-second subject crosses from right to left", "matte", 640, 480),
 )
 
 
@@ -50,30 +51,39 @@ def run_command(command: list[str], *, timeout: int = 90) -> subprocess.Complete
     return completed
 
 
+def scene_seconds(name: str) -> float:
+    return 9.0 if name == "long-crossing" else SECONDS
+
+
 def synthetic_video(name: str, destination: Path) -> None:
     """Generate fixed known-content test clips using only core FFmpeg filters."""
     specs = {entry[0]: entry for entry in CASES}
     if name not in specs:
         raise ValueError("Unsupported synthetic benchmark case")
     size = "1280x720" if name == "panoramic" else "640x480"
+    seconds = scene_seconds(name)
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
     base = ("testsrc2" if name == "global-camera-motion" else
             "color=c=0x090909" if name == "dark-night" else "color=c=gray")
-    source_filter = (f"testsrc2=s={size}:r={FPS}:d=3" if name == "global-camera-motion"
-                     else f"{base}:s={size}:r={FPS}:d=3")
+    source_filter = (f"testsrc2=s={size}:r={FPS}:d={seconds + .5}" if name == "global-camera-motion"
+                     else f"{base}:s={size}:r={FPS}:d={seconds + .5}")
     cmd += ["-f", "lavfi", "-i", source_filter]
     overlay = None
     if name in ("sport-right", "sport-left", "dark-night", "two-athletes",
-                "panoramic", "blinking-sign"):
+                "panoramic", "blinking-sign", "long-crossing"):
         tint = "0x121212" if name == "dark-night" else "red"
-        block_width = 180 if name == "panoramic" else 78
-        block_height = 270 if name == "panoramic" else 160
+        block_width = 180 if name == "panoramic" else 70 if name == "long-crossing" else 78
+        block_height = 270 if name == "panoramic" else 180 if name == "long-crossing" else 160
         cmd += ["-f", "lavfi", "-i",
-                f"color=c={tint}:s={block_width}x{block_height}:r={FPS}:d=3"]
+                f"color=c={tint}:s={block_width}x{block_height}:r={FPS}:d={seconds + .5}"]
         if name in ("two-athletes", "panoramic"):
             cmd += ["-f", "lavfi", "-i",
                     f"color=c=red:s={block_width}x{block_height}:r={FPS}:d=3"]
-        if name == "panoramic":
+        if name == "long-crossing":
+            overlay = ("[0:v][1:v]overlay="
+                       "x='if(lt(t,4.5),520+35*sin(t*4),45+30*sin(t*4))':"
+                       "y=140:shortest=1,format=yuv420p[v]")
+        elif name == "panoramic":
             overlay = ("[0:v][1:v]overlay=x=30:y=220:shortest=1[p];"
                        "[p][2:v]overlay=x=1070:y=220:shortest=1,"
                        "format=yuv420p[v]")
@@ -94,7 +104,7 @@ def synthetic_video(name: str, destination: Path) -> None:
         cmd += ["-filter_complex", overlay, "-map", "[v]"]
     else:
         cmd += ["-map", "0:v:0"]
-    cmd += ["-frames:v", "36", "-an", "-c:v", "libx264",
+    cmd += ["-frames:v", str(round(seconds * FPS)), "-an", "-c:v", "libx264",
             "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
             str(destination)]
     run_command(cmd)
@@ -102,7 +112,7 @@ def synthetic_video(name: str, destination: Path) -> None:
         raise RuntimeError("Empty synthetic benchmark source")
 
 
-def probe_export(path: Path) -> dict[str, object]:
+def probe_export(path: Path, *, seconds: float = SECONDS) -> dict[str, object]:
     result = run_command([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height,codec_name,avg_frame_rate,nb_frames",
@@ -112,7 +122,7 @@ def probe_export(path: Path) -> dict[str, object]:
         frames = int(stream["nb_frames"])
         rate = stream["avg_frame_rate"].split("/")
         fps = float(rate[0]) / float(rate[1])
-        if (frames != FRAMES or int(stream["width"]) != WIDTH or
+        if (frames != round(seconds * FPS) or int(stream["width"]) != WIDTH or
                 int(stream["height"]) != HEIGHT or stream["codec_name"] != "h264"
                 or abs(fps - FPS) > .01):
             raise ValueError("Encoded frames/format differs from expected")
@@ -149,6 +159,11 @@ def expected_guard(case: dict[str, object]) -> bool:
         return (case["guided_red_fraction"] >
                 case["center_red_fraction"] + .004)
     if mode == "matte":
+        if case["name"] == "long-crossing":
+            return (case["guided_red_fraction"] >
+                    case["center_red_fraction"] + .002 and
+                    case["late_guided_red_fraction"] >
+                    case["late_center_red_fraction"] + .002)
         return (case["guided_red_fraction"] >
                 case["center_red_fraction"] + .002)
     return True
@@ -175,6 +190,9 @@ def render_report(metrics: dict[str, object]) -> str:
             ' · obtenu : ' + escape(case["applied"]) +
             ' · proportion rouge visible A : ' + escape(case["center_red_fraction"]) +
             ' · B : ' + escape(case["guided_red_fraction"]) +
+            (' · fin A : ' + escape(case["late_center_red_fraction"]) +
+             ' · fin B : ' + escape(case["late_guided_red_fraction"]) if
+             case.get("late_center_red_fraction") is not None else '') +
             '</p><div class="pair">' + ''.join(videos) + '</div></section>')
     css = """
     body{background:#101624;color:#f8fafc;font:16px system-ui,sans-serif;
@@ -194,9 +212,9 @@ def render_report(metrics: dict[str, object]) -> str:
             ' media-src &#39;self&#39;;">'
             '<title>MoneyPrinter — A/B cadrage réel</title><style>' + css +
             '</style></head><body><h1>Comparaison A/B du cadrage</h1>'
-            '<p>Sept séquences <strong>synthétiques</strong> avec contenus '
+            '<p>Huit séquences <strong>synthétiques</strong> avec contenus '
             'connus : mouvement sportif latéral, caméra mobile, deux sujets, '
-            'faible lumière, lumière clignotante et panorama. '
+            'faible lumière, lumière clignotante, panorama et déplacement de bord à bord sur neuf secondes. '
             'Deux vrais MP4 par cas. La mesure rouge porte sur des marqueurs '
             'de test et n’est <strong>ni une métrique de qualité artistique '
             'ni une précision sur des personnes réelles</strong>. '
@@ -231,6 +249,7 @@ def run_benchmark(output: Path) -> dict:
         start = time.monotonic()
         for name, title, expected, sw, sh in CASES:
             source = work / f"{name}.mp4"
+            seconds = scene_seconds(name)
             synthetic_video(name, source)
             source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
             asset = MediaAsset(
@@ -241,7 +260,7 @@ def run_benchmark(output: Path) -> dict:
             # this baseline is *only* for generated benchmark footage.
             baseline = replace(asset, source_width=None, source_height=None)
             chosen, notes = plan_motion_crops(
-                [asset], [SECONDS], width=WIDTH, height=HEIGHT)
+                [asset], [seconds], width=WIDTH, height=HEIGHT)
             guided = chosen[0]
             applied = ("matte" if needs_video_soft_matte(
                 guided, width=WIDTH, height=HEIGHT) else
@@ -252,19 +271,22 @@ def run_benchmark(output: Path) -> dict:
             for selected, destination in ((baseline, staged / relative_center),
                                           (guided, staged / relative_guided)):
                 command = build_onepass_media_command(
-                    [selected], [SECONDS], width=WIDTH, height=HEIGHT,
+                    [selected], [seconds], width=WIDTH, height=HEIGHT,
                     fps=FPS, transition="cut", visual_filters=["format=yuv420p"],
-                    audio=None, output=destination, total=SECONDS)
+                    audio=None, output=destination, total=seconds)
                 t0 = time.monotonic()
                 run_command(command, timeout=120)
                 timings.append(round(time.monotonic() - t0, 3))
-                probe_export(destination)
+                probe_export(destination, seconds=seconds)
             row = {
                 "name": name, "description": title, "expected": expected,
+                "seconds": seconds,
                 "applied": applied, "anchor": guided.crop_horizontal_anchor,
                 "center_video": relative_center, "guided_video": relative_guided,
                 "center_red_fraction": red_coverage(staged / relative_center),
                 "guided_red_fraction": red_coverage(staged / relative_guided),
+                "late_center_red_fraction": red_coverage(staged / relative_center, seconds=7.5) if seconds > 7 else None,
+                "late_guided_red_fraction": red_coverage(staged / relative_guided, seconds=7.5) if seconds > 7 else None,
                 "encode_wall_seconds": {"center": timings[0], "guided": timings[1]},
                 "source_intact": hashlib.sha256(source.read_bytes()).hexdigest() == source_digest,
                 "notes": notes,

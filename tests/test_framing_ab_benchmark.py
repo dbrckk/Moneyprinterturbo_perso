@@ -13,11 +13,11 @@ from motion_framing import plan_motion_crops
 
 class FramingABPolicyTests(unittest.TestCase):
     def test_synthetic_cases_are_fixed_and_cover_adversarial_scenes(self):
-        self.assertEqual(len(benchmark.CASES), 7)
-        self.assertEqual(len(set(x[0] for x in benchmark.CASES)), 7)
+        self.assertEqual(len(benchmark.CASES), 8)
+        self.assertEqual(len(set(x[0] for x in benchmark.CASES)), 8)
         self.assertEqual(
             [x[2] for x in benchmark.CASES],
-            ["shift", "shift", "center", "center", "center", "center", "matte"])
+            ["shift", "shift", "center", "center", "center", "center", "matte", "matte"])
         for row in benchmark.CASES:
             self.assertIn(row[3:], ((640, 480), (1280, 720)))
 
@@ -54,6 +54,18 @@ class FramingABPolicyTests(unittest.TestCase):
         self.assertIn('media-src &#39;self&#39;', html)
         self.assertIn("playsinline", html)
         self.assertIn("À examiner", html)
+
+    def test_long_crossing_guard_requires_both_ends_of_actual_output(self):
+        case = {"name": "long-crossing", "expected": "matte", "applied": "matte",
+                "guided_red_fraction": .02, "center_red_fraction": 0.0,
+                "late_guided_red_fraction": .02, "late_center_red_fraction": 0.0}
+        self.assertTrue(benchmark.expected_guard(case))
+        self.assertFalse(benchmark.expected_guard({
+            **case, "late_guided_red_fraction": 0.0}))
+        self.assertFalse(benchmark.expected_guard({
+            **case, "applied": "center"}))
+        self.assertEqual(benchmark.scene_seconds("long-crossing"), 9.0)
+        self.assertEqual(benchmark.scene_seconds("sport-left"), 2.5)
 
     def test_unknown_benchmark_case_rejected_before_execution(self):
         with self.assertRaises(ValueError):
@@ -107,14 +119,18 @@ class RealSyntheticFramingABTests(unittest.TestCase):
                 asset = MediaAsset(source, "video", "local", "generated",
                                    "benchmark", name,
                                    source_width=width, source_height=height)
-                if expected == "matte":
+                if expected == "matte" and name != "long-crossing":
                     from scene_framing import needs_video_soft_matte
                     self.assertTrue(needs_video_soft_matte(
                         asset, width=360, height=640))
                 else:
-                    choices, _ = plan_motion_crops(
-                        [asset], [benchmark.SECONDS], width=360, height=640)
-                    self.assertIsNone(choices[0].crop_horizontal_anchor)
+                    choices, notes = plan_motion_crops(
+                        [asset], [benchmark.scene_seconds(name)], width=360, height=640)
+                    if name == "long-crossing":
+                        self.assertTrue(choices[0].preserve_full_video_frame, (notes, choices[0]))
+                        self.assertIsNone(choices[0].crop_horizontal_anchor)
+                    else:
+                        self.assertIsNone(choices[0].crop_horizontal_anchor)
 
 
 if __name__ == "__main__":
