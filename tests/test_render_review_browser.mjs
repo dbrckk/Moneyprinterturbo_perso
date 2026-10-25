@@ -10,7 +10,7 @@ const source = readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
 const JOB_ID = 'd'.repeat(32);
 const injected = '<img src=x onerror="alert(1)">';
 
-async function setup() {
+async function setup({reportOverride = 'use-report'} = {}) {
   const ids = new Map();
   const requests = [];
   let jobStatus = 'done';
@@ -78,7 +78,8 @@ async function setup() {
       abandoned_bytes: 0, batches: []};
     else if (url === '/api/encoder/calibration') data = {status: 'idle'};
     else if (url === '/api/jobs/' + JOB_ID) data = {
-      id: JOB_ID, status: jobStatus, render_review: report,
+      id: JOB_ID, status: jobStatus,
+      render_review: reportOverride === 'use-report' ? report : reportOverride,
       has_credits: false, has_publication: false,
       duration_seconds: 5, visual_mode: 'mixed-media'};
     else throw Error('Unexpected ' + url);
@@ -139,12 +140,15 @@ test('error and running jobs must never show stale finished checks', async () =>
   }
 });
 
-test('invalid or missing report is hidden instead of approved', async () => {
-  const mock = await setup();
-  mock.choose();
-  await mock.settle();
-  // Fetch payload is not directly writable from this simulation; verify that
-  // a job never becomes 'done' merely because the UI constructed a checklist.
-  assert.ok(!mock.get('status-badge').textContent.includes('APPROUVÉ'));
-  assert.ok(!mock.get('render-review-summary').textContent.includes('certifiée'));
+test('missing or malformed reports stay hidden on completed videos', async () => {
+  for (const corrupt of [null, {}, {status: 'approved', checks: []},
+                         {status: 'exported-not-artistically-approved',
+                          checks: [{title: '<script>', detail: 'x', attention: 'yes'}]}]) {
+    const mock = await setup({reportOverride: corrupt});
+    mock.choose();
+    await mock.settle();
+    assert.equal(mock.get('render-review').classList.contains('hidden'), true);
+    assert.equal(mock.get('render-review-checks').children.length, 0);
+    assert.ok(!mock.get('status-badge').textContent.includes('APPROUVÉ'));
+  }
 });
