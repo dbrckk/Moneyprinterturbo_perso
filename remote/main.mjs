@@ -442,7 +442,9 @@ $('video-form').addEventListener('submit', async event => {
 // The public GitHub Pages site cannot read the private Android gallery.
 // This explicit opt-in copies a visible installer command; it never sends it
 // to GitHub or runs any command on the user's phone.
-$('copy-termux-command').addEventListener('click', async () => {
+const termuxButton = $('copy-termux-command');
+// An older cached PWA HTML may be paired with newer JS when Android reconnects.
+if (termuxButton && $('termux-command') && $('termux-copy-status')) termuxButton.addEventListener('click', async () => {
   const raw = $('termux-command').textContent.trim();
   try {
     if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
