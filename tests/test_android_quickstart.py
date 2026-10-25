@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import re
+from html import unescape
 from pathlib import Path
 import subprocess
 import tempfile
@@ -92,6 +94,17 @@ class AndroidQuickstartTests(unittest.TestCase):
         self.assertIn("$('termux-command').textContent.trim()", js)
         self.assertIn("appui long", js)
         self.assertIn(".local-import-panel .termux-code", css)
+        # The actual command copied from static HTML must be executable Bash,
+        # not HTML-escaped && or a malformed multi-line snippet.
+        found = re.search(r'id="termux-command">([^<]+)</code>', html)
+        self.assertIsNotNone(found)
+        command = unescape(found.group(1))
+        self.assertIn("git clone https://github.com/dbrckk/Moneyprinterturbo_perso.git", command)
+        self.assertIn("bash scripts/termux-start.sh", command)
+        self.assertNotIn("curl", command)
+        verified = subprocess.run(["bash", "-n", "-c", command],
+                                  capture_output=True, text=True, timeout=10)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
 
     def test_remote_render_workflow_install_is_bounded_and_consistent(self):
         free = (ROOT / ".github" / "workflows" / "free-video.yml").read_text(
