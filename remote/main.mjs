@@ -8,6 +8,7 @@ import { runArtifactsEndpoint, findDirectMp4, findDirectStoryboard,
 import { exportPortableDraft, importPortableDraft } from './draft_backup.mjs';
 import { productionMode, MODE_DESCRIPTIONS, PRODUCTION_MODES } from './production_modes.mjs';
 import {workflowJobsEndpoint, workflowStage} from './workflow_progress.mjs';
+import {cancelRunEndpoint, mayCancelRun} from './cancel_run.mjs';
 import { shouldAutoResume, shouldVerifyCompletedRun, createRunSelection,
   isUncertainDispatchFailure, recentUnconfirmedRequest, classifyTrackingError,
   isGithubRateLimited } from './run_lifecycle.mjs';
@@ -26,6 +27,9 @@ let stageCache = null;
 let stageLookupInFlight = null;
 let lastStageLookupAt = 0;
 let lastStageLookupKey = null;
+let cancellableRun = null;
+let cancelInFlight = false;
+let cancelRequestedRunId = null;
 
 function storageRead(key, fallback) {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; }
@@ -90,6 +94,17 @@ function showScenes() {
     const li = document.createElement('li'); li.textContent = entry; list.append(li);
   }
 }
+function refreshCancelButton() {
+  const button = $('cancel-run');
+  button.hidden = !cancellableRun || cancelInFlight ||
+    cancelRequestedRunId === cancellableRun.id ||
+    !active || !mayCancelRun(cancellableRun, active.id, active.runId);
+}
+function resetCancelTarget() {
+  cancellableRun = null;
+  cancelRequestedRunId = null;
+  refreshCancelButton();
+}
 function setStatus(kind, title, explanation) {
   const chip = $('status-indicator');
   chip.textContent = title;
@@ -117,7 +132,7 @@ function showHistory() {
     const button = document.createElement('button');
     button.type='button';button.className='subtle-button';button.textContent='Suivre';
     button.addEventListener('click', () => {
-      stopPoll(); runSelection.select(); active = item;
+      stopPoll(); runSelection.select(); active = item; resetCancelTarget();
       for (const id of ['download-video','preview-storyboard','download-subtitles','download-quality','download-credits','download-publication','download-manifest']) $(id).hidden = true;
       lastPoll=0; $('run-actions').hidden = false; $('run-link').href=link.href;
       setStatus('running','Suivi','Recherche de la demande dans GitHub Actions…');
@@ -196,7 +211,10 @@ async function refreshWorkflowStage(runId, requestId, generation) {
 
 function updateRun(run) {
   if (!active) return;
+  cancellableRun = run.status !== 'completed' ? run : null;
+  if (run.status === 'completed') cancelRequestedRunId = null;
   active = { ...active, runId: run.id, state: statusLabels[run.status] || run.status || 'En cours' };
+  refreshCancelButton();
   $('run-link').href = workflowRunLink(run);
   replaceHistory(active);
   if (run.status !== 'completed') {
@@ -245,7 +263,9 @@ async function api(url, options = {}) {
     err.rateLimited = rateLimited;
     throw err;
   }
-  return response.status === 204 ? null : response.json();
+  // GitHub's cancel endpoint returns HTTP 202 with no JSON body.
+  return response.status === 204 || (response.status === 202 && options.method === 'POST')
+    ? null : response.json();
 }
 async function lookupRun() {
   if (!active || Date.now() - lastPoll < 1500) return;
@@ -376,12 +396,56 @@ $('restore-draft').addEventListener('click', () => {
   } catch (error) { notify('Impossible de restaurer : ' + error.message); }
 });
 $('refresh').addEventListener('click',()=>{lastPoll=0;void lookupRun();});
+$('cancel-run').addEventListener('click', async () => {
+  const run = cancellableRun;
+  const selected = active;
+  const generation = runSelection.current();
+  if (cancelInFlight || !run || !selected ||
+      !mayCancelRun(run, selected.id, selected.runId) ||
+      cancelRequestedRunId === run.id) return;
+  if (!$('token').value.trim()) {
+    notify('Pour annuler, renseigne ton jeton GitHub Actions avec le droit Read and write.');
+    $('token').focus(); return;
+  }
+  if (!window.confirm('Annuler ce rendu GitHub en cours ? Le résultat déjà publié, s’il existe, ne sera pas supprimé.')) return;
+  cancelInFlight = true;
+  refreshCancelButton();
+  try {
+    // Revalidate the actual GitHub run immediately before a destructive API
+    // request. A saved browser record alone is never sufficient evidence.
+    const current = await api(knownRunEndpoint(run.id));
+    if (!runSelection.isCurrent(generation) || active?.id !== selected.id ||
+        active?.runId !== run.id) return;
+    if (!mayCancelRun(current, selected.id, run.id)) {
+      notify('Ce rendu ne peut plus être annulé ou ne correspond pas au projet sélectionné.');
+      lastPoll = 0; void lookupRun(); return;
+    }
+    await api(cancelRunEndpoint(run.id), {method:'POST'});
+    cancelRequestedRunId = run.id;
+    if (runSelection.isCurrent(generation) && active?.id === selected.id) {
+      setStatus('running', 'Annulation demandée',
+        'GitHub a accepté la demande. Le rendu n’est pas encore confirmé annulé : consulte le statut actualisé.');
+      lastPoll = 0; void lookupRun();
+    }
+  } catch (error) {
+    if (runSelection.isCurrent(generation) && active?.id === selected.id) {
+      // Timeout and 5xx are ambiguous; never auto-retry a cancellation.
+      cancelRequestedRunId = run.id;
+      notify('Annulation non confirmée : ' + error.message +
+        ' Actualise le suivi ou ouvre GitHub avant toute nouvelle tentative.');
+    }
+  } finally {
+    cancelInFlight = false;
+    refreshCancelButton();
+  }
+});
 /** A single correlation ID persists even when a POST's response is lost. */
 function trackDispatchedRequest(record, statusTitle, statusCopy) {
   runSelection.select();
   active=record;
+  resetCancelTarget();
   for (const name of ['download-video','preview-storyboard','download-subtitles',
-                      'download-quality','download-credits','download-manifest'])
+                      'download-quality','download-credits','download-publication','download-manifest'])
     $(name).hidden=true;
   replaceHistory(active);
   $('run-actions').hidden=false;
@@ -490,7 +554,7 @@ if (restoredPersonalDraft) {
 showScenes();showHistory();startOfflineShell();
 const previous=loadHistory()[0];
 if (previous) {
-  runSelection.select();active=previous;
+  runSelection.select();active=previous;resetCancelTarget();
   $('run-actions').hidden=false;
   $('run-link').href=previous.runId?workflowRunLink({id:previous.runId}):ACTIONS_URL;
   setStatus('',previous.state||'Dernière demande','Demande restaurée. Le suivi peut reprendre automatiquement.');
