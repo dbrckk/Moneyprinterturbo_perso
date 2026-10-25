@@ -192,6 +192,16 @@ Le lecteur relâche ses ressources quand on sélectionne un autre projet ou
 qu'on quitte la page. Les téléchargements des sous-titres et métadonnées
 fonctionnent toujours.
 
+**Intégrité des téléchargements locaux :** le serveur refuse désormais les
+fichiers d'export et dossiers de projet remplacés par des liens symboliques.
+Sur Android/Termux, il vérifie le type du fichier directement au moment de
+l'ouverture, puis utilise **le même descripteur** pour mesurer et transmettre
+les octets, y compris les requêtes de lecture partielle (`Range`). Une vidéo
+remplacée pendant le téléchargement ne peut donc pas rediriger ce téléchargement
+vers un autre fichier local. Les fichiers spéciaux (FIFO, périphériques) ne
+sont pas traités comme des exports. La protection ne remplace pas la sécurité
+du compte Termux lui-même.
+
 **Sécurité :** la lecture partielle conserve les mêmes contrôles de connexion,
 d'origine et d'autorisation que les autres fichiers privés du studio. En mode
 réseau protégé par jeton, la lecture et le téléchargement conservent le
