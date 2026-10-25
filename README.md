@@ -255,6 +255,22 @@ L'utilisateur peut également lancer manuellement le workflow dans GitHub Action
 Voir [l'audit du code réellement incorporé et des meilleurs dépôts de star-list](docs/STAR_LIST_PROVENANCE.md).
 
 
+## Contrôle qualité des scénarios générés par IA
+
+Le mode Ollama/Qwen vérifie **avant** de lancer les calculs audio et
+vidéo que la narration est structurée en phrases distinctes, ne répète
+pas les mêmes idées et ne contient pas de listes ou de liens à prononcer.
+Un premier texte inadéquat déclenche **une seule réécriture locale** ;
+au second échec, la génération s'arrête explicitement au lieu de publier
+une voix off défectueuse. Un script que tu as rédigé toi-même reste
+toujours libre et n'est jamais modifié automatiquement.
+
+Chaque vidéo conserve `narration_structure` dans son manifeste JSON,
+avec des mesures de longueur et les avertissements détectés.
+**Ce contrôle ne vérifie pas les faits, les droits ou la qualité
+artistique réelle.** La qualité d'une vidéo dépend encore de la
+narration, de l'exactitude du contenu, de la voix et des visuels.
+
 ## Option voix neurale française (Piper SIWIS)
 
 Le studio distant et `free-video.yml` proposent désormais `voice=piper-fr-siwis`
