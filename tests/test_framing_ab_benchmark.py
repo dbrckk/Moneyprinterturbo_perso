@@ -55,6 +55,35 @@ class FramingABPolicyTests(unittest.TestCase):
         self.assertIn("playsinline", html)
         self.assertIn("À examiner", html)
 
+    def test_report_has_genuine_opt_in_human_preferences_and_no_inferred_votes(self):
+        example = {
+            "cases": [{
+                "name": 'sport-"right"', "description": "<unsafe>",
+                "expected": "shift", "applied": "shift",
+                "passes_expected_guard": True,
+                "center_red_fraction": 0.0,
+                "guided_red_fraction": .09,
+                "center_video": "videos/center.mp4",
+                "guided_video": "videos/guided.mp4",
+            }],
+            "human_reviews_completed": 0,
+        }
+        document = benchmark.render_report(example)
+        for literal in ('data-case="sport-&quot;right&quot;"',
+                        'name="human-0"', 'value="center"',
+                        'value="guided"', 'value="tie"',
+                        'value="both_bad"', 'export-human-review',
+                        'framing-human-review.csv',
+                        'connect-src &#39;none&#39;',
+                        'script-src &#39;unsafe-inline&#39;'):
+            self.assertIn(literal, document)
+        self.assertIn("&lt;unsafe&gt;", document)
+        self.assertNotIn("<unsafe>", document)
+        self.assertNotIn("votants :", document)
+        self.assertNotIn("fetch(", document)
+        self.assertIn("CSV local", document)
+        self.assertIn("Les évaluations ne quittent pas", document)
+
     def test_long_crossing_guard_requires_both_ends_of_actual_output(self):
         case = {"name": "long-crossing", "expected": "matte", "applied": "matte",
                 "guided_red_fraction": .02, "center_red_fraction": 0.0,
