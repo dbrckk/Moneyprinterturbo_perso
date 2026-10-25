@@ -96,6 +96,16 @@
             <progress id="render-stage-bar" max="6" value="0" aria-label="Étapes de montage terminées"></progress>
             <p>Étapes indicatives : leur durée varie selon les vidéos et le téléphone.</p>
           </div>
+          <section id="render-review" class="render-review hidden" aria-labelledby="render-review-title">
+            <h3 id="render-review-title">Contrôles du montage exporté</h3>
+            <p id="render-review-summary" class="microcopy"></p>
+            <ul id="render-review-checks" class="render-review-checks"></ul>
+            <div id="render-review-warnings" class="render-review-warnings hidden">
+              <strong id="render-review-warnings-label">Points signalés</strong>
+              <ul id="render-review-warnings-list"></ul>
+            </div>
+            <p class="microcopy">Ce rapport décrit les contrôles techniques. Regardez et écoutez la vidéo avant toute publication : aucun score esthétique ou droit d'usage n'est certifié.</p>
+          </section>
           <div id="downloads" class="download-list hidden"><button type="button" class="dl primary-outline" data-file="video.mp4">Télécharger MP4 <span>↓</span></button><div class="download-row"><button type="button" class="dl secondary" data-file="video.srt">Sous-titres SRT ↓</button><button type="button" class="dl secondary" data-file="video.json">Métadonnées ↓</button></div><button id="publish-kit" type="button" class="dl secondary hidden" data-file="video.publish.txt">Titres, descriptions et hashtags ↓</button><button id="credits" type="button" class="dl secondary hidden" data-file="video.credits.txt">Crédits & licences ↓</button></div>
           <div id="cancel-row" class="hidden"><button type="button" id="cancel" class="danger-link">Annuler ce rendu</button></div>
           <div class="history-head"><h3>Derniers projets</h3><button id="refresh" type="button" class="text-button">Actualiser ↻</button></div>
