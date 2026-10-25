@@ -828,6 +828,16 @@ fonctionne hors ligne, sans service payant. Il conserve intégralement les
 rushs importés, les scripts et les exports de projets précédents. Un éventuel
 MP4 incomplet du rendu interrompu n'est **pas proposé comme vidéo terminée**.
 
+**Si le disque devient en lecture seule ou complètement plein** au moment
+même où le studio enregistre la fin d'un projet, l'absence d'écriture du
+checkpoint ne bloque plus l'annulation, l'arrêt du processus FFmpeg ni les
+rendus suivants de la file d'attente. L'état reste consultable tant que le
+serveur fonctionne ; les fichiers MP4 déjà créés ne sont pas effacés. Au
+redémarrage, un export complet peut être récupéré par la vérification des
+fichiers finaux ; un rendu partiel reste signalé comme interrompu. La dernière
+mise à jour du statut peut ne pas avoir été conservée si le stockage est
+resté indisponible. Libérer de l'espace demeure nécessaire.
+
 Le seuil de 96 Mio est une réserve **d'urgence**, distincte de la marge
 nécessaire au démarrage : le montage a besoin de consommer temporairement
 une partie de l'espace initialement libre. Une autre application ou un
