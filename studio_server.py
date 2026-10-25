@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1145,8 +1146,14 @@ class Jobs:
             j = self.jobs.get(ident)
             if not j or j["status"] != "done":
                 return None
-        candidate = self.output_dir / ident / name
-        return candidate if candidate.is_file() else None
+        directory = self.output_dir / ident
+        candidate = directory / name
+        # Never publish a symlinked deliverable or job folder, even if a
+        # local process replaces one after the job finished. serve_artifact
+        # independently verifies this at open time to close the lookup race.
+        return candidate if (not directory.is_symlink()
+                             and not candidate.is_symlink()
+                             and candidate.is_file()) else None
 
 
 class StudioHandler(BaseHTTPRequestHandler):
@@ -1218,20 +1225,71 @@ class StudioHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("JSON invalide") from exc
 
-    def serve_artifact(self, item: Path, filename: str) -> None:
-        """Stream MP4 files with bounded memory, allowing native seeking.
+    @staticmethod
+    def _open_artifact_no_follow(item: Path):
+        """Open the selected export as one regular FD, without symlink races.
 
-        Only `Jobs.artifact()` can select a published deliverable. Keep all
-        existing security checks in `do_GET` before this is reached.
+        On Android/POSIX the job directory and file are opened relative to
+        secure directory descriptors, disallowing symlink traversal even if a
+        local process replaces them between Jobs.artifact() and streaming.
+        Never open a FIFO/socket/device to serve as an exported video.
         """
-        if filename != "video.mp4":
-            self._headers(200, MIME[item.suffix], item.stat().st_size,
-                          Content_Disposition=f'attachment; filename="{filename}"')
-            with item.open("rb") as stream:
-                shutil.copyfileobj(stream, self.wfile, length=256 * 1024)
-            return
-        with item.open("rb") as stream:
+        if os.name == "posix" and hasattr(os, "O_NOFOLLOW"):
+            directory_flags = (os.O_RDONLY | os.O_NOFOLLOW
+                               | getattr(os, "O_DIRECTORY", 0)
+                               | getattr(os, "O_CLOEXEC", 0))
+            directory_fd = os.open(item.parent, directory_flags)
+            try:
+                file_flags = (os.O_RDONLY | os.O_NOFOLLOW
+                              | getattr(os, "O_NONBLOCK", 0)
+                              | getattr(os, "O_CLOEXEC", 0))
+                fd = os.open(item.name, file_flags, dir_fd=directory_fd)
+            finally:
+                os.close(directory_fd)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise OSError("Export is not a regular file")
+                return os.fdopen(fd, "rb")
+            except BaseException:
+                os.close(fd)
+                raise
+        # Non-POSIX fallback (the studio primarily targets Android/Termux).
+        if item.parent.is_symlink() or item.is_symlink():
+            raise OSError("Symlinked export unavailable")
+        stream = item.open("rb")
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            stream.close()
+            raise OSError("Export is not a regular file")
+        return stream
+
+    def serve_artifact(self, item: Path, filename: str) -> None:
+        """Stream immutable opened exports, with native seekable MP4 ranges.
+
+        The file descriptor is opened and validated before any HTTP headers;
+        a failed open returns 404, not a partial download of an external file.
+        Content length and bytes are taken from the *same* FD throughout.
+        """
+        try:
+            stream = self._open_artifact_no_follow(item)
+        except (OSError, ValueError):
+            return self.json_response(404, {"error": "Fichier indisponible"})
+        with stream:
             size = os.fstat(stream.fileno()).st_size
+            if filename != "video.mp4":
+                self._headers(200, MIME[item.suffix], size,
+                              Content_Disposition=f'attachment; filename="{filename}"')
+                remaining = size
+                try:
+                    while remaining:
+                        chunk = stream.read(min(256 * 1024, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    # A phone can cancel downloads when moving between tabs.
+                    return
+                return
             requested = self.headers.get("Range")
             headers = {"Accept_Ranges": "bytes",
                        "Content_Disposition": 'inline; filename="video.mp4"'}
