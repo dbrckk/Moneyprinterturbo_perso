@@ -202,6 +202,21 @@ class Jobs:
             if tmp is not None:
                 tmp.unlink(missing_ok=True)
 
+    def _checkpoint_terminal_best_effort(self, job: dict) -> bool:
+        """Keep cancellation and render-queue cleanup alive on Android ENOSPC.
+
+        An initial queued/running checkpoint is mandatory and uses the strict
+        writer. After a job has started, an unwriteable output filesystem must
+        not prevent SIGTERM, leak the process registration or strand later
+        queued jobs. The complete MP4 bundle can be recovered on restart when
+        its last running checkpoint was already durably written.
+        """
+        try:
+            self._checkpoint(job)
+        except OSError:
+            return False
+        return True
+
     def _restore_jobs(self) -> None:
         """Recover past outputs after a Termux/process restart, never auto-rerun."""
         recovered = []
@@ -870,7 +885,9 @@ class Jobs:
             if job["status"] in ("queued", "running"):
                 job["status"] = "cancelled"
                 job["finished"] = int(time.time())
-                self._checkpoint(job)
+                # The user must still be able to stop FFmpeg if the volume
+                # becomes full or read-only during the cancellation request.
+                self._checkpoint_terminal_best_effort(job)
             proc = self.processes.get(ident)
             if proc is not None and job["status"] == "cancelled":
                 self._signal_render_group(proc, signal.SIGTERM)
@@ -1050,7 +1067,9 @@ class Jobs:
                     if not cancelled:
                         queued["metadata"] = metadata
                         queued["status"] = "done"
-                        self._checkpoint(queued)
+                        # A complete MP4 stays accessible in this session
+                        # even if its final state file cannot be rewritten.
+                        self._checkpoint_terminal_best_effort(queued)
                 if cancelled:
                     self._reap_render_group(proc)
                     continue
@@ -1059,7 +1078,7 @@ class Jobs:
                     if queued["status"] != "cancelled":
                         queued["error"] = str(exc)[:250]
                         queued["status"] = "error"
-                        self._checkpoint(queued)
+                        self._checkpoint_terminal_best_effort(queued)
             finally:
                 # Relinquish only a lock acquired by this job, on success,
                 # failure, cancellation or shutdown via the worker's finally.
@@ -1070,10 +1089,15 @@ class Jobs:
                 # touch user-imported media or other jobs' completed exports.
                 if scratch.is_dir() and not scratch.is_symlink():
                     shutil.rmtree(scratch, ignore_errors=True)
-                (dest / PROGRESS_NAME).unlink(missing_ok=True)
+                try:
+                    (dest / PROGRESS_NAME).unlink(missing_ok=True)
+                except OSError:
+                    # The progress sidecar is also reclaimed on restart;
+                    # the queue must not die when the disk becomes read-only.
+                    pass
                 with self.lock:
                     queued["finished"] = int(time.time())
-                    self._checkpoint(queued)
+                    self._checkpoint_terminal_best_effort(queued)
                     self.processes.pop(ident, None)
 
     def artifact(self, ident: str, name: str) -> Path | None:
