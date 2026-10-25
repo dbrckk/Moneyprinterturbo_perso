@@ -279,10 +279,18 @@ class Jobs:
                         record["status"] = "error"
                         record["error"] = "Export incomplet après redémarrage"
                     else:
-                        payload = json.loads(manifest.read_text(encoding="utf-8"))
-                        if not isinstance(payload, dict) or "segments" not in payload:
-                            raise ValueError("Invalid recovered MP4 manifest")
-                        record["metadata"] = payload
+                        try:
+                            payload = json.loads(manifest.read_text(encoding="utf-8"))
+                            if not isinstance(payload, dict) or "segments" not in payload:
+                                raise ValueError("Invalid recovered MP4 manifest")
+                        except (OSError, UnicodeError, ValueError, TypeError):
+                            # Preserve the history and expose an actionable
+                            # error instead of silently hiding a completed
+                            # render with a damaged manifest after SIGKILL.
+                            record["status"] = "error"
+                            record["error"] = "Métadonnées du MP4 illisibles après redémarrage"
+                        else:
+                            record["metadata"] = payload
                 if record["status"] in ("queued", "running"):
                     # Android may kill the server after the renderer atomically
                     # published every export but before the final status
@@ -302,7 +310,10 @@ class Jobs:
                 # Avoid rewriting legacy recovered folders, which may have
                 # different ownership or metadata layout.
                 if state_file.exists() and record["status"] != data["status"]:
-                    self._checkpoint(record)
+                    # Read-only/full storage must not hide a safely recovered
+                    # MP4 or error from the local Android history. The next
+                    # restart may retry the checkpoint when space returns.
+                    self._checkpoint_terminal_best_effort(record)
                 # No renderer from the previous server instance can still be
                 # supervised here. After checkpointing recovery, remove only
                 # its private scratch and progress status. Never touch MP4,
