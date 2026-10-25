@@ -21,7 +21,7 @@ USAGE
 }
 
 mode="start"
-case "\${1:-}" in
+case "${1:-}" in
   "") ;;
   --doctor) mode="doctor" ;;
   --doctor-full) mode="doctor-full" ;;
@@ -33,13 +33,13 @@ if (($# > 1)); then
   exit 2
 fi
 
-if [[ "\${PREFIX:-}" != */com.termux/files/usr ]] || ! command -v pkg >/dev/null 2>&1; then
+if [[ "${PREFIX:-}" != */com.termux/files/usr ]] || ! command -v pkg >/dev/null 2>&1; then
   echo "Ce lanceur nécessite Termux officiel sur Android (et non un PC ou GitHub Actions)." >&2
   echo "Guide : https://github.com/dbrckk/Moneyprinterturbo_perso/blob/main/docs/ANDROID_LOCAL_MEDIA.md" >&2
   exit 2
 fi
 
-repo="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")/.." && pwd)"
+repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ ! -f "$repo/studio_server.py" || ! -f "$repo/studio_doctor.py" ]]; then
   echo "Dépôt incomplet : studio_server.py et studio_doctor.py sont requis." >&2
   exit 2
@@ -59,8 +59,8 @@ if ! command -v espeak >/dev/null 2>&1; then
   packages+=(espeak)
 fi
 if ((${#packages[@]} > 0)); then
-  printf 'Installation des outils libres manquants : %s\n' "\${packages[*]}"
-  pkg install -y "\${packages[@]}"
+  printf 'Installation des outils libres manquants : %s\n' "${packages[*]}"
+  pkg install -y "${packages[@]}"
 fi
 for executable in python3 ffmpeg ffprobe espeak; do
   if ! command -v "$executable" >/dev/null 2>&1; then
