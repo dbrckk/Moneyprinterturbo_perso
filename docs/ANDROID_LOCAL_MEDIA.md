@@ -817,6 +817,24 @@ taille d'un montage : la durée, les rushs et les effets peuvent consommer
 bien davantage. Elles ne garantissent pas qu'un encodage finira sans saturer
 le disque et n'empêchent pas Android d'arrêter Termux en arrière-plan.
 
+### Protection pendant un rendu déjà lancé
+
+Pendant l'encodage, le moteur recontrôle **toutes les 3 secondes** l'espace
+libre du volume local. Si celui-ci descend sous **96 Mio**, il arrête le
+**groupe de processus FFmpeg** du montage, affiche une erreur de stockage
+explicite et nettoie uniquement ses fichiers temporaires privés. Une erreur
+de lecture du stockage entraîne également un arrêt de précaution ; ce contrôle
+fonctionne hors ligne, sans service payant. Il conserve intégralement les
+rushs importés, les scripts et les exports de projets précédents. Un éventuel
+MP4 incomplet du rendu interrompu n'est **pas proposé comme vidéo terminée**.
+
+Le seuil de 96 Mio est une réserve **d'urgence**, distincte de la marge
+nécessaire au démarrage : le montage a besoin de consommer temporairement
+une partie de l'espace initialement libre. Une autre application ou un
+encodeur très rapide peut néanmoins remplir le téléphone entre deux mesures.
+Cette protection diminue le risque ; elle ne garantit pas qu'Android ne
+rencontrera jamais de saturation du stockage.
+
 Le studio affiche maintenant l'espace réellement occupé par les imports,
 le plafond de **800 Mo** et le volume récupérable. Les fichiers
 `.receiving-*` provenant de transferts HTTP interrompus sont comptabilisés
