@@ -829,6 +829,24 @@ transition très contrastée peut être délibéré. Ces analyses ne bloquent
 pas la publication d'un MP4 techniquement valide, et elles ne modifient
 aucune vidéo source.
 
+## Espace disponible avant un rendu Android
+
+Le studio local affiche maintenant **l'espace libre réel du volume de sortie**
+près du bouton « Générer la vidéo », séparément du quota d'import des médias.
+Le seuil prudent dépend de la résolution : **256 Mio en 360p, 512 Mio en
+720p, 1 Gio en 1080p**. Un changement de résolution rafraîchit l'indicateur.
+Avant de lancer le rendu, la page demande une mesure actualisée et évite
+un envoi voué à l'échec si ce minimum n'est plus disponible.
+
+Le serveur conserve **ses propres contrôles** lors de la soumission, au
+lancement d'un projet mis en file et pendant l'encodage : l'avertissement
+visuel ne remplace donc pas les vérifications réelles contre la saturation.
+Si l'espace libre ne peut pas être mesuré, l'interface affiche « indisponible »
+au lieu d'inventer un chiffre, et laisse le serveur décider. Ce seuil
+n'est **pas une estimation** de la taille finale du MP4 ; il protège une
+marge minimale pour Termux et le système Android. Aucun MP4 déjà produit
+ni média importé n'est automatiquement effacé.
+
 ## Gestion sécurisée de l'espace de stockage
 
 ### Contrôle automatique avant tout nouveau montage
