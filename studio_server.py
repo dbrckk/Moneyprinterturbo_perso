@@ -448,7 +448,7 @@ class Jobs:
                     if job["media_batch"] in self._uploads_in_progress:
                         raise ValueError("Import en cours : terminez l'envoi avant le rendu")
                     directory = self.upload_root / job["media_batch"]
-                    if not directory.is_dir() or not self._batch_files(directory):
+                    if not self._safe_batch_directory(directory) or not self._batch_files(directory):
                         raise ValueError("Importez au moins un média valide avant le rendu")
                 elif not self.media_dir:
                     raise ValueError("Importez des vidéos ou configurez --media-dir")
@@ -466,8 +466,27 @@ class Jobs:
             self._checkpoint(record)
             try:
                 if job["media_batch"]:
-                    (self.upload_root / job["media_batch"] / ".sealed").touch(exist_ok=True)
-            except OSError:
+                    directory = self.upload_root / job["media_batch"]
+                    # The batch may change while the queued checkpoint is
+                    # written. Anchor the marker to a non-symlink directory;
+                    # never create .sealed in an unrelated Android folder.
+                    if not self._safe_batch_directory(directory):
+                        raise ValueError("Lot de médias modifié avant le rendu")
+                    flags = (os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                             getattr(os, "O_NOFOLLOW", 0))
+                    batch_fd = os.open(directory, flags)
+                    try:
+                        opened, current = os.fstat(batch_fd), directory.stat(follow_symlinks=False)
+                        if (not self._safe_batch_directory(directory) or
+                                (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+                            raise ValueError("Lot de médias modifié avant le rendu")
+                        marker_fd = os.open(
+                            ".sealed", os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+                            0o600, dir_fd=batch_fd)
+                        os.close(marker_fd)
+                    finally:
+                        os.close(batch_fd)
+            except (OSError, ValueError):
                 shutil.rmtree(self.output_dir / ident, ignore_errors=True)
                 raise
             while len(self.jobs) >= MAX_JOBS and finished:
@@ -841,7 +860,7 @@ class Jobs:
             with self.media_lock:
                 # Submit/delete cannot race an active reservation, and no
                 # client can overwrite committed originals during validation.
-                if not directory.is_dir() or (directory / ".sealed").exists():
+                if not self._safe_batch_directory(directory) or (directory / ".sealed").exists():
                     raise ValueError("Lot supprimé ou déjà utilisé")
                 os.replace(temporary, target)
                 return {"name": target.name, "bytes": size, "count": len(files) + 1}
@@ -989,6 +1008,14 @@ class Jobs:
         elif p["visuals"] == "local":
             source = ((self.upload_root / p["media_batch"]) if p["media_batch"]
                       else self.media_dir)
+            # A queued job can start long after submission. Refuse a replaced
+            # upload directory before invoking FFmpeg, rather than following
+            # a symlink into unrelated private files on the phone.
+            if p["media_batch"] and (not self._safe_batch_directory(source)
+                    or (source / ".sealed").is_symlink()
+                    or not (source / ".sealed").is_file()
+                    or not self._batch_files(source)):
+                raise ValueError("Sources du rendu modifiées : réimportez les médias")
             args.extend(["--media-dir", str(source)])
         return args
 
