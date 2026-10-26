@@ -82,6 +82,37 @@ class PublicationUnitTests(unittest.TestCase):
         self.assertFalse(list(self.output.glob(".mpt-publish-*")))
 
 
+    def test_rejects_symlinked_existing_output_without_changing_any_file(self):
+        private = self.root / "private-original.txt"
+        private.write_bytes(b"do not expose")
+        self.json.unlink()
+        self.json.symlink_to(private)
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            publish_bundle(self.sources, remove=self.obsolete)
+        self.assertEqual(private.read_bytes(), b"do not expose")
+        self.assertTrue(self.json.is_symlink())
+        self.assertEqual(self.mp4.read_bytes(), b"old-mp4")
+        self.assertTrue(all(path.exists() for path in self.obsolete))
+        self.assertFalse(list(self.output.glob(".mpt-publish-*")))
+
+    def test_rejects_symlinked_obsolete_output_and_staged_source(self):
+        private = self.root / "outside-private.txt"
+        private.write_bytes(b"preserve")
+        self.quality.unlink()
+        self.quality.symlink_to(private)
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            publish_bundle(self.sources, remove=self.obsolete)
+        self.assertEqual(private.read_bytes(), b"preserve")
+        self.quality.unlink()
+        self.quality.write_bytes(b"old quality")
+        source = self.sources[self.mp4]
+        source.unlink()
+        source.symlink_to(private)
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            publish_bundle(self.sources, remove=self.obsolete)
+        self.assertEqual(private.read_bytes(), b"preserve")
+        self.assertEqual(self.mp4.read_bytes(), b"old-mp4")
+
     def test_cli_records_provenance_without_rewriting_manifest_after_render(self):
         target = self.root / "cli.mp4"
         observed = {}
