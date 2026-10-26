@@ -60,6 +60,18 @@ class SmartTransitionUnitTests(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         expensive_probe.assert_not_called()
 
+    def test_continuity_tolerance_never_hides_a_real_overlapping_clip(self):
+        first = video("same.mp4")
+        just_rounding = replace(first, source_start_seconds=2.6 - 0.00001)
+        overlapping = replace(first, source_start_seconds=2.6 - 0.015)
+        probe = Mock(return_value=None)
+        modes, _ = choose_boundaries([first, just_rounding], [2.6, 2.6], probe=probe)
+        self.assertEqual(modes, ("cut",))
+        probe.assert_not_called()
+        modes, _ = choose_boundaries([first, overlapping], [2.6, 2.6], probe=probe)
+        self.assertEqual(modes, ("fade",))
+        self.assertEqual(probe.call_count, 2)
+
     def test_long_montage_distributes_at_most_eight_boundary_probes(self):
         clips = [video(f"independent-{i}.mp4") for i in range(13)]
         probe = Mock(return_value=(120.0, 121.0, 122.0))
