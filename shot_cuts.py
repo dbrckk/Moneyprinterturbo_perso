@@ -199,7 +199,8 @@ def action_onset_start(profile: ShotProfile, current: float, scene: float,
     if start + 5 >= len(motion):
         return current
     opening = motion[start + 1:start + 3]
-    if (len(opening) != 2 or any(not math.isfinite(x) or x < 0 for x in opening)
+    if (len(opening) != 2 or any(type(x) not in (int, float)
+            or not math.isfinite(x) or x < 0 for x in opening)
             or max(opening) > 3.5):
         return current
     index = start + 3
@@ -210,7 +211,8 @@ def action_onset_start(profile: ShotProfile, current: float, scene: float,
     if any(current - 0.1 <= cut <= candidate + 0.1 for cut in profile.cuts):
         return current
     activity = motion[index:index + 3]
-    if (len(activity) != 3 or any(not math.isfinite(x) or x < 0 for x in activity)
+    if (len(activity) != 3 or any(type(x) not in (int, float)
+            or not math.isfinite(x) or x < 0 for x in activity)
             or not all(max(8.0, max(opening) * 3.0) <= x <= 38.0
                        for x in activity)):
         return current
