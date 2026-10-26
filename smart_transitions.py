@@ -109,7 +109,10 @@ def choose_boundaries(
             continue
         # Continuity is free to verify: preserve hard cuts over arbitrarily
         # long recordings, even when more than eight narration scenes exist.
-        if (a.file == b.file and 0 <= new_start - old_end <= 0.12):
+        # Decimal scene durations are not exactly representable as floats.
+        # Permit up to 1ms of negative rounding error, but never classify
+        # meaningful overlapping footage as continuous source playback.
+        if (a.file == b.file and -0.001 <= new_start - old_end <= 0.12):
             decisions[i] = "cut"
             cuts += 1
             continue
