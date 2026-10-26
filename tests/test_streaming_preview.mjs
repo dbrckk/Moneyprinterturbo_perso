@@ -315,3 +315,18 @@ test('unavailable free-space metric is honest and never invents bytes', async ()
   await app.element('create-form').listeners.get('submit')({preventDefault() {}});
   assert.equal(app.renderRequests.length, 1);
 });
+
+
+test('terminal render status refreshes actual Android disk capacity without a manual tap', async () => {
+  const app = await createApp({jobStatus: 'done', renderDisk: {
+    status: 'ok', free_bytes: 600 * 1024**2,
+    minimum_bytes: {'360': 256 * 1024**2, '720': 512 * 1024**2,
+                    '1080': 1024**3},
+  }});
+  const before = app.calls.filter(call => call.url === '/api/media/storage').length;
+  await app.select(A);
+  await app.settle();
+  const after = app.calls.filter(call => call.url === '/api/media/storage').length;
+  assert.equal(after, before + 1);
+  assert.match(app.element('render-storage-note').textContent, /600/);
+});
