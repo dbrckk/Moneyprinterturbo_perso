@@ -172,3 +172,46 @@ def steadier_start(profile: ShotProfile, current: float, scene: float,
                 max(motion[index], motion[index + 1]) <= initial * 0.32):
             return round(point, 3)
     return current
+
+
+
+def action_onset_start(profile: ShotProfile, current: float, scene: float,
+                       clip_duration: float) -> float:
+    """Skip at most 0.75s of confirmed stillness before sustained movement.
+
+    This is only a *pixel-activity* heuristic, not sport/action recognition.
+    Both quiet source intervals and three subsequent moderately active
+    intervals must be visible in the existing 4fps probe. A flash, hard
+    cut, exceptionally violent movement, or ambiguous sample leaves the
+    source timestamp untouched. The caller applies this to reused clips,
+    after hard-cut, focus and turbulence alignment have declined.
+    """
+    if not isinstance(profile, ShotProfile) or len(profile.motion) < 7:
+        return current
+    if (any(type(value) not in (float, int) or not math.isfinite(value)
+            or value < 0 for value in (current, scene, clip_duration))
+            or scene <= 0 or current + scene + 0.75 > clip_duration):
+        return current
+    start = int(current * _SAMPLE_FPS + 1e-6)
+    motion = profile.motion
+    # The two intervals *after* the planned edit point are genuinely quiet.
+    # Do not advance while an athlete or camera is already moving.
+    if start + 5 >= len(motion):
+        return current
+    opening = motion[start + 1:start + 3]
+    if (len(opening) != 2 or any(not math.isfinite(x) or x < 0 for x in opening)
+            or max(opening) > 3.5):
+        return current
+    index = start + 3
+    candidate = index / _SAMPLE_FPS
+    if (candidate <= current + 0.12 or candidate - current > 0.75
+            or candidate + scene > clip_duration - 0.02):
+        return current
+    if any(current - 0.1 <= cut <= candidate + 0.1 for cut in profile.cuts):
+        return current
+    activity = motion[index:index + 3]
+    if (len(activity) != 3 or any(not math.isfinite(x) or x < 0 for x in activity)
+            or not all(max(8.0, max(opening) * 3.0) <= x <= 38.0
+                       for x in activity)):
+        return current
+    return round(candidate, 3)
