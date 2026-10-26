@@ -92,11 +92,10 @@ def choose_boundaries(
            for d in durations):
         raise ValueError("Invalid scene duration")
     decisions = ["fade"] * (len(slots) - 1)
-    if not decisions or len(decisions) > _MAX_BOUNDARIES:
-        return tuple(decisions), []
-    saved: dict[tuple[Path, float], tuple | None] = {}
-    selected_probe = probe if probe is not None else boundary_features
+    if not decisions:
+        return (), []
     cuts = 0
+    candidates: list[int] = []
     for i in range(len(decisions)):
         a, b = slots[i], slots[i + 1]
         if any(asset is None or getattr(asset, "kind", None) != "video"
@@ -108,16 +107,33 @@ def choose_boundaries(
         if (not all(type(n) in (int, float) and math.isfinite(n) and n >= 0
                     for n in (old_end, new_start))):
             continue
-        # A verified continuous recording can switch at the narration
-        # boundary without dissolving the moving subject into itself.
-        if (a.file == b.file and 0 <= new_start - old_end <= 0.12):
+        # Continuity is free to verify: preserve hard cuts over arbitrarily
+        # long recordings, even when more than eight narration scenes exist.
+        # Decimal scene durations are not exactly representable as floats.
+        # Permit up to 1ms of negative rounding error, but never classify
+        # meaningful overlapping footage as continuous source playback.
+        if (a.file == b.file and -0.001 <= new_start - old_end <= 0.12):
             decisions[i] = "cut"
             cuts += 1
             continue
-        # Skip scene boundaries that would require probing beyond the
-        # source duration; FFmpeg renderer may loop these short clips.
-        if durations[i] < 0.55 or durations[i + 1] < 0.55:
-            continue
+        if durations[i] >= 0.55 and durations[i + 1] >= 0.55:
+            candidates.append(i)
+
+    # Bound FFmpeg decoding by the NUMBER of eligible scene boundaries,
+    # not by the total length of the storyboard. Sample across the whole
+    # montage rather than probing only the beginning, so later scenes also
+    # receive quality-aware cuts. Non-probed pairs keep their safe fade.
+    if len(candidates) > _MAX_BOUNDARIES:
+        candidates = [
+            candidates[round(n * (len(candidates) - 1) / (_MAX_BOUNDARIES - 1))]
+            for n in range(_MAX_BOUNDARIES)
+        ]
+    saved: dict[tuple[Path, float], tuple | None] = {}
+    selected_probe = probe if probe is not None else boundary_features
+    for i in candidates:
+        a, b = slots[i], slots[i + 1]
+        old_end = getattr(a, "source_start_seconds", 0.0) + durations[i]
+        new_start = getattr(b, "source_start_seconds", 0.0)
         previous_time = round(max(0.0, old_end - 0.23), 3)
         following_time = round(new_start + 0.18, 3)
         def sampled(asset: object, second: float):

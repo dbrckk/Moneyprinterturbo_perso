@@ -50,6 +50,51 @@ class SmartTransitionUnitTests(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertEqual(probe.call_count, 4)
 
+    def test_long_continuous_source_preserves_all_clean_cuts_without_decoding(self):
+        source = video("full-recording.mp4")
+        slots = [replace(source, source_start_seconds=i * 2.6) for i in range(16)]
+        expensive_probe = Mock(side_effect=AssertionError("contiguous footage needs no probe"))
+        modes, notes = choose_boundaries(slots, [2.6] * len(slots),
+                                         probe=expensive_probe)
+        self.assertEqual(modes, ("cut",) * 15)
+        self.assertEqual(len(notes), 1)
+        expensive_probe.assert_not_called()
+
+    def test_continuity_tolerance_never_hides_a_real_overlapping_clip(self):
+        first = video("same.mp4")
+        just_rounding = replace(first, source_start_seconds=2.6 - 0.00001)
+        overlapping = replace(first, source_start_seconds=2.6 - 0.015)
+        probe = Mock(return_value=None)
+        modes, _ = choose_boundaries([first, just_rounding], [2.6, 2.6], probe=probe)
+        self.assertEqual(modes, ("cut",))
+        probe.assert_not_called()
+        modes, _ = choose_boundaries([first, overlapping], [2.6, 2.6], probe=probe)
+        self.assertEqual(modes, ("fade",))
+        self.assertEqual(probe.call_count, 2)
+
+    def test_long_montage_distributes_at_most_eight_boundary_probes(self):
+        clips = [video(f"independent-{i}.mp4") for i in range(13)]
+        probe = Mock(return_value=(120.0, 121.0, 122.0))
+        modes, notes = choose_boundaries(clips, [2.6] * 13, probe=probe)
+        self.assertEqual(len(modes), 12)
+        self.assertEqual(modes.count("cut"), 8)
+        self.assertEqual(modes.count("fade"), 4)
+        # Start/end both get attention; distant scenes are not all defaulted
+        # to fades merely because the storyboard contains >9 scenes.
+        self.assertEqual(modes[0], "cut")
+        self.assertEqual(modes[-1], "cut")
+        self.assertEqual(probe.call_count, 16)
+        self.assertEqual(len(notes), 1)
+
+    def test_long_montage_preserves_cheap_continuity_amid_unrelated_sources(self):
+        clips = [video(f"independent-{i}.mp4") for i in range(14)]
+        clips[-1] = replace(clips[-2], source_start_seconds=2.6)
+        modes, _ = choose_boundaries(clips, [2.6] * len(clips),
+                                     probe=lambda _asset, _second: None)
+        self.assertEqual(len(modes), 13)
+        self.assertEqual(modes[-1], "cut")
+        self.assertEqual(modes[:-1], ("fade",) * 12)
+
     def test_spatial_layout_blocks_false_cuts_with_matching_mean_rgb(self):
         a, b = video("a.mp4"), video("b.mp4")
         # Opposite left/right brightness, despite IDENTICAL average colors.
