@@ -476,9 +476,7 @@ class Jobs:
                              getattr(os, "O_NOFOLLOW", 0))
                     batch_fd = os.open(directory, flags)
                     try:
-                        opened, current = os.fstat(batch_fd), directory.stat(follow_symlinks=False)
-                        if (not self._safe_batch_directory(directory) or
-                                (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+                        if not self._matches_open_batch(directory, batch_fd):
                             raise ValueError("Lot de médias modifié avant le rendu")
                         marker_fd = os.open(
                             ".sealed", os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
@@ -511,6 +509,20 @@ class Jobs:
     def _safe_batch_directory(path: Path) -> bool:
         return bool(re.fullmatch(r"[a-f0-9]{32}", path.name)
                     and path.is_dir() and not path.is_symlink())
+
+    @staticmethod
+    def _matches_open_batch(path: Path, descriptor: int) -> bool:
+        """Check that a pinned directory still owns its original batch path."""
+        if not Jobs._safe_batch_directory(path):
+            return False
+        try:
+            original = os.fstat(descriptor)
+            current = path.stat(follow_symlinks=False)
+        except OSError:
+            return False
+        return (stat.S_ISDIR(original.st_mode) and
+                (original.st_dev, original.st_ino) ==
+                (current.st_dev, current.st_ino))
 
     def _prune_stale_empty_media_locked(self) -> None:
         """Only remove old, *empty*, unsealed imports and orphan temp uploads.
@@ -815,9 +827,26 @@ class Jobs:
             target = directory / f"{len(files) + 1:03d}_{name}"
             # A unique upload per batch prevents duplicate numeric names and
             # stale response races; different batches may transfer concurrently.
-            output = tempfile.NamedTemporaryFile(
-                dir=directory, prefix=".receiving-", suffix=suffix, delete=False)
-            temporary = Path(output.name)
+            # Open the original directory without following links, and keep
+            # its descriptor for the entire transfer. Creating and renaming
+            # relative to this descriptor closes the symlink-swap window
+            # between a path check and publication of the uploaded file.
+            flags = (os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
+                     getattr(os, "O_NOFOLLOW", 0))
+            try:
+                batch_fd = os.open(directory, flags)
+                if not self._matches_open_batch(directory, batch_fd):
+                    raise ValueError("Lot de médias modifié pendant l'import")
+                temp_name = f".receiving-{uuid4().hex}{suffix}"
+                file_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                                  getattr(os, "O_NOFOLLOW", 0), 0o600,
+                                  dir_fd=batch_fd)
+                output = os.fdopen(file_fd, "wb")
+            except BaseException:
+                if "batch_fd" in locals():
+                    os.close(batch_fd)
+                raise
+            temporary = directory / temp_name
             self._uploads_in_progress[ident] = (size, temporary)
         try:
             # The slow section deliberately runs WITHOUT media_lock.
@@ -855,19 +884,32 @@ class Jobs:
                                     "Stockage presque plein pendant l'import : "
                                     "transfert arrêté sans supprimer les médias existants")
                         next_space_check = written + 4 * 1024 * 1024
+            if not self._matches_open_batch(directory, batch_fd):
+                raise ValueError("Lot supprimé ou déjà utilisé")
             if not media_dimensions(temporary):
                 raise ValueError("Média illisible par FFprobe : import refusé")
             with self.media_lock:
                 # Submit/delete cannot race an active reservation, and no
                 # client can overwrite committed originals during validation.
-                if not self._safe_batch_directory(directory) or (directory / ".sealed").exists():
+                if (not self._matches_open_batch(directory, batch_fd)
+                        or (directory / ".sealed").exists()):
                     raise ValueError("Lot supprimé ou déjà utilisé")
-                os.replace(temporary, target)
+                # Always publish inside the originally opened batch directory,
+                # not via its possibly replaced pathname.
+                os.rename(temp_name, target.name, src_dir_fd=batch_fd, dst_dir_fd=batch_fd)
+                if not self._matches_open_batch(directory, batch_fd):
+                    os.unlink(target.name, dir_fd=batch_fd)
+                    raise ValueError("Lot supprimé ou déjà utilisé")
                 return {"name": target.name, "bytes": size, "count": len(files) + 1}
         finally:
             with self.media_lock:
                 self._uploads_in_progress.pop(ident, None)
-                temporary.unlink(missing_ok=True)
+                try:
+                    os.unlink(temp_name, dir_fd=batch_fd)
+                except FileNotFoundError:
+                    pass
+                finally:
+                    os.close(batch_fd)
 
     def delete_media_batch(self, ident: str) -> bool:
         if not re.fullmatch(r"[a-f0-9]{32}", ident):
