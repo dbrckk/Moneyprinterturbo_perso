@@ -1,5 +1,6 @@
 """Regression coverage for Android batch replacement during render admission."""
 import io
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -81,6 +82,33 @@ class MediaBatchRenderSymlinkGuardTests(unittest.TestCase):
                 self.jobs.save_media(self.ident, "new.mp4", 8, io.BytesIO(b"video123"))
         self.assertFalse((self.outside / "002_new.mp4").exists())
         self.assertEqual((self.outside / "personal.mp4").read_bytes(), b"do not touch")
+        self.assertEqual(list((self.root / "moved-original").glob(".receiving-*")), [])
+
+    def test_swap_at_atomic_rename_cannot_publish_outside_batch(self):
+        original_rename = os.rename
+
+        def swap_on_publication(source, dest, *, src_dir_fd=None, dst_dir_fd=None):
+            if src_dir_fd is not None:
+                self.replace_batch_with_symlink()
+            return original_rename(source, dest, src_dir_fd=src_dir_fd,
+                                   dst_dir_fd=dst_dir_fd)
+
+        with patch("studio_server.media_dimensions", return_value=(320, 240)), \
+             patch("studio_server.os.rename", side_effect=swap_on_publication):
+            with self.assertRaisesRegex(ValueError, "Lot supprimé ou déjà utilisé"):
+                self.jobs.save_media(self.ident, "new.mp4", 8, io.BytesIO(b"video123"))
+        self.assertFalse((self.outside / "002_new.mp4").exists())
+        moved = self.root / "moved-original"
+        self.assertFalse((moved / "002_new.mp4").exists())
+        self.assertFalse(list(moved.glob(".receiving-*")))
+        self.assertEqual((self.outside / "personal.mp4").read_bytes(), b"do not touch")
+
+    def test_regular_upload_still_publishes_and_removes_temp_files(self):
+        with patch("studio_server.media_dimensions", return_value=(320, 240)):
+            saved = self.jobs.save_media(self.ident, "new.mp4", 8, io.BytesIO(b"video123"))
+        self.assertEqual(saved["name"], "002_new.mp4")
+        self.assertEqual((self.batch / saved["name"]).read_bytes(), b"video123")
+        self.assertFalse(list(self.batch.glob(".receiving-*")))
 
 
 if __name__ == "__main__":
