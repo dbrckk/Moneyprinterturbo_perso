@@ -720,7 +720,7 @@ class Jobs:
             return None
         with self.media_lock:
             folder = self.upload_root / ident
-            if not folder.is_dir():
+            if not self._safe_batch_directory(folder):
                 return None
             files, ordering = order_media_by_capture(
                 self._batch_files(folder), fallback_key=_local_media_order)
@@ -765,7 +765,7 @@ class Jobs:
             if self.calibration is not None and self.calibration.is_running():
                 raise ValueError("Calibration H.264 active : import suspendu pour protéger le téléphone")
             directory = self.upload_root / ident
-            if not directory.is_dir() or (directory / ".sealed").exists():
+            if not self._safe_batch_directory(directory) or (directory / ".sealed").exists():
                 raise ValueError("Lot absent ou déjà utilisé pour un rendu")
             if ident in self._uploads_in_progress:
                 raise ValueError("Import déjà en cours sur ce lot")
@@ -857,7 +857,7 @@ class Jobs:
             if ident in self._uploads_in_progress:
                 raise ValueError("Import en cours : suppression impossible")
             directory = self.upload_root / ident
-            if not directory.is_dir():
+            if not self._safe_batch_directory(directory):
                 return False
             with self.lock:
                 if any(j["status"] in ("queued", "running") and
