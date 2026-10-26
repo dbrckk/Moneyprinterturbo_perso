@@ -14,6 +14,7 @@
   catch { $('keep-awake').checked = false; }
   const storedBatch = (() => { try { return localStorage.getItem(MEDIA_KEY) || ''; } catch { return ''; } })();
   const state = {has_ollama: false, has_piper: false, has_local_dir: false,
+                 render_disk: null,
                  media_batch: /^[a-f0-9]{32}$/.test(storedBatch) ? storedBatch : ''};
   function rememberMediaBatch(id) {
     try { if (id) localStorage.setItem(MEDIA_KEY, id); else localStorage.removeItem(MEDIA_KEY); }
@@ -342,8 +343,27 @@
   function megabytes(size) { return (size / (1024 * 1024)).toLocaleString('fr-FR', {
     maximumFractionDigits: 1
   }) + ' Mo'; }
+  function showRenderDiskStatus() {
+    const disk = state.render_disk;
+    const note = $('render-storage-note');
+    const resolution = Number($('resolution').value);
+    const minimum = disk?.minimum_bytes?.[String(resolution)];
+    const free = disk?.free_bytes;
+    if (disk?.status !== 'ok' || !Number.isSafeInteger(free) || free < 0 ||
+        !Number.isSafeInteger(minimum) || minimum <= 0) {
+      note.textContent = 'Espace disque indisponible : le serveur vérifiera le stockage avant de lancer le rendu.';
+      return;
+    }
+    const amount = megabytes(free);
+    const needed = megabytes(minimum);
+    note.textContent = free < minimum
+      ? `Stockage insuffisant pour ${resolution}p : ${amount} libres, au moins ${needed} nécessaires. Libérez de la place sans effacer vos MP4 terminés.`
+      : `Stockage disponible pour ${resolution}p : ${amount} libres (seuil prudent ${needed}). Le serveur surveille aussi le rendu en cours.`;
+  }
   async function refreshStorage() {
     const usage = await json('/api/media/storage');
+    state.render_disk = usage.render_disk || null;
+    showRenderDiskStatus();
     $('storage-stats').textContent = 'Imports : ' + megabytes(usage.bytes) +
       ' / ' + megabytes(usage.limit_bytes) +
       ' · ' + usage.batch_count + ' lot(s) · ' +
@@ -538,6 +558,8 @@
       loadHistory().catch(showError);
       refreshCalibration().catch(showError);
       refreshStorage().catch(() => {
+        state.render_disk = null;
+        showRenderDiskStatus();
         $('storage-stats').textContent = 'Impossible de consulter le stockage.';
       });
     } catch (err) { showError(err); }
@@ -565,6 +587,16 @@
     try {
       if ($('visuals').value === 'local' && !state.media_batch && !state.has_local_dir) {
         throw new Error('Importez au moins une vidéo ou photo avant de lancer ce montage.');
+      }
+      // Re-check immediately before enqueue: imports, downloads and other
+      // applications may have changed the free space since page load.
+      const usage = await refreshStorage();
+      const disk = usage.render_disk;
+      const free = disk?.free_bytes;
+      const required = disk?.minimum_bytes?.[String($('resolution').value)];
+      if (disk?.status === 'ok' && Number.isSafeInteger(free) &&
+          Number.isSafeInteger(required) && free < required) {
+        throw new Error(`Espace insuffisant pour le rendu : ${megabytes(free)} disponibles, minimum ${megabytes(required)}. Libérez de la place puis réessayez.`);
       }
       const job = await post('/api/jobs', payload());
       selectJob(job.id);
@@ -596,7 +628,11 @@
     $('encoder-calibration-note').textContent = 'Profil ' + profileLabel[data.suggested_profile] +
       ' sélectionné pour votre prochain rendu. Vous pouvez le modifier avant de générer la vidéo.';
   });
-  $('resolution').addEventListener('change', () => { if (lastCalibration) showCalibration(lastCalibration); });
+  $('resolution').addEventListener('change', () => {
+    if (lastCalibration) showCalibration(lastCalibration);
+    showRenderDiskStatus();
+    refreshStorage().catch(() => {});
+  });
   $('aspect').addEventListener('change', () => { if (lastCalibration) showCalibration(lastCalibration); });
   $('script').addEventListener('input', showScenes);
   $('mute').addEventListener('change', () => { $('tts').disabled = $('mute').checked; $('speech-rate').disabled = $('mute').checked; });

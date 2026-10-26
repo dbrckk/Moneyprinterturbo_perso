@@ -640,8 +640,23 @@ class Jobs:
                 "batches": sorted(batches, key=lambda b: b["id"])}
 
     def media_storage(self) -> dict:
+        # The upload quota is not the phone's free filesystem space. Return
+        # both so Android creators can assess the selected resolution before
+        # starting an expensive render. The existing submission and live
+        # encoder checks remain authoritative if another app fills storage.
         with self.media_lock:
-            return self._media_storage_locked()
+            usage = self._media_storage_locked()
+        minimum = {str(resolution): required
+                   for resolution, required in RENDER_MIN_FREE_BYTES.items()}
+        try:
+            free = shutil.disk_usage(self.output_dir).free
+        except OSError:
+            usage["render_disk"] = {"status": "unavailable", "free_bytes": None,
+                                    "minimum_bytes": minimum}
+        else:
+            usage["render_disk"] = {"status": "ok", "free_bytes": free,
+                                    "minimum_bytes": minimum}
+        return usage
 
     def cleanup_finished_media(self) -> dict:
         """Explicit action: delete uploaded sources from completed renders only.

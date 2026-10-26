@@ -30,6 +30,24 @@ class DiskPreflightTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.jobs = Jobs(Path(temp.name) / "render")
 
+    def test_storage_snapshot_exposes_actual_free_bytes_and_all_resolution_floors(self):
+        with patch("studio_server.shutil.disk_usage", return_value=available(600 * 1024**2)) as probe:
+            usage = self.jobs.media_storage()
+            probe.assert_called_once_with(self.jobs.output_dir)
+        self.assertEqual(usage["render_disk"], {
+            "status": "ok", "free_bytes": 600 * 1024**2,
+            "minimum_bytes": {str(k): v for k, v in RENDER_MIN_FREE_BYTES.items()}})
+        self.assertEqual(usage["bytes"], 0)
+        self.assertEqual(usage["reclaimable_count"], 0)
+
+    def test_free_space_probe_failure_reports_unknown_not_zero(self):
+        with patch("studio_server.shutil.disk_usage", side_effect=OSError("disk unavailable")):
+            usage = self.jobs.media_storage()
+        self.assertEqual(usage["render_disk"]["status"], "unavailable")
+        self.assertIsNone(usage["render_disk"]["free_bytes"])
+        self.assertIn("720", usage["render_disk"]["minimum_bytes"])
+        self.assertNotIn("disk unavailable", str(usage))
+
     def test_resolution_thresholds_and_exact_boundary(self):
         self.assertEqual(RENDER_MIN_FREE_BYTES, {
             360: 256 * 1024**2, 720: 512 * 1024**2,

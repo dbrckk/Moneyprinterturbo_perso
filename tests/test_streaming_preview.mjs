@@ -10,7 +10,7 @@ const B = 'b'.repeat(32);
 
 async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
                            jobProgress = null, wakeRequested = false, wakeActive = false,
-                           savedWake = null } = {}) {
+                           savedWake = null, renderDisk = null } = {}) {
   const elements = new Map();
   const calls = [];
   const blobCalls = [];
@@ -64,6 +64,7 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
     return elements.get(id);
   };
   element('script').value = 'Scène vidéo.';
+  element('resolution').value = '360';
   const download = new Element('download');
   download.dataset.file = 'video.mp4';
   const fetch = async (url, options = {}) => {
@@ -79,7 +80,7 @@ async function createApp({ authToken = '', slowBlob = false, jobStatus = 'done',
     else if (url === '/api/jobs') payload = history;
     else if (url === '/api/media/storage') payload = { bytes: 0, limit_bytes: 1000,
       reclaimable_bytes: 0, reclaimable_count: 0, abandoned_bytes: 0,
-      batches: [], batch_count: 0 };
+      batches: [], batch_count: 0, render_disk: renderDisk };
     else if (url === `/api/jobs/${A}` || url === `/api/jobs/${B}`) payload = {
       id: url.endsWith(A) ? A : B, status: jobStatus, duration_seconds: 12,
       visual_mode: 'local', has_credits: false, warnings: [],
@@ -274,4 +275,43 @@ test('anti-sleep status is truthful when the optional Termux commands are unavai
     wakeRequested: true, wakeActive: true});
   await active.select(A);
   assert.match(active.element('job-notice').textContent, /Anti-veille Termux demandé et actif/);
+});
+
+
+test('Android creator sees truthful free-space and the current resolution floor', async () => {
+  const app = await createApp({renderDisk: {
+    status: 'ok', free_bytes: 900 * 1024**2,
+    minimum_bytes: {'360': 256 * 1024**2, '720': 512 * 1024**2,
+                    '1080': 1024**3},
+  }});
+  assert.match(app.element('render-storage-note').textContent, /360p/);
+  assert.match(app.element('render-storage-note').textContent, /900/);
+  app.element('resolution').value = '1080';
+  app.element('resolution').listeners.get('change')();
+  await app.settle();
+  assert.match(app.element('render-storage-note').textContent, /Stockage insuffisant pour 1080p/);
+  assert.match(app.element('render-storage-note').textContent, /900/);
+});
+
+test('insufficient disk is caught before video render request', async () => {
+  const app = await createApp({renderDisk: {
+    status: 'ok', free_bytes: 10 * 1024**2,
+    minimum_bytes: {'360': 256 * 1024**2, '720': 512 * 1024**2,
+                    '1080': 1024**3},
+  }});
+  await app.element('create-form').listeners.get('submit')({preventDefault() {}});
+  assert.equal(app.renderRequests.length, 0);
+  assert.match(app.element('error').textContent, /Espace insuffisant/);
+  assert.equal(app.element('render').disabled, false);
+});
+
+test('unavailable free-space metric is honest and never invents bytes', async () => {
+  const app = await createApp({renderDisk: {
+    status: 'unavailable', free_bytes: null,
+    minimum_bytes: {'360': 256 * 1024**2, '720': 512 * 1024**2,
+                    '1080': 1024**3},
+  }});
+  assert.match(app.element('render-storage-note').textContent, /indisponible/);
+  await app.element('create-form').listeners.get('submit')({preventDefault() {}});
+  assert.equal(app.renderRequests.length, 1);
 });
