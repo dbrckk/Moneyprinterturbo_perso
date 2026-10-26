@@ -17,7 +17,7 @@ def publish_bundle(artifacts: Mapping[Path, Path], *,
                    remove: Iterable[Path] = ()) -> None:
     """Stage and verify every file before replacing any existing output.
 
-    \`artifacts\` maps published destination paths to completed working files.
+    `artifacts` maps published destination paths to completed working files.
     Stale artifacts (old QA/storyboard or removed ASS captions) can be removed
     in the same guarded operation. On an ordinary I/O error all former outputs
     are restored and newly created outputs are removed.
@@ -30,6 +30,14 @@ def publish_bundle(artifacts: Mapping[Path, Path], *,
     all_paths = destinations + obsolete
     if len(set(all_paths)) != len(all_paths):
         raise ValueError("Output and obsolete files must be unique")
+    # A pre-existing link must not be treated as an ordinary export during
+    # backup, replacement, or removal. In particular, copy2() follows links
+    # and could silently publish private data from outside the output folder.
+    # Fail before staging or touching any existing artifact.
+    if any(path.is_symlink() for path in all_paths):
+        raise ValueError("Published and obsolete paths must not be symlinks")
+    if any(source.is_symlink() for _, source in items):
+        raise ValueError("Staged sources must not be symlinks")
     directory = destinations[0].parent.resolve()
     if any(dst.parent.resolve() != directory for dst in all_paths):
         raise ValueError("All output files must have the same destination directory")
