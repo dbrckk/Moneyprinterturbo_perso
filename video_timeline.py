@@ -17,7 +17,7 @@ import subprocess
 from typing import Callable
 
 from media_assets import MediaAsset
-from shot_cuts import ShotProfile, clearer_start, steadier_start
+from shot_cuts import ShotProfile, action_onset_start, clearer_start, steadier_start
 
 MAX_CLIP_SEEK = 24 * 60 * 60
 
@@ -94,6 +94,7 @@ def plan_local_video_timeline(
     aligned: dict[Path, int] = {}
     sharpened: dict[Path, int] = {}
     settled: dict[Path, int] = {}
+    activated: dict[Path, int] = {}
     repeated: set[Path] = set()
     avoided: dict[Path, int] = {}
     windows: dict[Path, list[tuple[float, float]]] = {}
@@ -198,6 +199,15 @@ def plan_local_video_timeline(
                 if calm > offset:
                     offset = calm
                     settled[path] = settled.get(path, 0) + 1
+                else:
+                    # An actually quiet opening immediately followed by
+                    # sustained moderate motion can be shortened without
+                    # misclassifying a flash or camera shake as an action.
+                    # Do not alter first uses or source chronological order.
+                    onset = action_onset_start(profiles[path], offset, duration, length)
+                    if onset > offset:
+                        offset = onset
+                        activated[path] = activated.get(path, 0) + 1
         # When a local source must be reused after looping, check whether
         # the chosen span largely replays a span already shown. Only shift
         # when a substantially less-overlapping *forward* candidate exists;
@@ -233,6 +243,8 @@ def plan_local_video_timeline(
         warnings.append(f"Moved {count} repeated scene(s) toward clearer frames in {path.name}")
     for path, count in settled.items():
         warnings.append(f"Avoided {count} brief visually turbulent opening(s) in {path.name}")
+    for path, count in activated.items():
+        warnings.append(f"Moved {count} repeated scene(s) toward sustained visible motion in {path.name}")
     for path, count in avoided.items():
         warnings.append(f"Reduced repeated source footage in {count} scene(s) from {path.name}")
     for path in sorted(repeated):
