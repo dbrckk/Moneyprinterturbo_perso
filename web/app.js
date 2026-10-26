@@ -299,6 +299,15 @@
     // A slow authenticated Blob response must never change the state of a
     // newer project selected while the previous video was still loading.
     if (currentId !== id) return;
+    // A completed/failed render may have consumed or released substantial
+    // storage. Refresh the phone's actual free space when the status changes,
+    // not on every 2-second poll, so the next project shows current capacity.
+    if (lastStatus !== job.status && ['done', 'error', 'cancelled'].includes(job.status)) {
+      refreshStorage().catch(() => {
+        state.render_disk = null;
+        showRenderDiskStatus();
+      });
+    }
     lastStatus = job.status;
     if (['running', 'queued'].includes(job.status)) {
       pollTimer = setTimeout(() => loadJob(id).catch(showError), 2000);
